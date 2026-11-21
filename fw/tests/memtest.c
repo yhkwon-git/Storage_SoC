@@ -49,16 +49,21 @@ int main(void)
   for (uint32_t i = 0; i < 128; i++) h[i] = (uint16_t)(0xC000u + i * 3);
   for (uint32_t i = 0; i < 128; i++) check(h[i], (uint16_t)(0xC000u + i * 3), "halfword");
 
-  /* Misaligned words, including ones that straddle a 64-bit word. */
+  /* Misaligned words at byte offsets 1..15 of a 16-byte slot, so some
+   * straddle a 32-bit word and some (offsets 5-7, 13-15) a 64-bit word. */
   volatile uint8_t *base = (volatile uint8_t *)w + 512;
+  uint32_t misaligned = 0;
   for (uint32_t off = 1; off < 16; off++) {
-    volatile uint32_t *m = (volatile uint32_t *)(base + off * 16);
+    volatile uint8_t *p = base + off * 16 + off;
+    volatile uint32_t *m = (volatile uint32_t *)p;
     uint32_t v = 0x11223344u + off;
+    if (((uintptr_t)p & 3u) != 0) misaligned++;
     *m = v;
     check(*m, v, "misaligned word");
-    check(base[off * 16], v & 0xFFu, "misaligned byte 0");
-    check(base[off * 16 + 3], v >> 24, "misaligned byte 3");
+    check(p[0], v & 0xFFu, "misaligned byte 0");
+    check(p[3], v >> 24, "misaligned byte 3");
   }
+  check(misaligned, 12, "misaligned count");
 
   sys_puts("memtest: ");
   sys_putdec(n);
