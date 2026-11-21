@@ -176,7 +176,7 @@ The crossbar is sparse: only the paths below exist, and an address that maps to 
 | --- | --- |
 | Address, data | 32 bit, 64 bit |
 | ID | 2 bits at each master; the crossbar prepends a 2-bit master index, so 4 bits at each slave |
-| Bursts | INCR only, up to 16 beats (128 bytes). FIXED and WRAP are not issued; an SVA check enforces it |
+| Bursts | INCR only, up to 16 beats (128 bytes) of 64 bits, or a single 32-bit beat (a narrow access, used by the CPU ports). FIXED and WRAP are not issued; an SVA check enforces both forms |
 | 4 KB boundary | No burst crosses one. Masters split; the DMA does it in hardware |
 | Outstanding | Up to 4 reads and 4 writes per master |
 | Ordering | Responses with the same ID return in order. A new transaction whose ID already has transactions outstanding to a different slave waits until they finish, so responses can never return out of order |
@@ -203,12 +203,14 @@ The ID-ordering rule is the usual deadlock-free choice for a crossbar without re
 | --- | --- | --- |
 | SYS | `0x4000_0000` | ID, version, soft resets, clock-gate enables, simulation console and exit registers |
 | PMU | `0x4000_1000` | Power state, requests, sequence timeouts, wake sources (AON registers reached by handshake) |
-| INTC | `0x4000_2000` | Pending, enable, claim, complete |
+| INTC | `0x4000_2000` | Pending, enable, claim (no side effect; sources are levels), software set |
 | TIMER | `0x4000_3000` | `mtime`, `mtimecmp` |
 | DMA | `0x4000_4000` | Channel control, descriptor pointer, status |
 | HOST | `0x4000_5000` | Link control and status, inbound window base, doorbell, error counters |
 | NAND0 | `0x4000_6000` | Channel timing, command queue, status, ECC counters |
 | NAND1 | `0x4000_7000` | Same as NAND0 |
+
+A slot without a peripheral, and an undefined offset inside one, answer SLVERR (PSLVERR on the APB side). As of step 1-4, SYS, INTC and TIMER exist; their registers are listed in [04_cpu_subsystem.md](04_cpu_subsystem.md).
 
 The host sees one 64 KiB inbound window. The HOST block's window base register translates it to an AXI address, SRAM by default. The host's doorbell writes land in the HOST block.
 
@@ -233,7 +235,7 @@ Ibex has dedicated timer and external interrupt inputs. The timer drives `irq_ti
 ## 8. Boot and firmware
 
 - **Reset vector.** Ibex starts at `boot_addr + 0x80`, with the vector table at `boot_addr`. `boot_addr` is `0x0000_0000`, so the ROM holds the vectors at `0x00`–`0x7F` and the reset entry at `0x80`.
-- **Build and layout.** Firmware in `fw/` is built with xPack riscv-none-elf-gcc 15.2.0 for `rv32imc_zicsr`, `ilp32`. Code and read-only data stay in ROM. Data, BSS and the stack are in SRAM, and start-up code copies `.data` from ROM.
+- **Build and layout.** Firmware in `fw/` is built with xPack riscv-none-elf-gcc 15.2.0 for `rv32imc_zicsr_zifencei`, `ilp32`. Code and read-only data stay in ROM. Data, BSS and the stack are in the lower 32 KiB of SRAM, and start-up code copies `.data` from ROM. The core is Ibex v2.1.0 ([04_cpu_subsystem.md](04_cpu_subsystem.md)).
 - **Simulation console.** The SYS block's console register prints one character per write, and its exit register ends the simulation with a pass or fail code. The testbench watches both. They are ordinary registers and stay in the synthesized design.
 
 ## 9. Timing targets

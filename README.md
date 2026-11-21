@@ -12,8 +12,8 @@ A RISC-V CPU, an AXI4 interconnect, DMA, SystemRDL-generated CSRs and always-on 
 
 | Item | Value |
 | --- | --- |
-| Current phase | Phase 1, SoC platform: steps 1-1 (architecture), 1-2 (common blocks) and 1-3 (AXI4 crossbar) done |
-| Design | AXI4 crossbar, 4 masters by 5 slaves; dual-clock FIFO, 2-flop synchronizer, channel register slice |
+| Current phase | Phase 1, SoC platform: steps 1-1 (architecture), 1-2 (common blocks), 1-3 (AXI4 crossbar) and 1-4 (CPU subsystem) done |
+| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 5 AXI4 crossbar, with SRAM and APB SYS, interrupt controller and timer; dual-clock FIFO, 2-flop synchronizer, channel register slice |
 | Verification tools | Vivado simulator 2019.2 (UVM 1.2), Verilator 5.052 |
 | Implementation tools | Yosys 0.52, OpenSTA 3.1.0, Sky130 HD (ss/tt/ff corners) |
 
@@ -70,7 +70,7 @@ flowchart LR
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 0 | Toolchain checks, repository layout, CI, RISC-V GCC | Done |
-| 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | In progress: 1-1 to 1-3 done |
+| 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | In progress: 1-1 to 1-4 done |
 | 2 | Host interface: transaction layer and NVMe front-end (steps 2-1 to 2-5), then data link layer, PHY with a PIPE-style boundary and link training (steps 2-6 to 2-9) | Planned |
 | 3 | Storage datapath: NAND channel controllers, NAND model, BCH, NVMe reads and writes through to NAND | Planned |
 | 4 | SoC-level UVM, verification plan, coverage closure | Planned |
@@ -112,6 +112,19 @@ AXI4 crossbar (commit 76fd272, details in [docs/03_axi_crossbar.md](docs/03_axi_
 - **RTL coverage.** Line 31 of 32 (an unreachable `default`), branch 72 of 72, toggle 70.6%. The missed toggles are almost all bits fixed by the configuration.
 - **Mutation check.** 7 of 7 planted bugs caught: ID rule, outstanding limit, R lock, AW grant hold, W order, path table, B routing.
 
+CPU subsystem (commit 3e51bad, details in [docs/04_cpu_subsystem.md](docs/04_cpu_subsystem.md)):
+
+- **Core.** Ibex v2.1.0 (RV32IMC), 43 files vendored unchanged, behind two AXI4 adapters.
+- **Firmware tests.** Five tests (hello, memtest, irq, buserr, perf) pass, both alone and while M2 and M3 drive random bursts into SRAM. In the memtest run that is 158,866 background bursts, with 0 errors on either side.
+  - memtest includes 12 misaligned words.
+  - irq claims external interrupts lowest ID first.
+  - buserr turns DECERR, SLVERR and PSLVERR into the right access faults (6 cases) and runs code copied into SRAM.
+- **CPI with code in ROM.**
+  - A register-only loop runs at 1.42 with or without the background traffic.
+  - A CRC-32 over SRAM runs at 1.40 alone and 1.67 under SRAM contention.
+- **APB bridge.** A 64-bit check from M3 covers paths the CPU never uses: two-word beats, strobed words, PSLVERR inside a beat, an empty slot, a burst.
+- **Lint.** soc_top is `-Wall` clean; vendor files are waived.
+
 ## How to run
 
 ```bash
@@ -125,9 +138,10 @@ powershell -ExecutionPolicy Bypass -File flow\tools\check_xsim.ps1   # [TOOLS] x
 ```
 
 ```bash
-# Block checks (Linux or WSL): lint, dual-clock FIFO, register slice, crossbar
-make -C dv                                                           # [LINT] PASS, [FIFO] all runs PASS, [SLICE] PASS, [XBAR] all runs PASS
+# Block and SoC checks (Linux or WSL): lint, dual-clock FIFO, register slice, crossbar, firmware on soc_top
+make -C dv                                                           # [LINT] PASS ... [XBAR] all runs PASS, [SOC] all runs PASS
 make -C dv xbar-mut                                                  # [MUT] 7 of 7 mutants caught
+make -C fw images                                                    # rebuild fw/images (needs riscv-none-elf-gcc on PATH)
 ```
 
 Outputs go to `build/`, which git ignores. `check_verilator.sh` takes `BUILD_DIR` to build elsewhere, and `check_xsim.ps1` takes `-Vivado <install dir>` or `XILINX_VIVADO`.
@@ -137,13 +151,19 @@ Outputs go to `build/`, which git ignores. `check_verilator.sh` takes `BUILD_DIR
 ```text
 .github/workflows/   CI
 docs/                design documents
-dv/                  testbenches (dv/tb/), SVA checkers (dv/sva/), run, mutation and coverage scripts, Makefile
+dv/                  testbenches (dv/tb/), SVA checkers (dv/sva/), lint waivers (dv/lint/), run, mutation and coverage scripts
 flow/tools/          toolchain checks: smoke_uvm.sv (xsim), smoke_cov.sv (Verilator) and their scripts
-rtl/axi/             AXI4 crossbar, ID tracker, default slave, channel register slice
+fw/                  firmware: start-up and linker script (common/), tests (tests/), committed ROM images (images/)
+rtl/axi/             AXI4 crossbar, ID tracker, default slave, AXI-to-APB bridge, channel register slice
 rtl/common/          dual-clock FIFO, 2-flop synchronizer, round-robin arbiter, single-clock FIFO
+rtl/cpu/             Ibex wrapper, Ibex-port-to-AXI4 adapter
+rtl/mem/             AXI4 ROM and SRAM
+rtl/periph/          APB SYS, interrupt controller, timer
+rtl/top/             soc_top
+rtl/vendor/ibex/     Ibex v2.1.0, unchanged (VENDOR.md)
 ```
 
-Later steps add `fw/`, `syn/` and more of `rtl/`; the planned layout is in section 11 of the architecture document.
+Later steps add `syn/` and more of `rtl/`; the planned layout is in section 11 of the architecture document.
 
 ## Documents
 
@@ -152,6 +172,7 @@ Later steps add `fw/`, `syn/` and more of `rtl/`; the planned layout is in secti
 | [docs/01_soc_architecture.md](docs/01_soc_architecture.md) | Clock domains and crossings, resets, power domains with isolation, retention and sequences, AXI4 rules, address and interrupt maps, boot, timing targets, phase-1 verification plan |
 | [docs/02_common_blocks.md](docs/02_common_blocks.md) | Blocks taken from AXI_PCIe_Subsystem `b64e36a`, why the dual-clock FIFO was rewritten, FIFO and register-slice measurements |
 | [docs/03_axi_crossbar.md](docs/03_axi_crossbar.md) | Crossbar structure and design decisions (same-ID rule, default slaves, W routing, R lock), verification environment, directed, random, coverage and mutation results |
+| [docs/04_cpu_subsystem.md](docs/04_cpu_subsystem.md) | Ibex choice and configuration, the memory-port adapter's ordering rules, memories, APB bridge and registers, firmware, SoC test results, CPI, bring-up findings |
 
 ## Limitations
 
@@ -180,5 +201,9 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
     - **directed 8종.** 모두 PASS입니다.
     - **random.** 10 seed, 80,000 burst에서 오류 0이고, covergroup 62/62입니다.
     - **mutation.** 일부러 심은 버그 7종을 모두 잡았습니다.
+  - 1-4 CPU subsystem([docs/04_cpu_subsystem.md](docs/04_cpu_subsystem.md)):
+    - **구성.** Ibex v2.1.0(RV32IMC, 43개 파일을 원본 그대로 반입)을 AXI4 adapter 2개로 crossbar에 붙였습니다. boot ROM, SRAM, AXI→APB bridge와 SYS·INTC·TIMER, firmware를 더했습니다.
+    - **firmware 테스트.** 5종이 단독으로도, 다른 master가 SRAM에 random burst를 보내는 중에도 모두 통과했습니다. memtest에는 misaligned 접근 12건이 포함되고, buserr는 결함 6종을 검사합니다.
+    - **CPI.** ROM 코드 기준으로 1.40~1.42이고, SRAM 경합 중 CRC는 1.67입니다(commit 3e51bad).
 - **범위.** 공개 자료만으로 구성하며 PCIe, NVMe, M-PHY, UniPro 규격 준수를 주장하지 않습니다. NVMe는 공개된 Base Specification의 register · queue · PRP 구조 일부만 따릅니다.
 - **LLM 사용.** 코드, 테스트, 문서 초안에 LLM(Claude)을 쓰고, repo 안의 regression과 검사를 통과한 결과만 반영합니다.
