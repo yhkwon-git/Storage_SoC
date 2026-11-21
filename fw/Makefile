@@ -1,5 +1,6 @@
-# Firmware for the SoC tests.
-#   make -C fw           build every test into build/fw/<test>.{elf,hex,lst}
+# Firmware for the SoC tests (tests/) and applications on the drivers (app/,
+# drv/; docs/08_firmware.md).
+#   make -C fw           build everything into build/fw/<name>.{elf,hex,lst}
 #   make -C fw images    also copy the .hex files to fw/images/ (committed, so
 #                        the simulation runs without the cross compiler)
 # CROSS is the toolchain prefix (default riscv-none-elf-, xPack GCC 15.2.0).
@@ -15,15 +16,24 @@ CFLAGS  := $(ARCH) -O2 -g -Wall -Wextra -ffreestanding -fno-builtin -nostdlib -I
 LDFLAGS := $(ARCH) -nostdlib -nostartfiles -T common/link.ld
 
 TESTS   := hello memtest irq buserr perf dma power reset
+APPS    := soc_app
 COMMON  := common/crt0.S common/lib.c
+DRV     := drv/irq.c drv/timer.c drv/dma.c drv/pmu.c drv/crc32.c
 
 .PHONY: all images clean
 
-all: $(TESTS:%=$(BUILD)/%.hex)
+all: $(TESTS:%=$(BUILD)/%.hex) $(APPS:%=$(BUILD)/%.hex)
 
+# Tests: start-up code and library only.
 $(BUILD)/%.elf: tests/%.c $(COMMON) common/lib.h common/soc.h common/link.ld
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(LDFLAGS) -Wl,-Map=$(BUILD)/$*.map -o $@ $(COMMON) $< -lgcc
+
+# Applications: also the drivers in drv/.
+$(BUILD)/%.elf: app/%.c $(COMMON) $(DRV) drv/drv.h common/lib.h common/soc.h common/link.ld
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -Idrv $(LDFLAGS) -Wl,-Map=$(BUILD)/$*.map -o $@ $(COMMON) $(DRV) $< -lgcc
+	$(CROSS)size $@ > $(BUILD)/$*.size
 
 $(BUILD)/%.hex: $(BUILD)/%.elf bin2hex64.py
 	$(OBJCOPY) -O binary -j .vectors -j .text -j .rodata -j .data $< $(BUILD)/$*.bin
@@ -32,7 +42,7 @@ $(BUILD)/%.hex: $(BUILD)/%.elf bin2hex64.py
 
 images: all
 	@mkdir -p images
-	cp $(TESTS:%=$(BUILD)/%.hex) images/
+	cp $(TESTS:%=$(BUILD)/%.hex) $(APPS:%=$(BUILD)/%.hex) images/
 
 clean:
 	rm -rf $(BUILD)
