@@ -16,6 +16,7 @@ module sys_regs (
         output logic [31:0] s_apb_prdata,
         output logic s_apb_pslverr,
 
+        input sys_regs_pkg::sys_regs__in_t hwif_in,
         output sys_regs_pkg::sys_regs__out_t hwif_out
     );
 
@@ -91,6 +92,9 @@ module sys_regs (
         logic SCRATCH;
         logic CONSOLE;
         logic EXIT;
+        logic SOFT_RESET;
+        logic CLK_GATE;
+        logic SLEEP_CYCLES;
     } decoded_reg_strb_t;
     decoded_reg_strb_t decoded_reg_strb;
     logic decoded_err;
@@ -115,6 +119,12 @@ module sys_regs (
         is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h10);
         decoded_reg_strb.EXIT = cpuif_req_masked & (cpuif_addr == 12'h14) & cpuif_req_is_wr;
         is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h14);
+        decoded_reg_strb.SOFT_RESET = cpuif_req_masked & (cpuif_addr == 12'h100);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h100);
+        decoded_reg_strb.CLK_GATE = cpuif_req_masked & (cpuif_addr == 12'h104);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h104);
+        decoded_reg_strb.SLEEP_CYCLES = cpuif_req_masked & (cpuif_addr == 12'h108) & !cpuif_req_is_wr;
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h108);
         decoded_err = ~is_valid_addr & decoded_req;
     end
 
@@ -147,6 +157,18 @@ module sys_regs (
                 logic load_next;
             } code;
         } EXIT;
+        struct {
+            struct {
+                logic next;
+                logic load_next;
+            } dma;
+        } SOFT_RESET;
+        struct {
+            struct {
+                logic next;
+                logic load_next;
+            } cpu;
+        } CLK_GATE;
     } field_combo_t;
     field_combo_t field_combo;
 
@@ -166,6 +188,16 @@ module sys_regs (
                 logic [31:0] value;
             } code;
         } EXIT;
+        struct {
+            struct {
+                logic value;
+            } dma;
+        } SOFT_RESET;
+        struct {
+            struct {
+                logic value;
+            } cpu;
+        } CLK_GATE;
     } field_storage_t;
     field_storage_t field_storage;
 
@@ -239,6 +271,52 @@ module sys_regs (
     end
     assign hwif_out.EXIT.code.value = field_storage.EXIT.code.value;
     assign hwif_out.EXIT.code.swmod = decoded_reg_strb.EXIT && decoded_req_is_wr && |(decoded_wr_biten[31:0]);
+    // Field: sys_regs.SOFT_RESET.dma
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.SOFT_RESET.dma.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.SOFT_RESET && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.SOFT_RESET.dma.value & ~decoded_wr_biten[0:0]) | (decoded_wr_data[0:0] & decoded_wr_biten[0:0]);
+            load_next_c = '1;
+        end
+        field_combo.SOFT_RESET.dma.next = next_c;
+        field_combo.SOFT_RESET.dma.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.SOFT_RESET.dma.value <= 1'h0;
+        end else begin
+            if(field_combo.SOFT_RESET.dma.load_next) begin
+                field_storage.SOFT_RESET.dma.value <= field_combo.SOFT_RESET.dma.next;
+            end
+        end
+    end
+    assign hwif_out.SOFT_RESET.dma.value = field_storage.SOFT_RESET.dma.value;
+    // Field: sys_regs.CLK_GATE.cpu
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.CLK_GATE.cpu.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.CLK_GATE && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.CLK_GATE.cpu.value & ~decoded_wr_biten[0:0]) | (decoded_wr_data[0:0] & decoded_wr_biten[0:0]);
+            load_next_c = '1;
+        end
+        field_combo.CLK_GATE.cpu.next = next_c;
+        field_combo.CLK_GATE.cpu.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.CLK_GATE.cpu.value <= 1'h1;
+        end else begin
+            if(field_combo.CLK_GATE.cpu.load_next) begin
+                field_storage.CLK_GATE.cpu.value <= field_combo.CLK_GATE.cpu.next;
+            end
+        end
+    end
+    assign hwif_out.CLK_GATE.cpu.value = field_storage.CLK_GATE.cpu.value;
 
     //--------------------------------------------------------------------------
     // Write response
@@ -264,10 +342,19 @@ module sys_regs (
             readback_data_var[31:0] = 32'h53534f43;
         end
         if(rd_mux_addr == 12'h4) begin
-            readback_data_var[31:0] = 32'h10006;
+            readback_data_var[31:0] = 32'h10007;
         end
         if(rd_mux_addr == 12'h8) begin
             readback_data_var[31:0] = field_storage.SCRATCH.value.value;
+        end
+        if(rd_mux_addr == 12'h100) begin
+            readback_data_var[0] = field_storage.SOFT_RESET.dma.value;
+        end
+        if(rd_mux_addr == 12'h104) begin
+            readback_data_var[0] = field_storage.CLK_GATE.cpu.value;
+        end
+        if(rd_mux_addr == 12'h108) begin
+            readback_data_var[31:0] = hwif_in.SLEEP_CYCLES.count.next;
         end
         readback_data = readback_data_var;
         readback_done = decoded_req & ~decoded_req_is_wr;

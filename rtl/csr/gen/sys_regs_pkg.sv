@@ -5,7 +5,19 @@ package sys_regs_pkg;
 
     localparam SYS_REGS_DATA_WIDTH = 32;
     localparam SYS_REGS_MIN_ADDR_WIDTH = 12;
-    localparam SYS_REGS_SIZE = 'h18;
+    localparam SYS_REGS_SIZE = 'h10c;
+
+    typedef struct {
+        logic [31:0] next;
+    } sys_regs__SLEEP_CYCLES__count__in_t;
+
+    typedef struct {
+        sys_regs__SLEEP_CYCLES__count__in_t count;
+    } sys_regs__SLEEP_CYCLES__in_t;
+
+    typedef struct {
+        sys_regs__SLEEP_CYCLES__in_t SLEEP_CYCLES;
+    } sys_regs__in_t;
 
     typedef struct {
         logic [7:0] value;
@@ -26,7 +38,25 @@ package sys_regs_pkg;
     } sys_regs__EXIT__out_t;
 
     typedef struct {
+        logic value;
+    } sys_regs__SOFT_RESET__dma__out_t;
+
+    typedef struct {
+        sys_regs__SOFT_RESET__dma__out_t dma;
+    } sys_regs__SOFT_RESET__out_t;
+
+    typedef struct {
+        logic value;
+    } sys_regs__CLK_GATE__cpu__out_t;
+
+    typedef struct {
+        sys_regs__CLK_GATE__cpu__out_t cpu;
+    } sys_regs__CLK_GATE__out_t;
+
+    typedef struct {
         sys_regs__CONSOLE__out_t CONSOLE;
         sys_regs__EXIT__out_t EXIT;
+        sys_regs__SOFT_RESET__out_t SOFT_RESET;
+        sys_regs__CLK_GATE__out_t CLK_GATE;
     } sys_regs__out_t;
 endpackage

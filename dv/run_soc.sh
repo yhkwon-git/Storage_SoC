@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Builds the firmware (when the cross compiler is on PATH; otherwise the
 # committed fw/images are used), builds tb_soc once and runs every firmware
-# test twice: alone and with background traffic on M3 (M2 is the DMA).
+# test twice: alone and with background traffic on M3 (M2 is the DMA). The
+# reset test runs alone only: its chip reset would abandon the M3 model's
+# outstanding bursts.
 #
 #   BUILD_DIR  build root (default: build/dv in the repository)
 set -euo pipefail
@@ -9,7 +11,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 out="${BUILD_DIR:-$root/build/dv}/soc"
-tests=(hello memtest irq buserr perf dma)
+tests=(hello memtest irq buserr perf dma power reset)
 mkdir -p "$out"
 
 if command -v riscv-none-elf-gcc > /dev/null; then
@@ -29,14 +31,18 @@ rtl="$root/rtl"
 src=(
   "$here/lint/waivers.vlt" -F "$rtl/vendor/ibex/ibex.f"
   "$rtl/csr/gen/sys_regs_pkg.sv" "$rtl/csr/gen/intc_regs_pkg.sv" "$rtl/csr/gen/timer_regs_pkg.sv"
-  "$rtl/csr/gen/dma_regs_pkg.sv"
+  "$rtl/csr/gen/dma_regs_pkg.sv" "$rtl/csr/gen/pmu_regs_pkg.sv" "$rtl/csr/gen/host_regs_pkg.sv"
   "$rtl/csr/gen/sys_regs.sv" "$rtl/csr/gen/intc_regs.sv" "$rtl/csr/gen/timer_regs.sv"
-  "$rtl/csr/gen/dma_regs.sv"
-  "$rtl/common/rr_arb.sv" "$rtl/common/fifo_sync.sv"
+  "$rtl/csr/gen/dma_regs.sv" "$rtl/csr/gen/pmu_regs.sv" "$rtl/csr/gen/host_regs.sv"
+  "$rtl/common/rr_arb.sv" "$rtl/common/fifo_sync.sv" "$rtl/common/cdc_sync_2ff.sv"
+  "$rtl/common/cdc_async_fifo.sv" "$rtl/common/rst_sync.sv" "$rtl/common/clk_gate.sv"
   "$rtl/axi/axi_id_tracker.sv" "$rtl/axi/axi_err_slv.sv" "$rtl/axi/axi_xbar.sv" "$rtl/axi/axi2apb.sv"
   "$rtl/cpu/cpu_ibex.sv" "$rtl/cpu/obi2axi.sv" "$rtl/mem/axi_mem.sv"
   "$rtl/periph/apb_sys.sv" "$rtl/periph/apb_timer.sv" "$rtl/periph/apb_intc.sv"
-  "$rtl/dma/dma.sv" "$rtl/top/soc_top.sv"
+  "$rtl/dma/dma.sv"
+  "$rtl/pmu/iso_clamp.sv" "$rtl/pmu/ret_reg.sv" "$rtl/pmu/apb_cdc.sv" "$rtl/pmu/pmu.sv"
+  "$rtl/host/phy_pll_model.sv" "$rtl/host/host_stub.sv" "$rtl/host/pd_host.sv" "$rtl/host/host_if.sv"
+  "$rtl/top/soc_pwr.sv" "$rtl/top/soc_top.sv"
   "$here/tb/axi4_if.sv" "$here/tb/axi_tb_pkg.sv" "$here/sva/axi4_checker.sv" "$here/tb/tb_soc.sv"
 )
 
@@ -46,7 +52,9 @@ verilator --binary --timing --assert -j 0 --timescale 1ns/1ps --top-module tb_so
 
 fail=0
 for t in "${tests[@]}"; do
-  for mode in "" "+bg"; do
+  modes=("" "+bg")
+  [ "$t" = reset ] && modes=("")
+  for mode in "${modes[@]}"; do
     name="$t${mode:+_bg}"
     extra=""
     [ "$t" = hello ] && extra="+apb_check"

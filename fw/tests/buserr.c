@@ -63,8 +63,8 @@ int main(void)
   *(volatile uint32_t *)0x00001000u = 1;
   err += expect("ROM store", MCAUSE_STORE_FAULT, 0x00001000u);
 
-  sink = *(volatile uint32_t *)(uintptr_t)PMU_BASE;
-  err += expect("empty APB slot", MCAUSE_LOAD_FAULT, PMU_BASE);
+  sink = *(volatile uint32_t *)(uintptr_t)EMPTY_SLOT_BASE;
+  err += expect("empty APB slot", MCAUSE_LOAD_FAULT, EMPTY_SLOT_BASE);
 
   sink = *(volatile uint32_t *)(uintptr_t)(SYS_BASE + 0x20u);
   err += expect("undefined SYS offset", MCAUSE_LOAD_FAULT, SYS_BASE + 0x20u);

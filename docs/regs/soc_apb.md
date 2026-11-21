@@ -9,32 +9,37 @@ Don't override. Generated from: soc_apb
 
 - Absolute Address: 0x0
 - Base Offset: 0x0
-- Size: 0x4020
+- Size: 0x500C
 
 <p>Register blocks in the APB window at 0x4000_0000, one 4 KiB slot each.</p>
 
 |Offset|Identifier| Name|
 |------|----------|-----|
 |0x0000|    SYS   | SYS |
+|0x1000|    PMU   | PMU |
 |0x2000|   INTC   | INTC|
 |0x3000|   TIMER  |TIMER|
 |0x4000|    DMA   | DMA |
+|0x5000|   HOST   | HOST|
 
 ## SYS address map
 
 - Absolute Address: 0x0
 - Base Offset: 0x0
-- Size: 0x18
+- Size: 0x10C
 
 <p>Identification, a scratch register, and the simulation console and exit registers.</p>
 
-|Offset|Identifier|  Name |
-|------|----------|-------|
-| 0x00 |    ID    |   ID  |
-| 0x04 |  VERSION |VERSION|
-| 0x08 |  SCRATCH |SCRATCH|
-| 0x10 |  CONSOLE |CONSOLE|
-| 0x14 |   EXIT   |  EXIT |
+|Offset| Identifier |    Name    |
+|------|------------|------------|
+| 0x000|     ID     |     ID     |
+| 0x004|   VERSION  |   VERSION  |
+| 0x008|   SCRATCH  |   SCRATCH  |
+| 0x010|   CONSOLE  |   CONSOLE  |
+| 0x014|    EXIT    |    EXIT    |
+| 0x100| SOFT_RESET | SOFT_RESET |
+| 0x104|  CLK_GATE  |  CLK_GATE  |
+| 0x108|SLEEP_CYCLES|SLEEP_CYCLES|
 
 ### ID register
 
@@ -54,11 +59,11 @@ Don't override. Generated from: soc_apb
 - Base Offset: 0x4
 - Size: 0x4
 
-<p>Register map version: 0x0001_0006 is the map of step 1-6 (DMA added).</p>
+<p>Register map version: 0x0001_0007 is the map of step 1-7 (PMU, HOST placeholder, SYS control registers added).</p>
 
 |Bits|Identifier|Access| Reset |Name|
 |----|----------|------|-------|----|
-|31:0|   value  |   r  |0x10006|  — |
+|31:0|   value  |   r  |0x10007|  — |
 
 ### SCRATCH register
 
@@ -95,6 +100,206 @@ Don't override. Generated from: soc_apb
 |Bits|Identifier|Access|Reset|Name|
 |----|----------|------|-----|----|
 |31:0|   code   |   w  | 0x0 |  — |
+
+### SOFT_RESET register
+
+- Absolute Address: 0x100
+- Base Offset: 0x100
+- Size: 0x4
+
+<p>While a bit is 1 its block is held in reset. Use only while the block is idle: a block reset with transactions outstanding leaves them unanswered.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|  0 |    dma   |  rw  | 0x0 |  — |
+
+#### dma field
+
+<p>DMA, registers included.</p>
+
+### CLK_GATE register
+
+- Absolute Address: 0x104
+- Base Offset: 0x104
+- Size: 0x4
+
+<p>Clock gates for idle blocks.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|  0 |    cpu   |  rw  | 0x1 |  — |
+
+#### cpu field
+
+<p>Gate the CPU's clock while it sleeps in WFI with no interrupt pending, as Ibex's own top level does.</p>
+
+### SLEEP_CYCLES register
+
+- Absolute Address: 0x108
+- Base Offset: 0x108
+- Size: 0x4
+
+<p>Clocks the CPU's clock gate has removed since reset.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   count  |   r  |  —  |  — |
+
+## PMU address map
+
+- Absolute Address: 0x1000
+- Base Offset: 0x1000
+- Size: 0x20
+
+<p>Power management in PD_AON, clocked by clk_aon and reset only at power-on; reached through an APB clock-domain crossing (rtl/pmu/apb_cdc.sv), so an access takes a few clk_aon cycles. Sequences and states are in docs/07_clock_reset_power.md.</p>
+
+|Offset| Identifier|    Name   |
+|------|-----------|-----------|
+| 0x00 |  PWR_CTRL |  PWR_CTRL |
+| 0x04 | PWR_STATUS| PWR_STATUS|
+| 0x08 |  PWR_IRQ  |  PWR_IRQ  |
+| 0x0C |  TIMEOUT  |  TIMEOUT  |
+| 0x10 | CHIP_RESET| CHIP_RESET|
+| 0x14 | RST_CAUSE | RST_CAUSE |
+| 0x18 |AON_SCRATCH|AON_SCRATCH|
+| 0x1C | PWR_CYCLES| PWR_CYCLES|
+
+### PWR_CTRL register
+
+- Absolute Address: 0x1000
+- Base Offset: 0x0
+- Size: 0x4
+
+<p>UP starts the PD_HOST power-up sequence from OFF or FAIL; DOWN starts the power-down sequence from ON. Both read as 0.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|  0 |    up    |   w  | 0x0 |  — |
+|  1 |   down   |   w  | 0x0 |  — |
+|  8 |  wake_en |  rw  | 0x1 |  — |
+
+#### wake_en field
+
+<p>A rising edge on the wake pin powers PD_HOST up from OFF.</p>
+
+### PWR_STATUS register
+
+- Absolute Address: 0x1004
+- Base Offset: 0x4
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 3:0 |   state  |   r  |  —  |  — |
+|  8  |    on    |   r  |  —  |  — |
+|17:16|  result  |   r  |  —  |  — |
+|  24 |   woke   |   r  |  —  |  — |
+
+#### state field
+
+<p>Sequencer state: 0 OFF, 1-4 powering up, 5 ON, 6-10 powering down, 11 FAIL.</p>
+
+#### on field
+
+<p>PD_HOST is on with isolation released.</p>
+
+#### result field
+
+<p>Last sequence: 0 none, 1 completed, 2 power-down refused (host path busy), 3 timeout.</p>
+
+#### woke field
+
+<p>The last power-up was started by the wake pin.</p>
+
+### PWR_IRQ register
+
+- Absolute Address: 0x1008
+- Base Offset: 0x8
+- Size: 0x4
+
+<p>INTC source 10. Write 1 to clear. A hardware set wins over a software clear in the same clock.</p>
+
+|Bits|Identifier|  Access |Reset|Name|
+|----|----------|---------|-----|----|
+|  0 |   done   |rw, woclr| 0x0 |  — |
+|  1 |    err   |rw, woclr| 0x0 |  — |
+
+#### done field
+
+<p>A sequence completed.</p>
+
+#### err field
+
+<p>A power-down was refused or a sequence timed out.</p>
+
+### TIMEOUT register
+
+- Absolute Address: 0x100C
+- Base Offset: 0xC
+- Size: 0x4
+
+<p>clk_aon cycles each wait of a sequence may take (switch acknowledge, PLL lock).</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|15:0|  cycles  |  rw  | 0x40|  — |
+
+### CHIP_RESET register
+
+- Absolute Address: 0x1010
+- Base Offset: 0x10
+- Size: 0x4
+
+<p>Writing 0x5AFE_0001 resets PD_CORE and PD_HOST's logic and runs the reset release order again; PD_AON and PD_HOST's power state are kept. Any other value is ignored. Reads return 0.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|    key   |   w  | 0x0 |  — |
+
+### RST_CAUSE register
+
+- Absolute Address: 0x1014
+- Base Offset: 0x14
+- Size: 0x4
+
+<p>Why PD_CORE was last reset. Write 1 to clear.</p>
+
+|Bits|Identifier|  Access |Reset|Name|
+|----|----------|---------|-----|----|
+|  0 |    por   |rw, woclr| 0x0 |  — |
+|  1 |   chip   |rw, woclr| 0x0 |  — |
+
+#### por field
+
+<p>Power-on reset.</p>
+
+#### chip field
+
+<p>CHIP_RESET.</p>
+
+### AON_SCRATCH register
+
+- Absolute Address: 0x1018
+- Base Offset: 0x18
+- Size: 0x4
+
+<p>Free for software; kept across a chip reset.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   value  |  rw  | 0x0 |  — |
+
+### PWR_CYCLES register
+
+- Absolute Address: 0x101C
+- Base Offset: 0x1C
+- Size: 0x4
+
+<p>Completed PD_HOST power-downs since power-on.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|15:0|   count  |   r  |  —  |  — |
 
 ## INTC address map
 
@@ -388,3 +593,75 @@ Don't override. Generated from: soc_apb
 |Bits|Identifier|Access|Reset|Name|
 |----|----------|------|-----|----|
 |31:0|   count  |   r  |  —  |  — |
+
+## HOST address map
+
+- Absolute Address: 0x5000
+- Base Offset: 0x5000
+- Size: 0xC
+
+<p>Core side of the PD_HOST placeholder (rtl/host/): a command FIFO into PD_HOST and a response FIFO out of it. Phase 2 replaces this block with the host interface's registers.</p>
+
+|Offset|Identifier| Name |
+|------|----------|------|
+|  0x0 |    TX    |  TX  |
+|  0x4 |    RX    |  RX  |
+|  0x8 |  STATUS  |STATUS|
+
+### TX register
+
+- Absolute Address: 0x5000
+- Base Offset: 0x0
+- Size: 0x4
+
+<p>A write sends one command into PD_HOST. It is dropped, and STATUS.TX_DROP set, when the FIFO is full or PD_HOST is not on.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   data   |   w  | 0x0 |  — |
+
+### RX register
+
+- Absolute Address: 0x5004
+- Base Offset: 0x4
+- Size: 0x4
+
+<p>Oldest response; reading it removes it. Reads 0 when STATUS.RX_VALID is 0.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   data   |   r  |  —  |  — |
+
+### STATUS register
+
+- Absolute Address: 0x5008
+- Base Offset: 0x8
+- Size: 0x4
+
+|Bits|Identifier|  Access |Reset|Name|
+|----|----------|---------|-----|----|
+|  0 | rx_valid |    r    |  —  |  — |
+|  1 |  tx_full |    r    |  —  |  — |
+|  2 |    on    |    r    |  —  |  — |
+|  3 |   idle   |    r    |  —  |  — |
+|  8 |  tx_drop |rw, woclr| 0x0 |  — |
+
+#### rx_valid field
+
+<p>A response is waiting in RX.</p>
+
+#### tx_full field
+
+<p>The command FIFO is full.</p>
+
+#### on field
+
+<p>PD_HOST is on (PMU).</p>
+
+#### idle field
+
+<p>Every command sent has had its response read: the host path is idle.</p>
+
+#### tx_drop field
+
+<p>A command was dropped.</p>

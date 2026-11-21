@@ -4,27 +4,42 @@
 // -----------------------------------------------------------------------------
 // soc_top
 //
-// The SoC as far as step 1-6 (docs/04_cpu_subsystem.md, docs/06_dma.md): one
-// clock domain (clk_sys), one reset.
+// The SoC as far as step 1-7 (docs/04_cpu_subsystem.md, docs/06_dma.md,
+// docs/07_clock_reset_power.md).
 //
-//   M0 Ibex instruction port  -> obi2axi (read only)
+//   M0 Ibex instruction port  -> obi2axi (read only); the core's clock is gated
+//                                while it sleeps (SYS CLK_GATE)
 //   M1 Ibex data port         -> obi2axi
-//   M2 DMA                    -> dma (registers in APB slot 4)
+//   M2 DMA                    -> dma (registers in APB slot 4, SYS soft reset)
 //   M3                        -> port ext_* (the host interface comes in phase
 //                                2; the testbench drives traffic on it)
 //   S0 boot ROM 16 KiB        -> axi_mem, read only, loaded from +rom=<file>
 //   S1 SRAM 64 KiB            -> axi_mem
-//   S2 APB window             -> axi2apb: slot 0 SYS, 2 INTC, 3 TIMER, 4 DMA
+//   S2 APB window             -> axi2apb: slot 0 SYS, 1 PMU, 2 INTC, 3 TIMER,
+//                                4 DMA, 5 HOST
 //   S3, S4 NAND page buffers  -> axi_mem 4 KiB each until the NAND channels exist
 //
+// Clocks clk_sys, clk_aon, clk_nand and pclk_in (the PHY PLL's frequency) are
+// inputs, and por_n is the power-on reset. soc_pwr holds the PMU, the reset
+// synchronizers and PD_HOST; host_pwr_en and host_pwr_ack connect PD_HOST's
+// power switch, and host_wake is its wake pin.
+//
 // The timer drives the core's timer interrupt and the INTC its external
-// interrupt. INTC sources: 1 DMA done, 2 DMA error (docs/01, section 7); the
-// others are not wired yet.
+// interrupt. INTC sources: 1 DMA done, 2 DMA error, 10 PMU (docs/01, section
+// 7); the others are not wired yet.
 // -----------------------------------------------------------------------------
 
 module soc_top (
-  input  wire                    clk,
-  input  wire                    rst_n,
+  input  wire                    clk_sys,
+  input  wire                    clk_aon,
+  input  wire                    clk_nand,
+  input  wire                    pclk_in,
+  input  wire                    por_n,
+
+  // PD_HOST power switch and wake pin
+  output logic                   host_pwr_en,
+  input  wire                    host_pwr_ack,
+  input  wire                    host_wake,
 
   // AXI4 master port M3, 2-bit IDs.
   input  wire  [1:0]             ext_awid,
@@ -74,6 +89,10 @@ module soc_top (
   localparam int NM = 4;
   localparam int NS = 5;
 
+  // Resets from soc_pwr (below): core, NAND, the core reset request for
+  // further synchronizers, and the DMA's reset with its soft reset.
+  logic rst_sys_n, rst_nand_n, sys_rst_req_n, rst_dma_n;
+
   // ---------------------------------------------------------------------------
   // Crossbar signals
   // ---------------------------------------------------------------------------
@@ -103,7 +122,7 @@ module soc_top (
 
   logic [NM-1:0]       stat_aw_id_stall, stat_ar_id_stall;
 
-  axi_xbar u_xbar (.*);
+  axi_xbar u_xbar (.clk(clk_sys), .rst_n(rst_sys_n), .*);
 
   // ---------------------------------------------------------------------------
   // CPU: Ibex and its two AXI ports (M0, M1)
@@ -114,10 +133,11 @@ module soc_top (
   logic [3:0]  data_be;
   logic [31:0] data_addr, data_wdata, data_rdata;
   logic        irq_timer, irq_external, core_busy;
+  logic        cg_cpu, cpu_sleep;
 
   cpu_ibex u_cpu (
-    .clk          (clk),
-    .rst_n        (rst_n),
+    .clk          (clk_sys),
+    .rst_n        (rst_sys_n),
     .instr_req    (instr_req),
     .instr_gnt    (instr_gnt),
     .instr_rvalid (instr_rvalid),
@@ -135,12 +155,14 @@ module soc_top (
     .data_err     (data_err),
     .irq_timer    (irq_timer),
     .irq_external (irq_external),
+    .cg_en        (cg_cpu),
+    .sleeping     (cpu_sleep),
     .core_busy    (core_busy),
     .double_fault (cpu_double_fault)
   );
 
   obi2axi #(.READ_ONLY(1'b1), .MAX_OUT(2), .IDW(2)) u_ibus (
-    .clk       (clk),          .rst_n     (rst_n),
+    .clk       (clk_sys),          .rst_n     (rst_sys_n),
     .req       (instr_req),    .gnt       (instr_gnt),    .we       (1'b0),
     .be        (4'hF),         .addr      (instr_addr),   .wdata    (32'd0),
     .rvalid    (instr_rvalid), .rdata     (instr_rdata),  .err      (instr_err),
@@ -159,7 +181,7 @@ module soc_top (
   );
 
   obi2axi #(.READ_ONLY(1'b0), .MAX_OUT(2), .IDW(2)) u_dbus (
-    .clk       (clk),          .rst_n     (rst_n),
+    .clk       (clk_sys),          .rst_n     (rst_sys_n),
     .req       (data_req),     .gnt       (data_gnt),     .we       (data_we),
     .be        (data_be),      .addr      (data_addr),    .wdata    (data_wdata),
     .rvalid    (data_rvalid),  .rdata     (data_rdata),   .err      (data_err),
@@ -202,6 +224,42 @@ module soc_top (
   logic [NSLOT-1:0]       pready, pslverr;
 
   // ---------------------------------------------------------------------------
+  // Clocks, resets and power (APB slots 1 PMU and 5 HOST)
+  // ---------------------------------------------------------------------------
+  logic irq_pmu, soft_rst_dma;
+
+  soc_pwr u_pwr (
+    .clk_sys       (clk_sys),
+    .clk_aon       (clk_aon),
+    .clk_nand      (clk_nand),
+    .pclk_in       (pclk_in),
+    .por_n         (por_n),
+    .rst_sys_n     (rst_sys_n),
+    .rst_nand_n    (rst_nand_n),
+    .sys_rst_req_n (sys_rst_req_n),
+    .psel_pmu      (psel[1]),
+    .psel_host     (psel[5]),
+    .penable       (penable),
+    .paddr         (paddr[11:0]),
+    .pwrite        (pwrite),
+    .pwdata        (pwdata),
+    .pstrb         (pstrb),
+    .prdata_pmu    (prdata[1]),
+    .pready_pmu    (pready[1]),
+    .pslverr_pmu   (pslverr[1]),
+    .prdata_host   (prdata[5]),
+    .pready_host   (pready[5]),
+    .pslverr_host  (pslverr[5]),
+    .irq_pmu       (irq_pmu),
+    .host_pwr_en   (host_pwr_en),
+    .host_pwr_ack  (host_pwr_ack),
+    .host_wake     (host_wake)
+  );
+
+  // The DMA's reset: the core reset or SYS SOFT_RESET.DMA, released in clk_sys.
+  rst_sync u_rst_dma (.clk(clk_sys), .arst_n(sys_rst_req_n && !soft_rst_dma), .rst_n(rst_dma_n));
+
+  // ---------------------------------------------------------------------------
   // M2: DMA (its APB side is slot 4, below)
   // ---------------------------------------------------------------------------
   logic        dma_psel;
@@ -210,7 +268,7 @@ module soc_top (
   logic        irq_dma_done, irq_dma_err;
 
   dma u_dma (
-    .clk       (clk),          .rst_n     (rst_n),
+    .clk       (clk_sys),      .rst_n     (rst_dma_n),
     .psel      (dma_psel),     .penable   (penable),      .paddr    (paddr[11:0]),
     .pwrite    (pwrite),       .pwdata    (pwdata),       .pstrb    (pstrb),
     .prdata    (dma_prdata),   .pready    (dma_pready),   .pslverr  (dma_pslverr),
@@ -283,7 +341,7 @@ module soc_top (
         .IDW          (4),
         .INIT_PLUSARG ((s == 0) ? "rom" : "")
       ) u_mem (
-        .clk       (clk),          .rst_n     (rst_n),
+        .clk       (clk_sys),          .rst_n     (rst_sys_n),
         .s_awid    (m_awid[s]),    .s_awaddr  (m_awaddr[s]),  .s_awlen  (m_awlen[s]),
         .s_awvalid (m_awvalid[s]), .s_awready (m_awready[s]),
         .s_wdata   (m_wdata[s]),   .s_wstrb   (m_wstrb[s]),   .s_wlast  (m_wlast[s]),
@@ -301,8 +359,8 @@ module soc_top (
   // ---------------------------------------------------------------------------
   // S2: APB window
   // ---------------------------------------------------------------------------
-  axi2apb #(.IDW(4), .NSLOT(NSLOT), .SLOT_EN(8'b0001_1101)) u_apb (
-    .clk       (clk),          .rst_n     (rst_n),
+  axi2apb #(.IDW(4), .NSLOT(NSLOT), .SLOT_EN(8'b0011_1111)) u_apb (
+    .clk       (clk_sys),          .rst_n     (rst_sys_n),
     .s_awid    (m_awid[2]),    .s_awaddr  (m_awaddr[2]),  .s_awlen  (m_awlen[2]),
     .s_awsize  (m_awsize[2]),  .s_awprot  (m_awprot[2]),  .s_awvalid(m_awvalid[2]),
     .s_awready (m_awready[2]),
@@ -322,24 +380,25 @@ module soc_top (
   );
 
   apb_sys u_sys (
-    .clk (clk), .rst_n (rst_n),
+    .clk (clk_sys), .rst_n (rst_sys_n),
     .psel (psel[0]), .penable (penable), .paddr (paddr[11:0]), .pwrite (pwrite),
     .pwdata (pwdata), .pstrb (pstrb), .prdata (prdata[0]), .pready (pready[0]),
     .pslverr (pslverr[0]),
     .console_valid (console_valid), .console_char (console_char),
-    .exit_valid (exit_valid), .exit_code (exit_code)
+    .exit_valid (exit_valid), .exit_code (exit_code),
+    .soft_rst_dma (soft_rst_dma), .cg_cpu (cg_cpu), .cpu_sleep (cpu_sleep)
   );
 
   apb_intc u_intc (
-    .clk (clk), .rst_n (rst_n),
+    .clk (clk_sys), .rst_n (rst_sys_n),
     .psel (psel[2]), .penable (penable), .paddr (paddr[11:0]), .pwrite (pwrite),
     .pwdata (pwdata), .pstrb (pstrb), .prdata (prdata[2]), .pready (pready[2]),
     .pslverr (pslverr[2]),
-    .src ({29'd0, irq_dma_err, irq_dma_done, 1'b0}), .irq (irq_external)
+    .src ({21'd0, irq_pmu, 7'd0, irq_dma_err, irq_dma_done, 1'b0}), .irq (irq_external)
   );
 
   apb_timer u_timer (
-    .clk (clk), .rst_n (rst_n),
+    .clk (clk_sys), .rst_n (rst_sys_n),
     .psel (psel[3]), .penable (penable), .paddr (paddr[11:0]), .pwrite (pwrite),
     .pwdata (pwdata), .pstrb (pstrb), .prdata (prdata[3]), .pready (pready[3]),
     .pslverr (pslverr[3]), .irq (irq_timer)
@@ -352,7 +411,7 @@ module soc_top (
 
   // Slots without a peripheral: the bridge never selects them.
   for (genvar i = 0; i < NSLOT; i++) begin : g_empty_slot
-    if (i == 1 || i >= 5) begin : g_e
+    if (i >= 6) begin : g_e
       assign prdata[i]  = 32'd0;
       assign pready[i]  = 1'b1;
       assign pslverr[i] = 1'b1;
@@ -360,12 +419,13 @@ module soc_top (
   end
 
   // Fields the memories and peripherals do not use (sizes, bursts, cache and
-  // QoS attributes, protection on the APB, the crossbar's statistics, and the
-  // core's busy flag, which feeds clock gating in step 1-7).
+  // QoS attributes, protection on the APB, the crossbar's statistics, the
+  // core's multi-bit busy flag (cpu_ibex gates its clock from bit 0), and the
+  // NAND reset, whose channels come in phase 3).
   /* verilator lint_off UNUSEDSIGNAL */
   wire unused_ok = ^{m_awsize, m_arsize, m_awburst, m_arburst, m_awcache, m_arcache,
                      m_awqos, m_arqos, m_awprot, m_arprot, pprot, paddr[15:12],
-                     psel[1], psel[NSLOT-1:5],
+                     psel[NSLOT-1:6], rst_nand_n,
                      stat_aw_id_stall, stat_ar_id_stall, core_busy};
   /* verilator lint_on UNUSEDSIGNAL */
 

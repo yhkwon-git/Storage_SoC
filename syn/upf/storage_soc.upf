@@ -1,0 +1,76 @@
+# Storage_SoC power intent (docs/01_soc_architecture.md, section 4;
+# docs/07_clock_reset_power.md).
+#
+# No tool in this flow reads UPF. The RTL instantiates its isolation cells
+# (iso_clamp in rtl/host/pd_host.sv) and retention registers (ret_reg in
+# rtl/host/host_stub.sv) itself, and flow/power/check_iso.py checks that this
+# file and the RTL list the same isolated ports with the same clamp values
+# and the same retention registers.
+
+upf_version 2.1
+
+set_scope /soc_top
+
+# ---------------------------------------------------------------------------
+# Supplies
+# ---------------------------------------------------------------------------
+create_supply_port VDD
+create_supply_port VSS
+create_supply_net  VDD
+create_supply_net  VSS
+create_supply_net  VDD_HOST
+connect_supply_net VDD -ports VDD
+connect_supply_net VSS -ports VSS
+
+# ---------------------------------------------------------------------------
+# Power domains. PD_CORE is the top level; PD_AON and PD_CORE share the
+# always-on supply here (PD_CORE is never switched).
+# ---------------------------------------------------------------------------
+create_power_domain PD_CORE -include_scope
+create_power_domain PD_AON  -elements {u_pwr/u_pmu}
+create_power_domain PD_HOST -elements {u_pwr/u_pd_host/u_rst u_pwr/u_pd_host/u_restore_sync u_pwr/u_pd_host/u_stub}
+
+set_domain_supply_net PD_CORE -primary_power_net VDD      -primary_ground_net VSS
+set_domain_supply_net PD_AON  -primary_power_net VDD      -primary_ground_net VSS
+set_domain_supply_net PD_HOST -primary_power_net VDD_HOST -primary_ground_net VSS
+
+# ---------------------------------------------------------------------------
+# PD_HOST power switch: pwr_en from the PMU, power-good back as host_pwr_ack
+# ---------------------------------------------------------------------------
+create_power_switch SW_HOST -domain PD_HOST \
+  -input_supply_port  {vin VDD} \
+  -output_supply_port {vout VDD_HOST} \
+  -control_port       {ctrl u_pwr/u_pmu/pwr_en} \
+  -ack_port           {ack host_pwr_ack} \
+  -on_state           {on vin {ctrl}} \
+  -off_state          {off {!ctrl}}
+
+# ---------------------------------------------------------------------------
+# Isolation of PD_HOST's outputs, on the always-on side (location parent)
+# ---------------------------------------------------------------------------
+set_isolation ISO_HOST_CLAMP0 -domain PD_HOST \
+  -isolation_power_net VDD -isolation_ground_net VSS \
+  -clamp_value 0 -applies_to outputs \
+  -elements {u_pwr/u_pd_host/cmd_pop u_pwr/u_pd_host/rsp_push u_pwr/u_pd_host/rsp_data u_pwr/u_pd_host/rst_out_n}
+set_isolation_control ISO_HOST_CLAMP0 -domain PD_HOST \
+  -isolation_signal u_pwr/u_pmu/iso_en -isolation_sense high -location parent
+
+# ---------------------------------------------------------------------------
+# Retention: state the host link needs to resume (sequence number and
+# configuration in the step 1-7 placeholder)
+# ---------------------------------------------------------------------------
+set_retention RET_HOST -domain PD_HOST \
+  -retention_power_net VDD -retention_ground_net VSS \
+  -elements {u_pwr/u_pd_host/u_stub/u_seq u_pwr/u_pd_host/u_stub/u_cfg}
+set_retention_control RET_HOST -domain PD_HOST \
+  -save_signal {u_pwr/u_pmu/save high} -restore_signal {u_pwr/u_pmu/restore high}
+
+# ---------------------------------------------------------------------------
+# Power states
+# ---------------------------------------------------------------------------
+add_port_state VDD          -state {ON 1.8}
+add_port_state SW_HOST/vout -state {HOST_ON 1.8} -state {HOST_OFF off}
+
+create_pst pst_soc -supplies {VDD SW_HOST/vout}
+add_pst_state RUN      -pst pst_soc -state {ON HOST_ON}
+add_pst_state HOST_OFF -pst pst_soc -state {ON HOST_OFF}

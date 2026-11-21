@@ -11,6 +11,9 @@
 // A write to CONSOLE or EXIT raises console_valid or exit_valid for one
 // clock, with the written value on console_char or exit_code. The testbench
 // watches them; they stay in the synthesized design as ordinary registers.
+//
+// Since step 1-7 also SOFT_RESET (soft_rst_dma), CLK_GATE (cg_cpu) and
+// SLEEP_CYCLES, which counts the clocks the CPU's clock gate removes.
 // -----------------------------------------------------------------------------
 
 module apb_sys (
@@ -29,9 +32,14 @@ module apb_sys (
   output logic         console_valid,
   output logic [7:0]   console_char,
   output logic         exit_valid,
-  output logic [31:0]  exit_code
+  output logic [31:0]  exit_code,
+
+  output logic         soft_rst_dma,
+  output logic         cg_cpu,
+  input  wire          cpu_sleep
 );
 
+  sys_regs_pkg::sys_regs__in_t  hwif_in;
   sys_regs_pkg::sys_regs__out_t hwif_out;
 
   sys_regs u_regs (
@@ -47,8 +55,18 @@ module apb_sys (
     .s_apb_pready  (pready),
     .s_apb_prdata  (prdata),
     .s_apb_pslverr (pslverr),
+    .hwif_in       (hwif_in),
     .hwif_out      (hwif_out)
   );
+
+  logic [31:0] sleep_cycles;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n)         sleep_cycles <= 32'd0;
+    else if (cpu_sleep) sleep_cycles <= sleep_cycles + 32'd1;
+  end
+  assign hwif_in.SLEEP_CYCLES.count.next = sleep_cycles;
+  assign soft_rst_dma = hwif_out.SOFT_RESET.dma.value;
+  assign cg_cpu       = hwif_out.CLK_GATE.cpu.value;
 
   // The field stores the written value on the same edge that this flop
   // records the write, so value and valid line up.

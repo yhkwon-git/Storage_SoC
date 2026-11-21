@@ -24,8 +24,8 @@ addrmap sys_regs {
 
   reg {
     name = "VERSION";
-    desc = "Register map version: 0x0001_0006 is the map of step 1-6 (DMA added).";
-    field { sw = r; hw = na; } value[31:0] = 32'h0001_0006;
+    desc = "Register map version: 0x0001_0007 is the map of step 1-7 (PMU, HOST placeholder, SYS control registers added).";
+    field { sw = r; hw = na; } value[31:0] = 32'h0001_0007;
   } VERSION @ 0x004;
 
   reg {
@@ -45,6 +45,114 @@ addrmap sys_regs {
     desc = "A write ends the simulation with CODE; 0 means pass. Reads return 0.";
     field { sw = w; hw = r; swmod; } code[31:0] = 32'h0;
   } EXIT @ 0x014;
+
+  // Control registers start at 0x100; 0x018 to 0x0FC stay undefined.
+  reg {
+    name = "SOFT_RESET";
+    desc = "While a bit is 1 its block is held in reset. Use only while the block is idle: a block reset with transactions outstanding leaves them unanswered.";
+    field { sw = rw; hw = r; desc = "DMA, registers included."; } dma[0:0] = 1'b0;
+  } SOFT_RESET @ 0x100;
+
+  reg {
+    name = "CLK_GATE";
+    desc = "Clock gates for idle blocks.";
+    field { sw = rw; hw = r; desc = "Gate the CPU's clock while it sleeps in WFI with no interrupt pending, as Ibex's own top level does."; } cpu[0:0] = 1'b1;
+  } CLK_GATE @ 0x104;
+
+  reg {
+    name = "SLEEP_CYCLES";
+    desc = "Clocks the CPU's clock gate has removed since reset.";
+    field { sw = r; hw = w; } count[31:0];
+  } SLEEP_CYCLES @ 0x108;
+};
+
+addrmap pmu_regs {
+  name = "PMU";
+  desc = "Power management in PD_AON, clocked by clk_aon and reset only at power-on; reached through an APB clock-domain crossing (rtl/pmu/apb_cdc.sv), so an access takes a few clk_aon cycles. Sequences and states are in docs/07_clock_reset_power.md.";
+  default regwidth = 32;
+  default accesswidth = 32;
+
+  reg {
+    name = "PWR_CTRL";
+    desc = "UP starts the PD_HOST power-up sequence from OFF or FAIL; DOWN starts the power-down sequence from ON. Both read as 0.";
+    field { sw = w; hw = r; singlepulse; } up[0:0] = 1'b0;
+    field { sw = w; hw = r; singlepulse; } down[1:1] = 1'b0;
+    field { sw = rw; hw = r; desc = "A rising edge on the wake pin powers PD_HOST up from OFF."; } wake_en[8:8] = 1'b1;
+  } PWR_CTRL @ 0x000;
+
+  reg {
+    name = "PWR_STATUS";
+    field { sw = r; hw = w; desc = "Sequencer state: 0 OFF, 1-4 powering up, 5 ON, 6-10 powering down, 11 FAIL."; } state[3:0];
+    field { sw = r; hw = w; desc = "PD_HOST is on with isolation released."; } on[8:8];
+    field { sw = r; hw = w; desc = "Last sequence: 0 none, 1 completed, 2 power-down refused (host path busy), 3 timeout."; } result[17:16];
+    field { sw = r; hw = w; desc = "The last power-up was started by the wake pin."; } woke[24:24];
+  } PWR_STATUS @ 0x004;
+
+  reg {
+    name = "PWR_IRQ";
+    desc = "INTC source 10. Write 1 to clear. A hardware set wins over a software clear in the same clock.";
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "A sequence completed."; } done[0:0] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "A power-down was refused or a sequence timed out."; } err[1:1] = 1'b0;
+  } PWR_IRQ @ 0x008;
+
+  reg {
+    name = "TIMEOUT";
+    desc = "clk_aon cycles each wait of a sequence may take (switch acknowledge, PLL lock).";
+    field { sw = rw; hw = r; } cycles[15:0] = 16'd64;
+  } TIMEOUT @ 0x00C;
+
+  reg {
+    name = "CHIP_RESET";
+    desc = "Writing 0x5AFE_0001 resets PD_CORE and PD_HOST's logic and runs the reset release order again; PD_AON and PD_HOST's power state are kept. Any other value is ignored. Reads return 0.";
+    field { sw = w; hw = r; swmod; } key[31:0] = 32'h0;
+  } CHIP_RESET @ 0x010;
+
+  reg {
+    name = "RST_CAUSE";
+    desc = "Why PD_CORE was last reset. Write 1 to clear.";
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "Power-on reset."; } por[0:0] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "CHIP_RESET."; } chip[1:1] = 1'b0;
+  } RST_CAUSE @ 0x014;
+
+  reg {
+    name = "AON_SCRATCH";
+    desc = "Free for software; kept across a chip reset.";
+    field { sw = rw; hw = na; } value[31:0] = 32'h0;
+  } AON_SCRATCH @ 0x018;
+
+  reg {
+    name = "PWR_CYCLES";
+    desc = "Completed PD_HOST power-downs since power-on.";
+    field { sw = r; hw = w; } count[15:0];
+  } PWR_CYCLES @ 0x01C;
+};
+
+addrmap host_regs {
+  name = "HOST";
+  desc = "Core side of the PD_HOST placeholder (rtl/host/): a command FIFO into PD_HOST and a response FIFO out of it. Phase 2 replaces this block with the host interface's registers.";
+  default regwidth = 32;
+  default accesswidth = 32;
+
+  reg {
+    name = "TX";
+    desc = "A write sends one command into PD_HOST. It is dropped, and STATUS.TX_DROP set, when the FIFO is full or PD_HOST is not on.";
+    field { sw = w; hw = r; swmod; } data[31:0] = 32'h0;
+  } TX @ 0x000;
+
+  reg {
+    name = "RX";
+    desc = "Oldest response; reading it removes it. Reads 0 when STATUS.RX_VALID is 0.";
+    field { sw = r; hw = w; swacc; } data[31:0];
+  } RX @ 0x004;
+
+  reg {
+    name = "STATUS";
+    field { sw = r; hw = w; desc = "A response is waiting in RX."; } rx_valid[0:0];
+    field { sw = r; hw = w; desc = "The command FIFO is full."; } tx_full[1:1];
+    field { sw = r; hw = w; desc = "PD_HOST is on (PMU)."; } on[2:2];
+    field { sw = r; hw = w; desc = "Every command sent has had its response read: the host path is idle."; } idle[3:3];
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "A command was dropped."; } tx_drop[8:8] = 1'b0;
+  } STATUS @ 0x008;
 };
 
 addrmap intc_regs {
@@ -178,7 +286,9 @@ addrmap soc_apb {
   name = "APB peripherals";
   desc = "Register blocks in the APB window at 0x4000_0000, one 4 KiB slot each.";
   sys_regs   SYS   @ 0x0000;
+  pmu_regs   PMU   @ 0x1000;
   intc_regs  INTC  @ 0x2000;
   timer_regs TIMER @ 0x3000;
   dma_regs   DMA   @ 0x4000;
+  host_regs  HOST  @ 0x5000;
 };

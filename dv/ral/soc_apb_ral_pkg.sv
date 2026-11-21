@@ -28,7 +28,7 @@ package soc_apb_ral_pkg;
 
         virtual function void build();
             this.value = new("value");
-            this.value.configure(this, 32, 0, "RO", 0, 'h10006, 1, 1, 0);
+            this.value.configure(this, 32, 0, "RO", 0, 'h10007, 1, 1, 0);
         endfunction : build
     endclass : sys_regs__VERSION
 
@@ -74,6 +74,48 @@ package soc_apb_ral_pkg;
         endfunction : build
     endclass : sys_regs__EXIT
 
+    // reg - sys_regs::SOFT_RESET
+    class sys_regs__SOFT_RESET extends uvm_reg;
+        rand uvm_reg_field dma;
+
+        function new(string name = "sys_regs__SOFT_RESET");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.dma = new("dma");
+            this.dma.configure(this, 1, 0, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : sys_regs__SOFT_RESET
+
+    // reg - sys_regs::CLK_GATE
+    class sys_regs__CLK_GATE extends uvm_reg;
+        rand uvm_reg_field cpu;
+
+        function new(string name = "sys_regs__CLK_GATE");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.cpu = new("cpu");
+            this.cpu.configure(this, 1, 0, "RW", 0, 'h1, 1, 1, 0);
+        endfunction : build
+    endclass : sys_regs__CLK_GATE
+
+    // reg - sys_regs::SLEEP_CYCLES
+    class sys_regs__SLEEP_CYCLES extends uvm_reg;
+        rand uvm_reg_field count;
+
+        function new(string name = "sys_regs__SLEEP_CYCLES");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.count = new("count");
+            this.count.configure(this, 32, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : sys_regs__SLEEP_CYCLES
+
     // addrmap - sys_regs
     class sys_regs extends uvm_reg_block;
         rand sys_regs__ID ID;
@@ -81,6 +123,9 @@ package soc_apb_ral_pkg;
         rand sys_regs__SCRATCH SCRATCH;
         rand sys_regs__CONSOLE CONSOLE;
         rand sys_regs__EXIT EXIT;
+        rand sys_regs__SOFT_RESET SOFT_RESET;
+        rand sys_regs__CLK_GATE CLK_GATE;
+        rand sys_regs__SLEEP_CYCLES SLEEP_CYCLES;
 
         function new(string name = "sys_regs");
             super.new(name);
@@ -113,8 +158,216 @@ package soc_apb_ral_pkg;
 
             this.EXIT.build();
             this.default_map.add_reg(this.EXIT, 'h14);
+            this.SOFT_RESET = new("SOFT_RESET");
+            this.SOFT_RESET.configure(this);
+
+            this.SOFT_RESET.build();
+            this.default_map.add_reg(this.SOFT_RESET, 'h100);
+            this.CLK_GATE = new("CLK_GATE");
+            this.CLK_GATE.configure(this);
+
+            this.CLK_GATE.build();
+            this.default_map.add_reg(this.CLK_GATE, 'h104);
+            this.SLEEP_CYCLES = new("SLEEP_CYCLES");
+            this.SLEEP_CYCLES.configure(this);
+
+            this.SLEEP_CYCLES.build();
+            this.default_map.add_reg(this.SLEEP_CYCLES, 'h108);
         endfunction : build
     endclass : sys_regs
+
+    // reg - pmu_regs::PWR_CTRL
+    class pmu_regs__PWR_CTRL extends uvm_reg;
+        rand uvm_reg_field up;
+        rand uvm_reg_field down;
+        rand uvm_reg_field wake_en;
+
+        function new(string name = "pmu_regs__PWR_CTRL");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.up = new("up");
+            this.up.configure(this, 1, 0, "WO", 1, 'h0, 1, 1, 0);
+            this.down = new("down");
+            this.down.configure(this, 1, 1, "WO", 1, 'h0, 1, 1, 0);
+            this.wake_en = new("wake_en");
+            this.wake_en.configure(this, 1, 8, "RW", 0, 'h1, 1, 1, 0);
+        endfunction : build
+    endclass : pmu_regs__PWR_CTRL
+
+    // reg - pmu_regs::PWR_STATUS
+    class pmu_regs__PWR_STATUS extends uvm_reg;
+        rand uvm_reg_field state;
+        rand uvm_reg_field on;
+        rand uvm_reg_field result;
+        rand uvm_reg_field woke;
+
+        function new(string name = "pmu_regs__PWR_STATUS");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.state = new("state");
+            this.state.configure(this, 4, 0, "RO", 1, 'h0, 0, 1, 0);
+            this.on = new("on");
+            this.on.configure(this, 1, 8, "RO", 1, 'h0, 0, 1, 0);
+            this.result = new("result");
+            this.result.configure(this, 2, 16, "RO", 1, 'h0, 0, 1, 0);
+            this.woke = new("woke");
+            this.woke.configure(this, 1, 24, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : pmu_regs__PWR_STATUS
+
+    // reg - pmu_regs::PWR_IRQ
+    class pmu_regs__PWR_IRQ extends uvm_reg;
+        rand uvm_reg_field done;
+        rand uvm_reg_field err;
+
+        function new(string name = "pmu_regs__PWR_IRQ");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.done = new("done");
+            this.done.configure(this, 1, 0, "W1C", 1, 'h0, 1, 1, 0);
+            this.err = new("err");
+            this.err.configure(this, 1, 1, "W1C", 1, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : pmu_regs__PWR_IRQ
+
+    // reg - pmu_regs::TIMEOUT
+    class pmu_regs__TIMEOUT extends uvm_reg;
+        rand uvm_reg_field cycles;
+
+        function new(string name = "pmu_regs__TIMEOUT");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.cycles = new("cycles");
+            this.cycles.configure(this, 16, 0, "RW", 0, 'h40, 1, 1, 0);
+        endfunction : build
+    endclass : pmu_regs__TIMEOUT
+
+    // reg - pmu_regs::CHIP_RESET
+    class pmu_regs__CHIP_RESET extends uvm_reg;
+        rand uvm_reg_field key;
+
+        function new(string name = "pmu_regs__CHIP_RESET");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.key = new("key");
+            this.key.configure(this, 32, 0, "WO", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : pmu_regs__CHIP_RESET
+
+    // reg - pmu_regs::RST_CAUSE
+    class pmu_regs__RST_CAUSE extends uvm_reg;
+        rand uvm_reg_field por;
+        rand uvm_reg_field chip;
+
+        function new(string name = "pmu_regs__RST_CAUSE");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.por = new("por");
+            this.por.configure(this, 1, 0, "W1C", 1, 'h0, 1, 1, 0);
+            this.chip = new("chip");
+            this.chip.configure(this, 1, 1, "W1C", 1, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : pmu_regs__RST_CAUSE
+
+    // reg - pmu_regs::AON_SCRATCH
+    class pmu_regs__AON_SCRATCH extends uvm_reg;
+        rand uvm_reg_field value;
+
+        function new(string name = "pmu_regs__AON_SCRATCH");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.value = new("value");
+            this.value.configure(this, 32, 0, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : pmu_regs__AON_SCRATCH
+
+    // reg - pmu_regs::PWR_CYCLES
+    class pmu_regs__PWR_CYCLES extends uvm_reg;
+        rand uvm_reg_field count;
+
+        function new(string name = "pmu_regs__PWR_CYCLES");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.count = new("count");
+            this.count.configure(this, 16, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : pmu_regs__PWR_CYCLES
+
+    // addrmap - pmu_regs
+    class pmu_regs extends uvm_reg_block;
+        rand pmu_regs__PWR_CTRL PWR_CTRL;
+        rand pmu_regs__PWR_STATUS PWR_STATUS;
+        rand pmu_regs__PWR_IRQ PWR_IRQ;
+        rand pmu_regs__TIMEOUT TIMEOUT;
+        rand pmu_regs__CHIP_RESET CHIP_RESET;
+        rand pmu_regs__RST_CAUSE RST_CAUSE;
+        rand pmu_regs__AON_SCRATCH AON_SCRATCH;
+        rand pmu_regs__PWR_CYCLES PWR_CYCLES;
+
+        function new(string name = "pmu_regs");
+            super.new(name);
+        endfunction : new
+
+        virtual function void build();
+            this.default_map = create_map("reg_map", 0, 4, UVM_NO_ENDIAN);
+            this.PWR_CTRL = new("PWR_CTRL");
+            this.PWR_CTRL.configure(this);
+
+            this.PWR_CTRL.build();
+            this.default_map.add_reg(this.PWR_CTRL, 'h0);
+            this.PWR_STATUS = new("PWR_STATUS");
+            this.PWR_STATUS.configure(this);
+
+            this.PWR_STATUS.build();
+            this.default_map.add_reg(this.PWR_STATUS, 'h4);
+            this.PWR_IRQ = new("PWR_IRQ");
+            this.PWR_IRQ.configure(this);
+
+            this.PWR_IRQ.build();
+            this.default_map.add_reg(this.PWR_IRQ, 'h8);
+            this.TIMEOUT = new("TIMEOUT");
+            this.TIMEOUT.configure(this);
+
+            this.TIMEOUT.build();
+            this.default_map.add_reg(this.TIMEOUT, 'hc);
+            this.CHIP_RESET = new("CHIP_RESET");
+            this.CHIP_RESET.configure(this);
+
+            this.CHIP_RESET.build();
+            this.default_map.add_reg(this.CHIP_RESET, 'h10);
+            this.RST_CAUSE = new("RST_CAUSE");
+            this.RST_CAUSE.configure(this);
+
+            this.RST_CAUSE.build();
+            this.default_map.add_reg(this.RST_CAUSE, 'h14);
+            this.AON_SCRATCH = new("AON_SCRATCH");
+            this.AON_SCRATCH.configure(this);
+
+            this.AON_SCRATCH.build();
+            this.default_map.add_reg(this.AON_SCRATCH, 'h18);
+            this.PWR_CYCLES = new("PWR_CYCLES");
+            this.PWR_CYCLES.configure(this);
+
+            this.PWR_CYCLES.build();
+            this.default_map.add_reg(this.PWR_CYCLES, 'h1c);
+        endfunction : build
+    endclass : pmu_regs
 
     // reg - intc_regs::PENDING
     class intc_regs__PENDING extends uvm_reg;
@@ -507,12 +760,98 @@ package soc_apb_ral_pkg;
         endfunction : build
     endclass : dma_regs
 
+    // reg - host_regs::TX
+    class host_regs__TX extends uvm_reg;
+        rand uvm_reg_field data;
+
+        function new(string name = "host_regs__TX");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.data = new("data");
+            this.data.configure(this, 32, 0, "WO", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : host_regs__TX
+
+    // reg - host_regs::RX
+    class host_regs__RX extends uvm_reg;
+        rand uvm_reg_field data;
+
+        function new(string name = "host_regs__RX");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.data = new("data");
+            this.data.configure(this, 32, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : host_regs__RX
+
+    // reg - host_regs::STATUS
+    class host_regs__STATUS extends uvm_reg;
+        rand uvm_reg_field rx_valid;
+        rand uvm_reg_field tx_full;
+        rand uvm_reg_field on;
+        rand uvm_reg_field idle;
+        rand uvm_reg_field tx_drop;
+
+        function new(string name = "host_regs__STATUS");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.rx_valid = new("rx_valid");
+            this.rx_valid.configure(this, 1, 0, "RO", 1, 'h0, 0, 1, 0);
+            this.tx_full = new("tx_full");
+            this.tx_full.configure(this, 1, 1, "RO", 1, 'h0, 0, 1, 0);
+            this.on = new("on");
+            this.on.configure(this, 1, 2, "RO", 1, 'h0, 0, 1, 0);
+            this.idle = new("idle");
+            this.idle.configure(this, 1, 3, "RO", 1, 'h0, 0, 1, 0);
+            this.tx_drop = new("tx_drop");
+            this.tx_drop.configure(this, 1, 8, "W1C", 1, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : host_regs__STATUS
+
+    // addrmap - host_regs
+    class host_regs extends uvm_reg_block;
+        rand host_regs__TX TX;
+        rand host_regs__RX RX;
+        rand host_regs__STATUS STATUS;
+
+        function new(string name = "host_regs");
+            super.new(name);
+        endfunction : new
+
+        virtual function void build();
+            this.default_map = create_map("reg_map", 0, 4, UVM_NO_ENDIAN);
+            this.TX = new("TX");
+            this.TX.configure(this);
+
+            this.TX.build();
+            this.default_map.add_reg(this.TX, 'h0);
+            this.RX = new("RX");
+            this.RX.configure(this);
+
+            this.RX.build();
+            this.default_map.add_reg(this.RX, 'h4);
+            this.STATUS = new("STATUS");
+            this.STATUS.configure(this);
+
+            this.STATUS.build();
+            this.default_map.add_reg(this.STATUS, 'h8);
+        endfunction : build
+    endclass : host_regs
+
     // addrmap - soc_apb
     class soc_apb extends uvm_reg_block;
         rand sys_regs SYS;
+        rand pmu_regs PMU;
         rand intc_regs INTC;
         rand timer_regs TIMER;
         rand dma_regs DMA;
+        rand host_regs HOST;
 
         function new(string name = "soc_apb");
             super.new(name);
@@ -524,6 +863,10 @@ package soc_apb_ral_pkg;
             this.SYS.configure(this);
             this.SYS.build();
             this.default_map.add_submap(this.SYS.default_map, 'h0);
+            this.PMU = new("PMU");
+            this.PMU.configure(this);
+            this.PMU.build();
+            this.default_map.add_submap(this.PMU.default_map, 'h1000);
             this.INTC = new("INTC");
             this.INTC.configure(this);
             this.INTC.build();
@@ -536,6 +879,10 @@ package soc_apb_ral_pkg;
             this.DMA.configure(this);
             this.DMA.build();
             this.default_map.add_submap(this.DMA.default_map, 'h4000);
+            this.HOST = new("HOST");
+            this.HOST.configure(this);
+            this.HOST.build();
+            this.default_map.add_submap(this.HOST.default_map, 'h5000);
         endfunction : build
     endclass : soc_apb
 

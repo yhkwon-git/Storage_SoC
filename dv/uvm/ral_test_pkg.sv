@@ -2,9 +2,9 @@
 //
 // UVM register tests for the APB blocks, run on Vivado's simulator (xsim)
 // with UVM 1.2. The register model is the generated soc_apb
-// (dv/ral/soc_apb_ral_pkg.sv); the DUT is apb_sys, apb_intc, apb_timer and
-// dma, so the generated register RTL is tested together with the logic
-// around it.
+// (dv/ral/soc_apb_ral_pkg.sv); the DUT is apb_sys, apb_intc, apb_timer, dma
+// and soc_pwr (PMU behind its clock-domain crossing, HOST), so the generated
+// register RTL is tested together with the logic around it.
 //
 //   1. uvm_reg_hw_reset_seq   every register's reset value
 //   2. uvm_reg_bit_bash_seq   every bit of every register: written 1 and 0,
@@ -16,15 +16,21 @@
 //                             registers ignored without error; DMA: a
 //                             misaligned DESC_PTR ends in ERR with cause 4
 //                             and no bus request, ERR reaches INTC source 2,
-//                             write-1-to-clear, ABORT while idle does nothing
+//                             write-1-to-clear, ABORT while idle does nothing;
+//                             PMU and HOST: power-on reset cause, a PD_HOST
+//                             power-up with its interrupt, a command through
+//                             PD_HOST, a power-down
 //   4. decode                 PSLVERR for offsets and slots with no register
 //
 // Left out of 1 and 2, with the reason: MTIME_LO/HI count from reset
 // (checked in 3); CONSOLE and EXIT are write-only events that read as 0
 // (checked in 3); DMA CTRL is write-only and a 1 in it starts or aborts the
-// DMA (checked in 3). Fields written by hardware (PENDING, CLAIM, MTIME, the
-// DMA's status and counters) are volatile in the model, so the bit bash does
-// not compare them.
+// DMA (checked in 3); PMU PWR_CTRL starts power sequences and CHIP_RESET
+// resets the testbench; PMU RST_CAUSE is set by hardware at power-on
+// (checked in 3); HOST TX and RX push and pop the host FIFOs (checked in 3).
+// Fields written by hardware (PENDING, CLAIM, MTIME, the DMA's and PMU's
+// status and counters) are volatile in the model, so the bit bash does not
+// compare them.
 
 package ral_test_pkg;
   `include "uvm_macros.svh"
@@ -93,6 +99,16 @@ package ral_test_pkg;
       end
     endfunction
 
+    // Poll PWR_STATUS until the PD_HOST sequencer reaches state s.
+    task wait_pmu_state(int s, output uvm_reg_data_t v);
+      uvm_status_e st;
+      int n = 0;
+      do begin
+        env.regmodel.PMU.PWR_STATUS.read(st, v);
+        n++;
+      end while (v[3:0] != s && n < 50);
+    endtask
+
     task raw(bit [15:0] addr, bit write, bit [31:0] data, output bit [31:0] rdata, output bit slverr);
       apb_single_seq s = apb_single_seq::type_id::create("s");
       s.addr  = addr;
@@ -126,6 +142,12 @@ package ral_test_pkg;
       exclude(rm.SYS.CONSOLE,    "NO_REG_BIT_BASH_TEST");
       exclude(rm.SYS.EXIT,       "NO_REG_BIT_BASH_TEST");
       exclude(rm.DMA.CTRL,       "NO_REG_BIT_BASH_TEST");
+      exclude(rm.PMU.PWR_CTRL,   "NO_REG_BIT_BASH_TEST");
+      exclude(rm.PMU.CHIP_RESET, "NO_REG_BIT_BASH_TEST");
+      exclude(rm.PMU.RST_CAUSE,  "NO_REG_HW_RESET_TEST");
+      exclude(rm.PMU.RST_CAUSE,  "NO_REG_BIT_BASH_TEST");
+      exclude(rm.HOST.TX,        "NO_REG_BIT_BASH_TEST");
+      exclude(rm.HOST.RX,        "NO_REG_BIT_BASH_TEST");
 
       // 1. Reset values.
       rst_seq = uvm_reg_hw_reset_seq::type_id::create("rst_seq");
@@ -224,11 +246,44 @@ package ral_test_pkg;
       rm.DMA.CYCLES.read(st, v2);
       expect_ok(v == 32'h0 && v2 == 32'h0, $sformatf("DMA STATUS %h CYCLES %0d after ABORT while idle", v, v2));
 
+      // 3e. PMU through its clock-domain crossing, and HOST: power-on reset
+      // cause; a PD_HOST power-up ends in ON with the DONE interrupt on INTC
+      // source 10; one command through PD_HOST and back; a power-down ends in
+      // OFF and counts in PWR_CYCLES.
+      rm.PMU.TIMEOUT.write(st, 32'd64);   // the bit bash may have left anything here
+      rm.PMU.RST_CAUSE.read(st, v);
+      expect_ok(v == 32'h1, $sformatf("PMU RST_CAUSE %h after power-on, expected 1", v));
+      rm.PMU.RST_CAUSE.write(st, 32'h3);
+      rm.PMU.RST_CAUSE.read(st, v);
+      expect_ok(v == 32'h0, $sformatf("PMU RST_CAUSE %h after writing 1s, expected 0", v));
+      rm.PMU.PWR_CTRL.write(st, 32'h101);
+      wait_pmu_state(5, v);
+      expect_ok(v[3:0] == 4'd5, $sformatf("PMU PWR_STATUS %h after UP, expected state 5 (ON)", v));
+      rm.PMU.PWR_IRQ.read(st, v);
+      expect_ok(v == 32'h1, $sformatf("PMU PWR_IRQ %h after a power-up, expected 1 (DONE)", v));
+      rm.INTC.PENDING.read(st, v);
+      expect_ok(v == 32'h400, $sformatf("INTC PENDING %h with the PMU interrupt, expected 400 (source 10)", v));
+      rm.PMU.PWR_IRQ.write(st, 32'h1);
+      repeat (100) @(posedge vif.pclk);
+      rm.INTC.PENDING.read(st, v);
+      expect_ok(v == 32'h0, $sformatf("INTC PENDING %h after clearing PWR_IRQ", v));
+      rm.HOST.STATUS.read(st, v);
+      expect_ok(v == 32'hC, $sformatf("HOST STATUS %h with PD_HOST on, expected C (ON, IDLE)", v));
+      rm.HOST.TX.write(st, 32'h0000_0042);
+      do rm.HOST.STATUS.read(st, v); while (!v[0]);
+      rm.HOST.RX.read(st, v);
+      expect_ok(v == 32'h0000_0042, $sformatf("HOST RX %h, expected 00000042 (ECHO, SEQ 0)", v));
+      rm.PMU.PWR_CTRL.write(st, 32'h102);
+      wait_pmu_state(0, v);
+      rm.PMU.PWR_CYCLES.read(st, v2);
+      expect_ok(v[3:0] == 4'd0 && v2 == 32'd1, $sformatf("PMU PWR_STATUS %h PWR_CYCLES %0d after DOWN", v, v2));
+      rm.PMU.PWR_IRQ.write(st, 32'h3);
+
       // 4. Decode: offsets and slots without a register answer PSLVERR.
       raw(16'h0000, 1'b0, 0, rd, err);
       expect_ok(!err && rd == 32'h5353_4F43, "ID read through a raw transfer");
-      bad_addr = '{16'h0018, 16'h0FFC, 16'h1000, 16'h1FFC, 16'h2010, 16'h3014, 16'h4020, 16'h5000,
-                   16'hF000};
+      bad_addr = '{16'h0018, 16'h0FFC, 16'h1020, 16'h1FFC, 16'h2010, 16'h3014, 16'h4020, 16'h5010,
+                   16'h6000, 16'hF000};
       foreach (bad_addr[i]) begin
         raw(bad_addr[i], 1'b0, 0, rd, err);
         expect_ok(err, $sformatf("read of %h answered without PSLVERR", bad_addr[i]));

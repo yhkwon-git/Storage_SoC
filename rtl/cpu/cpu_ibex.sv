@@ -8,7 +8,14 @@
 // RV32IMC with the fast multiplier, no B extension, no PMP, no instruction
 // cache, no security features, flip-flop register file. The core and its
 // register file are wired here the way ibex_top wires them, without the
-// clock gate, lockstep and cache RAMs ibex_top adds.
+// lockstep and cache RAMs ibex_top adds.
+//
+// Clock gate (step 1-7), as in ibex_top: the core and its register file run
+// on a gated clock that stops while the core reports not busy (it sleeps in
+// WFI) and no enabled interrupt is pending. The busy flag is registered on
+// the free-running clock. Differences from ibex_top: the flag resets to busy,
+// so the first cycle after reset is not gated, and cg_en (SYS CLK_GATE.CPU)
+// turns the gate off. sleeping marks each clock the gate removes.
 //
 // boot_addr is 0: the vector table sits at 0x0000_0000 and the first
 // instruction is fetched from 0x0000_0080.
@@ -41,6 +48,8 @@ module cpu_ibex (
   input  wire          irq_timer,
   input  wire          irq_external,
 
+  input  wire          cg_en,
+  output logic         sleeping,
   output logic         core_busy,
   output logic         double_fault
 );
@@ -60,6 +69,20 @@ module cpu_ibex (
   ibex_mubi_t core_busy_mubi;
   assign core_busy = (core_busy_mubi != IbexMuBiOff);
 
+  // Clock gate. Bit 0 of the multi-bit busy flag is 1 for busy, as ibex_top
+  // uses it in its non-secure configuration.
+  logic core_busy_q, irq_pending, clock_en, clk_core;
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) core_busy_q <= 1'b1;
+    else        core_busy_q <= core_busy_mubi[0];
+  end
+
+  assign clock_en = core_busy_q | irq_pending | !cg_en;
+  assign sleeping = !clock_en;
+
+  clk_gate u_cg (.clk(clk), .en(clock_en), .test_en(1'b0), .gclk(clk_core));
+
   /* verilator lint_off PINCONNECTEMPTY */
   ibex_core #(
     .PMPEnable         (1'b0),
@@ -76,7 +99,7 @@ module cpu_ibex (
     .RegFileECC        (1'b0),
     .MemECC            (1'b0)
   ) u_ibex_core (
-    .clk_i                  (clk),
+    .clk_i                  (clk_core),
     .rst_ni                 (rst_n),
     .hart_id_i              (32'd0),
     .boot_addr_i            (32'd0),
@@ -126,7 +149,7 @@ module cpu_ibex (
     .irq_external_i         (irq_external),
     .irq_fast_i             (15'd0),
     .irq_nm_i               (1'b0),
-    .irq_pending_o          (),
+    .irq_pending_o          (irq_pending),
 
     .debug_req_i            (1'b0),
     .crash_dump_o           (),
@@ -147,7 +170,7 @@ module cpu_ibex (
     .RdataMuxCheck     (1'b0),
     .WordZeroVal       (32'h0)
   ) u_rf (
-    .clk_i             (clk),
+    .clk_i             (clk_core),
     .rst_ni            (rst_n),
     .test_en_i         (1'b0),
     .dummy_instr_id_i  (1'b0),

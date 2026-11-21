@@ -16,15 +16,50 @@
 // Console characters are printed line by line as [FW] lines. A write to the
 // SYS EXIT register ends the run: code 0 is a pass. An axi4_checker watches
 // each of the nine crossbar ports.
+//
+// Clocks (step 1-7): clk_sys 50 MHz, clk_aon 1 MHz, clk_nand 50 MHz, pclk_in
+// 62.5 MHz. por_n rises after 2 us; the PMU then releases the core reset, and
+// cycles count from that release, which also restarts after a chip reset. The
+// PD_HOST power switch acknowledges 3 clk_aon cycles after a change of
+// host_pwr_en.
 
 `timescale 1ns/1ps
 
 module tb_soc;
   import axi_tb_pkg::*;
 
-  logic clk   = 1'b0;
-  logic rst_n = 1'b0;
-  always #10 clk = ~clk;  // 50 MHz
+  logic clk_sys  = 1'b0;
+  logic clk_aon  = 1'b0;
+  logic clk_nand = 1'b0;
+  logic pclk_in  = 1'b0;
+  logic por_n    = 1'b0;
+  always #10  clk_sys = ~clk_sys;  // 50 MHz
+  always #500 clk_aon = ~clk_aon;  // 1 MHz
+  always #8   pclk_in = ~pclk_in;  // 62.5 MHz
+  initial begin
+    #3;
+    forever #10 clk_nand = ~clk_nand;
+  end
+
+  wire  clk   = clk_sys;
+  wire  rst_n = dut.rst_sys_n;
+
+  // PD_HOST power switch.
+  logic host_pwr_en;
+  logic host_pwr_ack = 1'b0;
+  logic host_wake    = 1'b0;
+  int   sw_cnt       = 0;
+  always @(posedge clk_aon) begin
+    if (host_pwr_ack != host_pwr_en) begin
+      sw_cnt++;
+      if (sw_cnt >= 3) begin
+        host_pwr_ack <= host_pwr_en;
+        sw_cnt = 0;
+      end
+    end else begin
+      sw_cnt = 0;
+    end
+  end
 
   // ---------------------------------------------------------------------------
   // External master port M3
@@ -286,7 +321,7 @@ module tb_soc;
     // rtl/csr/rdl/soc_apb.rdl.
     t = mk_apb(1'b0, 32'h4000_0000, 0, 0);
     apb_send(t);
-    apb_expect(t.rdata[0] == {32'h0001_0006, 32'h5353_4F43}, "64-bit read of ID and VERSION");
+    apb_expect(t.rdata[0] == {32'h0001_0007, 32'h5353_4F43}, "64-bit read of ID and VERSION");
     // SCRATCH written through the lower word only (WSTRB 0x0F).
     t = mk_apb(1'b1, 32'h4000_0008, 0, 0);
     t.data.push_back({32'hDEAD_BEEF, 32'h1234_5678});
@@ -297,8 +332,8 @@ module tb_soc;
     t = mk_apb(1'b0, 32'h4000_0008, 0, 2);
     apb_send(t);
     apb_expect(t.rdata[0] == {32'h0, 32'h1234_5678}, "SCRATCH beside an undefined word");
-    // The PMU slot has no peripheral yet.
-    t = mk_apb(1'b1, 32'h4000_1000, 0, 2);
+    // Slot 6 (NAND0 registers, phase 3) has no peripheral yet.
+    t = mk_apb(1'b1, 32'h4000_6000, 0, 2);
     t.data.push_back(64'h1);
     t.strb.push_back(8'hFF);
     apb_send(t);
@@ -325,8 +360,10 @@ module tb_soc;
     bg = $test$plusargs("bg");
     #1;
     mst.run();
-    repeat (5) @(negedge clk);
-    rst_n = 1'b1;
+    #2000;
+    por_n = 1'b1;
+    wait (rst_n === 1'b1);
+    @(negedge clk);
     if (bg) begin
       fork
         gen_bg();

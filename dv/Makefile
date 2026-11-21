@@ -5,6 +5,10 @@
 #   make -C dv xbar-mut   crossbar testbench against seven planted bugs (not part of all)
 #   make -C dv dma        DMA: directed test and SEEDS random seeds (SEEDS, DMA_N: see run_dma.sh)
 #   make -C dv dma-mut    DMA testbench against ten planted bugs (not part of all)
+#   make -C dv power      PMU, PD_HOST and resets: directed and PLL-stuck tests, random off-state values
+#   make -C dv power-x    the same on Vivado's simulator with X off-state values (Windows, not part of all)
+#   make -C dv power-mut  power testbench against eleven planted bugs (not part of all)
+#   make -C dv iso-check  isolation and retention in the RTL match syn/upf/storage_soc.upf
 #   make -C dv soc        firmware tests on soc_top, alone and with background traffic
 #   make -C dv ral        UVM register tests on Vivado's simulator (Windows, through WSL interop;
 #                         not part of all: the CI image has no Vivado)
@@ -20,18 +24,28 @@ RTL := ../rtl
 XBAR_RTL := $(RTL)/common/rr_arb.sv $(RTL)/common/fifo_sync.sv \
             $(RTL)/axi/axi_id_tracker.sv $(RTL)/axi/axi_err_slv.sv $(RTL)/axi/axi_xbar.sv
 CSR_GEN  := $(RTL)/csr/gen/sys_regs_pkg.sv $(RTL)/csr/gen/intc_regs_pkg.sv $(RTL)/csr/gen/timer_regs_pkg.sv \
-            $(RTL)/csr/gen/dma_regs_pkg.sv \
+            $(RTL)/csr/gen/dma_regs_pkg.sv $(RTL)/csr/gen/pmu_regs_pkg.sv $(RTL)/csr/gen/host_regs_pkg.sv \
             $(RTL)/csr/gen/sys_regs.sv $(RTL)/csr/gen/intc_regs.sv $(RTL)/csr/gen/timer_regs.sv \
-            $(RTL)/csr/gen/dma_regs.sv
+            $(RTL)/csr/gen/dma_regs.sv $(RTL)/csr/gen/pmu_regs.sv $(RTL)/csr/gen/host_regs.sv
 DMA_RTL  := $(RTL)/csr/gen/dma_regs_pkg.sv $(RTL)/csr/gen/dma_regs.sv $(RTL)/common/fifo_sync.sv \
             $(RTL)/dma/dma.sv
+PWR_RTL  := $(RTL)/csr/gen/pmu_regs_pkg.sv $(RTL)/csr/gen/host_regs_pkg.sv \
+            $(RTL)/csr/gen/pmu_regs.sv $(RTL)/csr/gen/host_regs.sv \
+            $(RTL)/common/cdc_sync_2ff.sv $(RTL)/common/cdc_async_fifo.sv $(RTL)/common/rst_sync.sv \
+            $(RTL)/common/clk_gate.sv $(RTL)/pmu/iso_clamp.sv $(RTL)/pmu/ret_reg.sv $(RTL)/pmu/apb_cdc.sv \
+            $(RTL)/pmu/pmu.sv $(RTL)/host/phy_pll_model.sv $(RTL)/host/host_stub.sv $(RTL)/host/pd_host.sv \
+            $(RTL)/host/host_if.sv $(RTL)/top/soc_pwr.sv
 SOC_RTL  := $(CSR_GEN) $(XBAR_RTL) $(RTL)/axi/axi2apb.sv $(RTL)/cpu/cpu_ibex.sv $(RTL)/cpu/obi2axi.sv \
             $(RTL)/mem/axi_mem.sv $(RTL)/periph/apb_sys.sv $(RTL)/periph/apb_timer.sv \
-            $(RTL)/periph/apb_intc.sv $(RTL)/dma/dma.sv $(RTL)/top/soc_top.sv
+            $(RTL)/periph/apb_intc.sv $(RTL)/dma/dma.sv \
+            $(RTL)/common/cdc_sync_2ff.sv $(RTL)/common/cdc_async_fifo.sv $(RTL)/common/rst_sync.sv \
+            $(RTL)/common/clk_gate.sv $(RTL)/pmu/iso_clamp.sv $(RTL)/pmu/ret_reg.sv $(RTL)/pmu/apb_cdc.sv \
+            $(RTL)/pmu/pmu.sv $(RTL)/host/phy_pll_model.sv $(RTL)/host/host_stub.sv $(RTL)/host/pd_host.sv \
+            $(RTL)/host/host_if.sv $(RTL)/top/soc_pwr.sv $(RTL)/top/soc_top.sv
 
-.PHONY: all lint fifo slice xbar xbar-mut dma dma-mut soc ral ral-mut rdl-check
+.PHONY: all lint fifo slice xbar xbar-mut dma dma-mut power power-x power-mut iso-check soc ral ral-mut rdl-check
 
-all: lint fifo slice xbar dma soc
+all: lint iso-check fifo slice xbar dma power soc
 
 lint:
 	verilator --lint-only -Wall --top-module cdc_async_fifo \
@@ -40,6 +54,7 @@ lint:
 	  $(RTL)/axi/axi_channel_reg_slice.sv
 	verilator --lint-only -Wall --top-module axi_xbar $(XBAR_RTL)
 	verilator --lint-only -Wall --timescale 1ns/1ps --top-module dma lint/waivers.vlt $(DMA_RTL)
+	verilator --lint-only -Wall --timescale 1ns/1ps --top-module soc_pwr lint/waivers.vlt $(PWR_RTL)
 	verilator --lint-only -Wall --timescale 1ns/1ps --top-module soc_top \
 	  lint/waivers.vlt -F $(RTL)/vendor/ibex/ibex.f $(SOC_RTL)
 	@echo "[LINT] PASS"
@@ -66,6 +81,18 @@ dma:
 
 dma-mut:
 	bash mutate_dma.sh
+
+power:
+	bash run_power.sh
+
+power-x:
+	powershell.exe -ExecutionPolicy Bypass -File "$$(wslpath -w run_power_x.ps1)"
+
+power-mut:
+	bash mutate_power.sh
+
+iso-check:
+	python3 ../flow/power/check_iso.py
 
 soc:
 	bash run_soc.sh

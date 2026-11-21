@@ -26,13 +26,49 @@
 #define SYS_BASE    (APB_BASE + (uint32_t)offsetof(soc_apb_t, SYS))
 #define INTC_BASE   (APB_BASE + (uint32_t)offsetof(soc_apb_t, INTC))
 #define TIMER_BASE  (APB_BASE + (uint32_t)offsetof(soc_apb_t, TIMER))
-#define PMU_BASE    (APB_BASE + 0x1000u) /* slot reserved; no registers yet */
+#define PMU_BASE    (APB_BASE + (uint32_t)offsetof(soc_apb_t, PMU))
+#define HOST_BASE   (APB_BASE + (uint32_t)offsetof(soc_apb_t, HOST))
+#define EMPTY_SLOT_BASE (APB_BASE + 0x6000u) /* NAND0 registers, phase 3 */
 
-#define SYS_ID         APB_REG(SYS.ID)
-#define SYS_VERSION    APB_REG(SYS.VERSION)
-#define SYS_SCRATCH    APB_REG(SYS.SCRATCH)
-#define SYS_CONSOLE    APB_REG(SYS.CONSOLE)
-#define SYS_EXIT       APB_REG(SYS.EXIT)
+#define SYS_ID           APB_REG(SYS.ID)
+#define SYS_VERSION      APB_REG(SYS.VERSION)
+#define SYS_SCRATCH      APB_REG(SYS.SCRATCH)
+#define SYS_CONSOLE      APB_REG(SYS.CONSOLE)
+#define SYS_EXIT         APB_REG(SYS.EXIT)
+#define SYS_SOFT_RESET   APB_REG(SYS.SOFT_RESET)
+#define SYS_CLK_GATE     APB_REG(SYS.CLK_GATE)
+#define SYS_SLEEP_CYCLES APB_REG(SYS.SLEEP_CYCLES)
+
+/* PMU (PD_AON, behind a clock-domain crossing: each access takes a few
+ * microseconds). */
+#define PMU_PWR_CTRL     APB_REG(PMU.PWR_CTRL)
+#define PMU_PWR_STATUS   APB_REG(PMU.PWR_STATUS)
+#define PMU_PWR_IRQ      APB_REG(PMU.PWR_IRQ)
+#define PMU_TIMEOUT      APB_REG(PMU.TIMEOUT)
+#define PMU_CHIP_RESET   APB_REG(PMU.CHIP_RESET)
+#define PMU_RST_CAUSE    APB_REG(PMU.RST_CAUSE)
+#define PMU_AON_SCRATCH  APB_REG(PMU.AON_SCRATCH)
+#define PMU_PWR_CYCLES   APB_REG(PMU.PWR_CYCLES)
+
+#define PMU_UP          PMU_REGS__PWR_CTRL__UP_bm
+#define PMU_DOWN        PMU_REGS__PWR_CTRL__DOWN_bm
+#define PMU_WAKE_EN     PMU_REGS__PWR_CTRL__WAKE_EN_bm
+#define PMU_STATE(s)    ((s) & PMU_REGS__PWR_STATUS__STATE_bm)
+#define PMU_RESULT(s)   (((s) & PMU_REGS__PWR_STATUS__RESULT_bm) >> PMU_REGS__PWR_STATUS__RESULT_bp)
+#define PMU_STATE_OFF   0u
+#define PMU_STATE_ON    5u
+#define PMU_IRQ_DONE    PMU_REGS__PWR_IRQ__DONE_bm
+#define PMU_IRQ_ERR     PMU_REGS__PWR_IRQ__ERR_bm
+#define PMU_CHIP_KEY    0x5AFE0001u
+
+/* HOST: the PD_HOST placeholder (docs/07_clock_reset_power.md). */
+#define HOST_TX          APB_REG(HOST.TX)
+#define HOST_RX          APB_REG(HOST.RX)
+#define HOST_STATUS      APB_REG(HOST.STATUS)
+#define HOST_RX_VALID    HOST_REGS__STATUS__RX_VALID_bm
+#define HOST_ON          HOST_REGS__STATUS__ON_bm
+#define HOST_IDLE        HOST_REGS__STATUS__IDLE_bm
+#define HOST_TX_DROP     HOST_REGS__STATUS__TX_DROP_bm
 
 #define INTC_PENDING   APB_REG(INTC.PENDING)
 #define INTC_ENABLE    APB_REG(INTC.ENABLE)
@@ -74,6 +110,7 @@ typedef struct __attribute__((aligned(16))) {
 /* INTC source IDs (docs/01, section 7). */
 #define IRQ_DMA_DONE 1u
 #define IRQ_DMA_ERR  2u
+#define IRQ_PMU      10u
 
 #define SOC_ID SYS_REGS__ID__VALUE_reset
 

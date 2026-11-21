@@ -1,11 +1,17 @@
 // ral_tb
 //
-// The four APB blocks behind one APB bus, decoded by slot like the SoC's
-// bridge does (paddr[15:12]: 0 SYS, 2 INTC, 3 TIMER, 4 DMA; other slots
-// answer PSLVERR), driven by the UVM register test in ral_test_pkg. The DMA's
-// AXI port sees a bus that never answers: the test starts it only with a
-// misaligned DESC_PTR, which ends with an error before any bus request. Its
-// DONE and ERR feed INTC sources 1 and 2, as in soc_top.
+// The APB blocks behind one APB bus, decoded by slot like the SoC's bridge
+// does (paddr[15:12]: 0 SYS, 1 PMU, 2 INTC, 3 TIMER, 4 DMA, 5 HOST; other
+// slots answer PSLVERR), driven by the UVM register test in ral_test_pkg.
+//
+//   * PMU and HOST come with soc_pwr, as in soc_top: the PMU is reached
+//     through its APB crossing into clk_aon, and soc_pwr's core reset is this
+//     testbench's reset. PD_HOST does not power up by itself here (AUTO_UP 0);
+//     a switch model acknowledges pwr_en 2 clk_aon cycles later.
+//   * The DMA's AXI port sees a bus that never answers: the test starts it
+//     only with a misaligned DESC_PTR, which ends with an error before any
+//     bus request.
+//   * INTC sources: 1 and 2 DMA DONE and ERR, 10 PMU, as in soc_top.
 
 `timescale 1ns/1ps
 
@@ -13,21 +19,27 @@ module ral_tb;
   import uvm_pkg::*;
   import ral_test_pkg::*;
 
-  logic clk   = 1'b0;
-  logic rst_n = 1'b0;
-  always #10 clk = ~clk;
+  logic clk     = 1'b0;
+  logic clk_aon = 1'b0;
+  logic pclk_in = 1'b0;
+  logic por_n   = 1'b0;
+  always #10  clk     = ~clk;
+  always #500 clk_aon = ~clk_aon;
+  always #8   pclk_in = ~pclk_in;
 
+  wire rst_n;
   apb_if apb (.pclk(clk), .presetn(rst_n));
 
   wire [3:0] slot = apb.paddr[15:12];
 
-  logic [31:0] rd_sys, rd_intc, rd_tmr, rd_dma;
-  logic        rdy_sys, rdy_intc, rdy_tmr, rdy_dma;
-  logic        err_sys, err_intc, err_tmr, err_dma;
-  logic        dma_done, dma_err;
+  logic [31:0] rd_sys, rd_intc, rd_tmr, rd_dma, rd_pmu, rd_host;
+  logic        rdy_sys, rdy_intc, rdy_tmr, rdy_dma, rdy_pmu, rdy_host;
+  logic        err_sys, err_intc, err_tmr, err_dma, err_pmu, err_host;
+  logic        dma_done, dma_err, pmu_irq;
   logic        console_valid, exit_valid;
   logic [7:0]  console_char;
   logic [31:0] exit_code;
+  logic        soft_rst_dma, cg_cpu;
 
   apb_sys u_sys (
     .clk (clk), .rst_n (rst_n),
@@ -35,7 +47,8 @@ module ral_tb;
     .pwrite (apb.pwrite), .pwdata (apb.pwdata), .pstrb (apb.pstrb),
     .prdata (rd_sys), .pready (rdy_sys), .pslverr (err_sys),
     .console_valid (console_valid), .console_char (console_char),
-    .exit_valid (exit_valid), .exit_code (exit_code)
+    .exit_valid (exit_valid), .exit_code (exit_code),
+    .soft_rst_dma (soft_rst_dma), .cg_cpu (cg_cpu), .cpu_sleep (1'b0)
   );
 
   apb_intc u_intc (
@@ -43,7 +56,7 @@ module ral_tb;
     .psel (apb.psel && slot == 4'd2), .penable (apb.penable), .paddr (apb.paddr[11:0]),
     .pwrite (apb.pwrite), .pwdata (apb.pwdata), .pstrb (apb.pstrb),
     .prdata (rd_intc), .pready (rdy_intc), .pslverr (err_intc),
-    .src ({29'd0, dma_err, dma_done, 1'b0}), .irq (apb.irq_external)
+    .src ({21'd0, pmu_irq, 7'd0, dma_err, dma_done, 1'b0}), .irq (apb.irq_external)
   );
 
   apb_timer u_tmr (
@@ -83,12 +96,52 @@ module ral_tb;
   );
   assign apb.dma_bus_req = m_awvalid || m_arvalid;
 
+  // PMU and HOST, with the core reset.
+  logic pwr_en, pwr_ack = 1'b0;
+  logic rst_nand_n, sys_rst_req_n;
+
+  soc_pwr #(.SYS_DELAY(4), .AUTO_UP(1'b0)) u_pwr (
+    .clk_sys       (clk),
+    .clk_aon       (clk_aon),
+    .clk_nand      (clk),
+    .pclk_in       (pclk_in),
+    .por_n         (por_n),
+    .rst_sys_n     (rst_n),
+    .rst_nand_n    (rst_nand_n),
+    .sys_rst_req_n (sys_rst_req_n),
+    .psel_pmu      (apb.psel && slot == 4'd1),
+    .psel_host     (apb.psel && slot == 4'd5),
+    .penable       (apb.penable),
+    .paddr         (apb.paddr[11:0]),
+    .pwrite        (apb.pwrite),
+    .pwdata        (apb.pwdata),
+    .pstrb         (apb.pstrb),
+    .prdata_pmu    (rd_pmu),
+    .pready_pmu    (rdy_pmu),
+    .pslverr_pmu   (err_pmu),
+    .prdata_host   (rd_host),
+    .pready_host   (rdy_host),
+    .pslverr_host  (err_host),
+    .irq_pmu       (pmu_irq),
+    .host_pwr_en   (pwr_en),
+    .host_pwr_ack  (pwr_ack),
+    .host_wake     (1'b0)
+  );
+
+  logic [1:0] sw_pipe = 2'b00;
+  always @(posedge clk_aon) begin
+    sw_pipe <= {sw_pipe[0], pwr_en};
+    pwr_ack <= sw_pipe[1];
+  end
+
   always_comb begin
     case (slot)
       4'd0:    begin apb.prdata = rd_sys;  apb.pready = rdy_sys;  apb.pslverr = err_sys;  end
+      4'd1:    begin apb.prdata = rd_pmu;  apb.pready = rdy_pmu;  apb.pslverr = err_pmu;  end
       4'd2:    begin apb.prdata = rd_intc; apb.pready = rdy_intc; apb.pslverr = err_intc; end
       4'd3:    begin apb.prdata = rd_tmr;  apb.pready = rdy_tmr;  apb.pslverr = err_tmr;  end
       4'd4:    begin apb.prdata = rd_dma;  apb.pready = rdy_dma;  apb.pslverr = err_dma;  end
+      4'd5:    begin apb.prdata = rd_host; apb.pready = rdy_host; apb.pslverr = err_host; end
       default: begin apb.prdata = 32'd0;   apb.pready = 1'b1;     apb.pslverr = 1'b1;     end
     endcase
   end
@@ -115,7 +168,10 @@ module ral_tb;
   end
 
   initial begin
-    repeat (5) @(posedge clk);
-    rst_n = 1'b1;
+    #2000;
+    por_n = 1'b1;
   end
+
+  // Outputs this testbench does not look at.
+  wire unused_ok = ^{soft_rst_dma, cg_cpu, rst_nand_n, sys_rst_req_n};
 endmodule

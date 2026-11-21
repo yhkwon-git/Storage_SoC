@@ -20,7 +20,7 @@ extern "C" {
 #define SYS_REGS__VERSION__VALUE_bm 0xffffffff
 #define SYS_REGS__VERSION__VALUE_bp 0
 #define SYS_REGS__VERSION__VALUE_bw 32
-#define SYS_REGS__VERSION__VALUE_reset 0x10006
+#define SYS_REGS__VERSION__VALUE_reset 0x10007
 
 // reg - sys_regs::SCRATCH
 #define SYS_REGS__SCRATCH__VALUE_bm 0xffffffff
@@ -40,6 +40,23 @@ extern "C" {
 #define SYS_REGS__EXIT__CODE_bw 32
 #define SYS_REGS__EXIT__CODE_reset 0x0
 
+// reg - sys_regs::SOFT_RESET
+#define SYS_REGS__SOFT_RESET__DMA_bm 0x1
+#define SYS_REGS__SOFT_RESET__DMA_bp 0
+#define SYS_REGS__SOFT_RESET__DMA_bw 1
+#define SYS_REGS__SOFT_RESET__DMA_reset 0x0
+
+// reg - sys_regs::CLK_GATE
+#define SYS_REGS__CLK_GATE__CPU_bm 0x1
+#define SYS_REGS__CLK_GATE__CPU_bp 0
+#define SYS_REGS__CLK_GATE__CPU_bw 1
+#define SYS_REGS__CLK_GATE__CPU_reset 0x1
+
+// reg - sys_regs::SLEEP_CYCLES
+#define SYS_REGS__SLEEP_CYCLES__COUNT_bm 0xffffffff
+#define SYS_REGS__SLEEP_CYCLES__COUNT_bp 0
+#define SYS_REGS__SLEEP_CYCLES__COUNT_bw 32
+
 // addrmap - sys_regs
 typedef struct __attribute__ ((__packed__)) {
     uint32_t ID;
@@ -48,7 +65,94 @@ typedef struct __attribute__ ((__packed__)) {
     uint8_t RESERVED_c_f[0x4];
     uint32_t CONSOLE;
     uint32_t EXIT;
+    uint8_t RESERVED_18_ff[0xe8];
+    uint32_t SOFT_RESET;
+    uint32_t CLK_GATE;
+    uint32_t SLEEP_CYCLES;
 } sys_regs_t;
+
+// reg - pmu_regs::PWR_CTRL
+#define PMU_REGS__PWR_CTRL__UP_bm 0x1
+#define PMU_REGS__PWR_CTRL__UP_bp 0
+#define PMU_REGS__PWR_CTRL__UP_bw 1
+#define PMU_REGS__PWR_CTRL__UP_reset 0x0
+#define PMU_REGS__PWR_CTRL__DOWN_bm 0x2
+#define PMU_REGS__PWR_CTRL__DOWN_bp 1
+#define PMU_REGS__PWR_CTRL__DOWN_bw 1
+#define PMU_REGS__PWR_CTRL__DOWN_reset 0x0
+#define PMU_REGS__PWR_CTRL__WAKE_EN_bm 0x100
+#define PMU_REGS__PWR_CTRL__WAKE_EN_bp 8
+#define PMU_REGS__PWR_CTRL__WAKE_EN_bw 1
+#define PMU_REGS__PWR_CTRL__WAKE_EN_reset 0x1
+
+// reg - pmu_regs::PWR_STATUS
+#define PMU_REGS__PWR_STATUS__STATE_bm 0xf
+#define PMU_REGS__PWR_STATUS__STATE_bp 0
+#define PMU_REGS__PWR_STATUS__STATE_bw 4
+#define PMU_REGS__PWR_STATUS__ON_bm 0x100
+#define PMU_REGS__PWR_STATUS__ON_bp 8
+#define PMU_REGS__PWR_STATUS__ON_bw 1
+#define PMU_REGS__PWR_STATUS__RESULT_bm 0x30000
+#define PMU_REGS__PWR_STATUS__RESULT_bp 16
+#define PMU_REGS__PWR_STATUS__RESULT_bw 2
+#define PMU_REGS__PWR_STATUS__WOKE_bm 0x1000000
+#define PMU_REGS__PWR_STATUS__WOKE_bp 24
+#define PMU_REGS__PWR_STATUS__WOKE_bw 1
+
+// reg - pmu_regs::PWR_IRQ
+#define PMU_REGS__PWR_IRQ__DONE_bm 0x1
+#define PMU_REGS__PWR_IRQ__DONE_bp 0
+#define PMU_REGS__PWR_IRQ__DONE_bw 1
+#define PMU_REGS__PWR_IRQ__DONE_reset 0x0
+#define PMU_REGS__PWR_IRQ__ERR_bm 0x2
+#define PMU_REGS__PWR_IRQ__ERR_bp 1
+#define PMU_REGS__PWR_IRQ__ERR_bw 1
+#define PMU_REGS__PWR_IRQ__ERR_reset 0x0
+
+// reg - pmu_regs::TIMEOUT
+#define PMU_REGS__TIMEOUT__CYCLES_bm 0xffff
+#define PMU_REGS__TIMEOUT__CYCLES_bp 0
+#define PMU_REGS__TIMEOUT__CYCLES_bw 16
+#define PMU_REGS__TIMEOUT__CYCLES_reset 0x40
+
+// reg - pmu_regs::CHIP_RESET
+#define PMU_REGS__CHIP_RESET__KEY_bm 0xffffffff
+#define PMU_REGS__CHIP_RESET__KEY_bp 0
+#define PMU_REGS__CHIP_RESET__KEY_bw 32
+#define PMU_REGS__CHIP_RESET__KEY_reset 0x0
+
+// reg - pmu_regs::RST_CAUSE
+#define PMU_REGS__RST_CAUSE__POR_bm 0x1
+#define PMU_REGS__RST_CAUSE__POR_bp 0
+#define PMU_REGS__RST_CAUSE__POR_bw 1
+#define PMU_REGS__RST_CAUSE__POR_reset 0x0
+#define PMU_REGS__RST_CAUSE__CHIP_bm 0x2
+#define PMU_REGS__RST_CAUSE__CHIP_bp 1
+#define PMU_REGS__RST_CAUSE__CHIP_bw 1
+#define PMU_REGS__RST_CAUSE__CHIP_reset 0x0
+
+// reg - pmu_regs::AON_SCRATCH
+#define PMU_REGS__AON_SCRATCH__VALUE_bm 0xffffffff
+#define PMU_REGS__AON_SCRATCH__VALUE_bp 0
+#define PMU_REGS__AON_SCRATCH__VALUE_bw 32
+#define PMU_REGS__AON_SCRATCH__VALUE_reset 0x0
+
+// reg - pmu_regs::PWR_CYCLES
+#define PMU_REGS__PWR_CYCLES__COUNT_bm 0xffff
+#define PMU_REGS__PWR_CYCLES__COUNT_bp 0
+#define PMU_REGS__PWR_CYCLES__COUNT_bw 16
+
+// addrmap - pmu_regs
+typedef struct __attribute__ ((__packed__)) {
+    uint32_t PWR_CTRL;
+    uint32_t PWR_STATUS;
+    uint32_t PWR_IRQ;
+    uint32_t TIMEOUT;
+    uint32_t CHIP_RESET;
+    uint32_t RST_CAUSE;
+    uint32_t AON_SCRATCH;
+    uint32_t PWR_CYCLES;
+} pmu_regs_t;
 
 // reg - intc_regs::PENDING
 #define INTC_REGS__PENDING__VALUE_bm 0xffffffff
@@ -195,22 +299,62 @@ typedef struct __attribute__ ((__packed__)) {
     uint32_t CYCLES;
 } dma_regs_t;
 
+// reg - host_regs::TX
+#define HOST_REGS__TX__DATA_bm 0xffffffff
+#define HOST_REGS__TX__DATA_bp 0
+#define HOST_REGS__TX__DATA_bw 32
+#define HOST_REGS__TX__DATA_reset 0x0
+
+// reg - host_regs::RX
+#define HOST_REGS__RX__DATA_bm 0xffffffff
+#define HOST_REGS__RX__DATA_bp 0
+#define HOST_REGS__RX__DATA_bw 32
+
+// reg - host_regs::STATUS
+#define HOST_REGS__STATUS__RX_VALID_bm 0x1
+#define HOST_REGS__STATUS__RX_VALID_bp 0
+#define HOST_REGS__STATUS__RX_VALID_bw 1
+#define HOST_REGS__STATUS__TX_FULL_bm 0x2
+#define HOST_REGS__STATUS__TX_FULL_bp 1
+#define HOST_REGS__STATUS__TX_FULL_bw 1
+#define HOST_REGS__STATUS__ON_bm 0x4
+#define HOST_REGS__STATUS__ON_bp 2
+#define HOST_REGS__STATUS__ON_bw 1
+#define HOST_REGS__STATUS__IDLE_bm 0x8
+#define HOST_REGS__STATUS__IDLE_bp 3
+#define HOST_REGS__STATUS__IDLE_bw 1
+#define HOST_REGS__STATUS__TX_DROP_bm 0x100
+#define HOST_REGS__STATUS__TX_DROP_bp 8
+#define HOST_REGS__STATUS__TX_DROP_bw 1
+#define HOST_REGS__STATUS__TX_DROP_reset 0x0
+
+// addrmap - host_regs
+typedef struct __attribute__ ((__packed__)) {
+    uint32_t TX;
+    uint32_t RX;
+    uint32_t STATUS;
+} host_regs_t;
+
 // addrmap - soc_apb
 typedef struct __attribute__ ((__packed__)) {
     sys_regs_t SYS;
-    uint8_t RESERVED_18_1fff[0x1fe8];
+    uint8_t RESERVED_10c_fff[0xef4];
+    pmu_regs_t PMU;
+    uint8_t RESERVED_1020_1fff[0xfe0];
     intc_regs_t INTC;
     uint8_t RESERVED_2010_2fff[0xff0];
     timer_regs_t TIMER;
     uint8_t RESERVED_3014_3fff[0xfec];
     dma_regs_t DMA;
+    uint8_t RESERVED_4020_4fff[0xfe0];
+    host_regs_t HOST;
 } soc_apb_t;
 
 // Instances
 #define soc_apb (*(volatile soc_apb_t *)0x40000000UL)
 
 
-static_assert(sizeof(soc_apb_t) == 0x4020, "Packing error");
+static_assert(sizeof(soc_apb_t) == 0x500c, "Packing error");
 
 #ifdef __cplusplus
 }
