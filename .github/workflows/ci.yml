@@ -12,5 +12,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Toolchain check (Verilator covergroups)
         run: bash flow/tools/check_verilator.sh
-      - name: Block checks (lint, CDC FIFO, register slice)
+      - name: Block checks (lint, CDC FIFO, register slice, crossbar)
         run: make -C dv
+        env:
+          SEEDS: "3"
+          N: "1000"
