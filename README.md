@@ -12,8 +12,8 @@ A RISC-V CPU, an AXI4 interconnect, DMA, SystemRDL-generated CSRs and always-on 
 
 | Item | Value |
 | --- | --- |
-| Current phase | Phase 1, SoC platform: steps 1-1 (architecture), 1-2 (common blocks), 1-3 (AXI4 crossbar), 1-4 (CPU subsystem) and 1-5 (SystemRDL CSRs) done |
-| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 5 AXI4 crossbar, with SRAM and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; dual-clock FIFO, 2-flop synchronizer, channel register slice |
+| Current phase | Phase 1, SoC platform: steps 1-1 (architecture), 1-2 (common blocks), 1-3 (AXI4 crossbar), 1-4 (CPU subsystem), 1-5 (SystemRDL CSRs) and 1-6 (DMA) done |
+| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 5 AXI4 crossbar, with SRAM, a descriptor-based DMA, and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; dual-clock FIFO, 2-flop synchronizer, channel register slice |
 | Verification tools | Vivado simulator 2019.2 (UVM 1.2), Verilator 5.052 |
 | Register generation | PeakRDL 1.5.0: register RTL, C header, UVM register model and register document from one source |
 | Implementation tools | Yosys 0.52, OpenSTA 3.1.0, Sky130 HD (ss/tt/ff corners) |
@@ -71,7 +71,7 @@ flowchart LR
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 0 | Toolchain checks, repository layout, CI, RISC-V GCC | Done |
-| 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | In progress: 1-1 to 1-5 done |
+| 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | In progress: 1-1 to 1-6 done |
 | 2 | Host interface: transaction layer and NVMe front-end (steps 2-1 to 2-5), then data link layer, PHY with a PIPE-style boundary and link training (steps 2-6 to 2-9) | Planned |
 | 3 | Storage datapath: NAND channel controllers, NAND model, BCH, NVMe reads and writes through to NAND | Planned |
 | 4 | SoC-level UVM, verification plan, coverage closure | Planned |
@@ -140,6 +140,26 @@ CSRs (commit 888d3e5, details in [docs/05_csr.md](docs/05_csr.md)):
 - **UVM register tests on xsim.** UVM's reset sequence (12 registers) and bit bash (10 registers) over the generated model, plus 33 behavior and decode checks: 0 failures, UVM_ERROR 0, in 1,191 APB transfers.
 - **Mutation check.** 4 of 4 planted bugs caught (commit 7bbaca7): a reset value, a stuck bit, the claim order, a missing decode error.
 
+DMA (commit 2c90ba1, details in [docs/06_dma.md](docs/06_dma.md)):
+
+- **Design.** Chains of 16-byte descriptors copied over M2:
+  - descriptor prefetch on its own read ID;
+  - 16-beat bursts split at 4 KB;
+  - an aligner for any source and destination byte offset;
+  - FENCE for a descriptor that reads an earlier one's destination.
+
+  Two rules keep it from blocking other masters at the crossbar:
+  - reads are issued only with room for their data, so RREADY is always high;
+  - an AW goes out only when its whole burst is buffered, so W never stalls mid-burst.
+- **Errors.** The first cause and address are recorded, everything already issued drains, then ERR is set. Five causes, each checked.
+- **Block testbench.**
+  - Every byte is compared with a reference, with guard bytes around each destination.
+  - The directed test covers all 64 source/destination offset pairs, page splits, FENCE, each error cause, abort and restart.
+  - Random chains run on a random-latency memory with error ranges: 10 seeds, 2,000 chains, 17.2 MB copied, 163 error runs and 84 aborts, 0 errors, covergroup bins 155 of 155.
+  - Mutation check: 10 of 10 planted bugs caught.
+- **Throughput.** 7.97 bytes per clock on a 64 KiB copy with a memory that never stalls (99.6% of the bus). 4096 B SRAM to SRAM takes 571 clocks in the SoC (`dma` firmware test).
+- **SoC.** The `dma` firmware test copies through SRAM and both NAND page buffers, scatters unaligned pieces under the DONE interrupt, and gets the ERR interrupt with DECERR for paths M2 does not have. Alone, the earlier tests keep their clock counts.
+
 ## How to run
 
 ```bash
@@ -153,9 +173,10 @@ powershell -ExecutionPolicy Bypass -File flow\tools\check_xsim.ps1   # [TOOLS] x
 ```
 
 ```bash
-# Block and SoC checks (Linux or WSL): lint, dual-clock FIFO, register slice, crossbar, firmware on soc_top
-make -C dv                                                           # [LINT] PASS ... [XBAR] all runs PASS, [SOC] all runs PASS
+# Block and SoC checks (Linux or WSL): lint, dual-clock FIFO, register slice, crossbar, DMA, firmware on soc_top
+make -C dv                                                           # [LINT] PASS ... [XBAR] [DMA] [SOC] all runs PASS
 make -C dv xbar-mut                                                  # [MUT] 7 of 7 mutants caught
+make -C dv dma-mut                                                   # [MUT] 10 of 10 mutants caught
 make -C fw images                                                    # rebuild fw/images (needs riscv-none-elf-gcc on PATH)
 make -C dv rdl-check                                                 # [RDL] generated files match soc_apb.rdl (needs PeakRDL)
 bash flow/rdl/gen.sh                                                 # regenerate after editing rtl/csr/rdl/soc_apb.rdl
@@ -181,6 +202,7 @@ rtl/axi/             AXI4 crossbar, ID tracker, default slave, AXI-to-APB bridge
 rtl/common/          dual-clock FIFO, 2-flop synchronizer, round-robin arbiter, single-clock FIFO
 rtl/cpu/             Ibex wrapper, Ibex-port-to-AXI4 adapter
 rtl/csr/             SystemRDL source (rdl/) and the register blocks generated from it (gen/)
+rtl/dma/             descriptor-based DMA
 rtl/mem/             AXI4 ROM and SRAM
 rtl/periph/          APB SYS, interrupt controller, timer around the generated registers
 rtl/top/             soc_top
@@ -198,6 +220,7 @@ Later steps add `syn/` and more of `rtl/`; the planned layout is in section 11 o
 | [docs/03_axi_crossbar.md](docs/03_axi_crossbar.md) | Crossbar structure and design decisions (same-ID rule, default slaves, W routing, R lock), verification environment, directed, random, coverage and mutation results |
 | [docs/04_cpu_subsystem.md](docs/04_cpu_subsystem.md) | Ibex choice and configuration, the memory-port adapter's ordering rules, memories, APB bridge and registers, firmware, SoC test results, CPI, bring-up findings |
 | [docs/05_csr.md](docs/05_csr.md) | SystemRDL source and its four outputs, generator options, logic around the registers, firmware header use, UVM register tests, mutation check, findings |
+| [docs/06_dma.md](docs/06_dma.md) | DMA programming model, design decisions (read IDs, read credits, full-burst AW, aligner), block testbench, throughput, mutation check, SoC firmware test, findings |
 | [docs/regs/soc_apb.md](docs/regs/soc_apb.md) | Generated register reference: every register and field with offset, access and reset value |
 
 ## Limitations
@@ -235,5 +258,17 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
     - **단일 source.** SYS·INTC·TIMER 레지스터 14개를 SystemRDL 하나로 기술하고, PeakRDL로 APB register RTL, firmware header, UVM register model, register 문서를 생성합니다.
     - **동작 동일성.** map과 APB timing이 손으로 쓴 이전 블록과 같아서 SoC 테스트의 clock 수가 전부 그대로이고, firmware image도 byte 단위로 같습니다(commit 888d3e5).
     - **UVM register test(xsim).** reset 검사 12개, bit bash 10개, 동작·decode 검사 33개에서 실패 0입니다. 일부러 심은 버그 4종도 모두 잡았습니다(commit 7bbaca7).
+  - 1-6 DMA([docs/06_dma.md](docs/06_dma.md)):
+    - **구조.** 16 byte descriptor chain을 M2로 복사합니다.
+      - 다음 descriptor는 별도 read ID로 미리 읽습니다.
+      - 16-beat burst를 4KB 경계에서 나누고, 임의의 source·destination byte offset을 정렬기로 맞춥니다.
+      - 앞 descriptor의 destination을 읽는 descriptor에는 FENCE를 씁니다.
+    - **crossbar를 막지 않는 규칙.** read는 데이터가 들어갈 자리가 있을 때만 내보내 RREADY가 항상 1이고, AW는 burst 전체가 buffer에 있을 때만 내보내 W가 burst 중간에 멈추지 않습니다.
+    - **오류 처리.** 첫 오류의 원인과 주소를 기록하고, 이미 낸 transaction을 모두 마친 뒤 ERR를 올립니다.
+    - **검증.**
+      - 모든 byte를 기준 모델과 비교하고, destination 앞뒤에 guard byte를 둡니다.
+      - directed test는 offset 조합 64종, 4KB 분할, FENCE, 오류 원인 5종, abort와 재시작을 다룹니다.
+      - random chain과 mutation 10/10도 통과했습니다.
+    - **성능.** stall 없는 메모리에서 7.97 B/clock(bus 폭의 99.6%)이고, SoC의 SRAM→SRAM 4096 B는 571 clock입니다(commit 2c90ba1).
 - **범위.** 공개 자료만으로 구성하며 PCIe, NVMe, M-PHY, UniPro 규격 준수를 주장하지 않습니다. NVMe는 공개된 Base Specification의 register · queue · PRP 구조 일부만 따릅니다.
 - **LLM 사용.** 코드, 테스트, 문서 초안에 LLM(Claude)을 쓰고, repo 안의 regression과 검사를 통과한 결과만 반영합니다.

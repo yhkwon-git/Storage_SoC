@@ -143,7 +143,7 @@ The three warnings come from UVM 1.2's resource database, which warns when a res
 ## Limits
 
 - The UVM register tests run only locally: the CI image has Verilator but not Vivado. CI runs everything else, including `soc_top` with the generated blocks.
-- Only SYS, INTC and TIMER are generated so far. The PMU (step 1-7), DMA (1-6) and later blocks add their registers to `soc_apb.rdl`.
+- At `888d3e5` only SYS, INTC and TIMER were generated. Step 1-6 (`2c90ba1`) added the DMA block and extended the register test ([06_dma.md](06_dma.md)); the PMU (step 1-7) and later blocks follow in `soc_apb.rdl`.
 - The SystemRDL source has no CDC or power information. Registers that move to other clock or power domains in step 1-7 get their crossings in the wrappers.
 
 ## How to run

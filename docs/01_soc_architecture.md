@@ -210,13 +210,13 @@ The ID-ordering rule is the usual deadlock-free choice for a crossbar without re
 | NAND0 | `0x4000_6000` | Channel timing, command queue, status, ECC counters |
 | NAND1 | `0x4000_7000` | Same as NAND0 |
 
-A slot without a peripheral, and an undefined offset inside one, answer SLVERR (PSLVERR on the APB side). As of step 1-5, SYS, INTC and TIMER exist. Their register files are generated from one SystemRDL source, `rtl/csr/rdl/soc_apb.rdl` ([05_csr.md](05_csr.md)), and every register and field is listed in [regs/soc_apb.md](regs/soc_apb.md). Blocks added later put their registers in the same source.
+A slot without a peripheral, and an undefined offset inside one, answer SLVERR (PSLVERR on the APB side). As of step 1-6, SYS, INTC, TIMER and DMA exist ([06_dma.md](06_dma.md) for the DMA). Their register files are generated from one SystemRDL source, `rtl/csr/rdl/soc_apb.rdl` ([05_csr.md](05_csr.md)), and every register and field is listed in [regs/soc_apb.md](regs/soc_apb.md). Blocks added later put their registers in the same source.
 
 The host sees one 64 KiB inbound window. The HOST block's window base register translates it to an AXI address, SRAM by default. The host's doorbell writes land in the HOST block.
 
 ## 7. Interrupts
 
-Ibex has dedicated timer and external interrupt inputs. The timer drives `irq_timer`, and everything else goes through the INTC to `irq_external`. Sources are levels: a source in another clock domain sets a sticky status bit in its CSR block, and the INTC sees status AND enable.
+Ibex has dedicated timer and external interrupt inputs. The timer drives `irq_timer`, and everything else goes through the INTC to `irq_external`. Sources are levels: a source in another clock domain sets a sticky status bit in its CSR block, and the INTC sees status AND enable. As of step 1-6, sources 1 and 2 (the DMA's STATUS.DONE and STATUS.ERR) are wired; the others follow with their blocks.
 
 | ID | Source |
 | --- | --- |

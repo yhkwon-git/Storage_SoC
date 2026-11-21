@@ -11,7 +11,7 @@ Step 1-4 puts a RISC-V core on the crossbar together with the boot ROM, the SRAM
 | `axi_mem` | `rtl/mem/axi_mem.sv` | S0 boot ROM 16 KiB (read only), S1 SRAM 64 KiB, S3 and S4 page-buffer windows of 4 KiB until the NAND channels exist |
 | `axi2apb` | `rtl/axi/axi2apb.sv` | S2: AXI4 to APB4, 4 KiB per peripheral slot |
 | `apb_sys`, `apb_intc`, `apb_timer` | `rtl/periph/` | SYS (slot 0), interrupt controller (slot 2), machine timer (slot 3) |
-| `soc_top` | `rtl/top/soc_top.sv` | All of the above on one clock and reset; M2 and M3 are top-level ports until the DMA and host interface exist |
+| `soc_top` | `rtl/top/soc_top.sv` | All of the above on one clock and reset; M2 and M3 are top-level ports until the DMA (step 1-6, M2) and host interface exist |
 
 ```mermaid
 flowchart LR
@@ -101,7 +101,7 @@ Undefined offsets answer PSLVERR. These register blocks were written by hand for
 `dv/tb/tb_soc.sv` loads a firmware image into the ROM and runs `soc_top`.
 - **Console and exit.** The console is printed line by line, and a write to EXIT ends the run.
 - **SVA checkers.** One `axi4_checker` sits on each of the nine crossbar ports.
-- **`+bg`.** M2 and M3 send random bursts of 1 to 16 beats with random IDs into their quarters of the upper SRAM half while the firmware runs. The master models check every response. Unwritten SRAM is treated as unknown: the first read of a word sets its expected value.
+- **`+bg`.** M2 and M3 send random bursts of 1 to 16 beats with random IDs into their quarters of the upper SRAM half while the firmware runs. The master models check every response. Unwritten SRAM is treated as unknown: the first read of a word sets its expected value. Since step 1-6 (`2c90ba1`) M2 is the DMA and `+bg` drives M3 only; the `+bg` numbers below are from `3e51bad`, and the current ones are in [06_dma.md](06_dma.md).
 - **`+apb_check`.** After the firmware ends, M3 tests what the CPU cannot reach with 32-bit accesses: a 64-bit read of ID and VERSION, a write with one word's strobes, SLVERR for a beat that holds a defined and an undefined word, a write to an empty slot, and a two-beat burst over the timer.
 
 ### Results
