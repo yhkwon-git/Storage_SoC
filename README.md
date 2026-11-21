@@ -2,9 +2,9 @@
 
 [![ci](https://github.com/yhkwon-git/Storage_SoC/actions/workflows/ci.yml/badge.svg)](https://github.com/yhkwon-git/Storage_SoC/actions/workflows/ci.yml)
 
-A small storage-controller SoC with a PCIe-like serial host link.
+A small storage-controller SoC with an NVMe-style front-end over a PCIe-like serial host link.
 
-A RISC-V CPU, an AXI4 interconnect, DMA, SystemRDL-generated CSRs and always-on and switchable power domains form the platform. A serial host interface (PHY with a PIPE-style boundary, data link layer, transaction-to-AXI bridge) and a NAND-flash datapath with BCH sit on it. Each IP has its own testbench, and the SoC is signed off with a UVM environment, synthesis and multi-corner STA in an open-source flow.
+A RISC-V CPU, an AXI4 interconnect, DMA, SystemRDL-generated CSRs and always-on and switchable power domains form the platform. A host interface (NVMe-style queues and command front-end, a transaction layer that also masters host memory, data link layer, PHY with a PIPE-style boundary) and a NAND-flash datapath with BCH sit on it. Each IP has its own testbench, and the SoC is signed off with a UVM environment, synthesis and multi-corner STA in an open-source flow.
 
 한국어 요약은 [아래](#한국어-요약)에 있습니다.
 
@@ -27,10 +27,11 @@ flowchart LR
   subgraph PDH["PD_HOST (switchable)"]
     PHY["PHY, PIPE-style boundary<br/>8b/10b PCS, elastic buffer, CDR<br/>LTSSM-lite"]
     DLL["Data link layer<br/>LCRC, ACK/NAK, replay, credits"]
-    TLB["TLP to AXI4 bridge"]
+    TLB["Transaction layer<br/>TLP to AXI4, bus master, config, MSI-X"]
     PHY --- DLL --- TLB
   end
   subgraph PDC["PD_CORE"]
+    NVME["NVMe front-end<br/>queues, PRP, completions"]
     CPU["RISC-V CPU<br/>third-party core"]
     DMA["DMA<br/>scatter-gather"]
     XBAR["AXI4 interconnect<br/>IDs, bursts, outstanding"]
@@ -40,6 +41,7 @@ flowchart LR
     NAND["NAND controller x2<br/>BCH"]
     CPU --> XBAR
     DMA --> XBAR
+    NVME <--> XBAR
     XBAR --> MEM
     XBAR --> CSR
     XBAR --> INTC
@@ -49,6 +51,7 @@ flowchart LR
     PMU["PMU, wake<br/>reset sequencer<br/>isolation, retention"]
   end
   TLB --> XBAR
+  TLB <-->|BAR0, doorbells, host memory| NVME
   NAND <--> NM["NAND model<br/>bit errors"]
   PMU -. power switch, isolation .-> PDH
 ```
@@ -56,8 +59,11 @@ flowchart LR
 - **Platform.** A third-party RISC-V core behind an AXI4 adapter, an AXI4 interconnect with IDs, bursts and outstanding transactions, boot ROM and SRAM, an interrupt controller and timer, and a descriptor-based DMA.
 - **CSRs.** One SystemRDL source generates the APB register blocks, the C header for firmware, the UVM register model and the register document.
 - **Clocks, resets and power.** Four clock domains, reset synchronizers with an ordered release, clock gating, an always-on PMU that switches the host domain, and isolation and retention described in UPF and checked by a power-aware testbench.
-- **Host interface.** A PHY behind a PIPE-style boundary (8b/10b PCS, comma alignment, elastic buffer for the reference-clock ppm offset, digital CDR), a reduced link-training state machine tied to the power states, a data link layer with LCRC, ACK/NAK, replay and credits, and a transaction-to-AXI4 bridge.
-- **Storage path.** Two NAND channel controllers with an ONFI-style asynchronous interface, a BCH encoder and decoder, and firmware that moves host blocks through SRAM to NAND.
+- **Host interface.**
+  - An NVMe-style front-end: controller registers and doorbells, an admin queue and four I/O queue pairs, command fetch with round-robin arbitration, PRP data transfer between host memory and SRAM, completion posting with phase tags, and MSI-X per completion queue. Firmware handles the admin commands and the I/O commands (Read, Write, Flush).
+  - A transaction layer that serves host requests on AXI4 and also masters host memory (tags, completion reassembly, payload splitting), with a configuration space holding BAR0 and the MSI-X capability.
+  - Below it, a data link layer with LCRC, ACK/NAK, replay and credits, a reduced link-training state machine tied to the power states, and a PHY behind a PIPE-style boundary (8b/10b PCS, comma alignment, elastic buffer for the reference-clock ppm offset, digital CDR).
+- **Storage path.** Two NAND channel controllers with an ONFI-style asynchronous interface, a BCH encoder and decoder, and firmware that serves NVMe reads and writes through SRAM to NAND.
 
 ## Roadmap
 
@@ -65,11 +71,13 @@ flowchart LR
 | --- | --- | --- |
 | 0 | Toolchain checks, repository layout, CI, RISC-V GCC | Done |
 | 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | In progress: 1-1 to 1-3 done |
-| 2 | Host interface: PHY with a PIPE-style boundary, link training, data link layer, transaction bridge | Planned |
-| 3 | Storage datapath: NAND channel controllers, NAND model, BCH | Planned |
+| 2 | Host interface: transaction layer and NVMe front-end (steps 2-1 to 2-5), then data link layer, PHY with a PIPE-style boundary and link training (steps 2-6 to 2-9) | Planned |
+| 3 | Storage datapath: NAND channel controllers, NAND model, BCH, NVMe reads and writes through to NAND | Planned |
 | 4 | SoC-level UVM, verification plan, coverage closure | Planned |
 | 5 | Full-chip synthesis and multi-corner STA, documentation | Planned |
 | 6 | Optional: DSP receiver for the PHY (FFE, DFE, Mueller-Muller CDR, real-number analog model) | Optional |
+
+Build order: phase 1, steps 2-1 to 2-5, phase 3, steps 2-6 to 2-9, then phases 4 and 5. Steps 2-1 to 2-5 run against a host model at the transaction level, so NVMe commands reach NAND before the serial link exists. Steps 2-6 to 2-9 then move the same host model and tests behind the serial link.
 
 ## Verification flow
 
@@ -147,7 +155,7 @@ Later steps add `fw/`, `syn/` and more of `rtl/`; the planned layout is in secti
 
 ## Limitations
 
-- Built from public material only. The PCIe, M-PHY and UniPro specifications are available to members only, so the host link follows the general structure of those serial links and claims no compliance with any of them. The PHY-to-controller boundary follows the publicly available PIPE specification in style, not in full.
+- Built from public material only. The PCIe, M-PHY and UniPro specifications are available to members only, so the host link follows the general structure of those serial links and claims no compliance with any of them. The NVMe front-end follows a subset of the register, queue and PRP structure in the publicly available NVMe Base Specification and claims no compliance either. The PHY-to-controller boundary follows the publicly available PIPE specification in style, not in full.
 - Analog behavior (channel, CDR sampling) is modeled behaviorally. There are no transistor-level circuits.
 - Third-party IP keeps its own license and is pinned to the commit it was taken from.
 
@@ -157,11 +165,12 @@ An LLM assistant (Claude) is used to draft code, tests and documents. A result g
 
 ## 한국어 요약
 
-PCIe 계열 serial host link를 갖춘 소형 스토리지 컨트롤러 SoC입니다.
+PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스토리지 컨트롤러 SoC입니다.
 
 - **플랫폼.** RISC-V CPU, AXI4 interconnect, DMA, SystemRDL로 생성한 CSR, AON과 switchable power domain(PD_HOST)으로 구성합니다.
-- **Host interface.** PIPE 방식 경계를 가진 PHY(8b/10b PCS, elastic buffer, digital CDR), link training, data link layer(LCRC, ACK/NAK, replay), TLP→AXI4 bridge입니다.
-- **Storage path.** NAND channel controller 2개와 BCH ECC, host 데이터를 SRAM을 거쳐 NAND로 옮기는 firmware입니다.
+- **Host interface.** NVMe 방식 front-end(controller register와 doorbell, admin queue와 I/O queue 4쌍, round-robin 명령 fetch, PRP 데이터 전송, phase tag를 쓰는 completion, MSI-X), host memory까지 직접 접근하는 transaction layer, 그 아래 data link layer(LCRC, ACK/NAK, replay), link training, PIPE 방식 경계를 가진 PHY(8b/10b PCS, elastic buffer, digital CDR)입니다.
+- **Storage path.** NAND channel controller 2개와 BCH ECC, NVMe Read·Write를 SRAM을 거쳐 NAND까지 처리하는 firmware입니다.
+- **진행 순서.** Phase 1 → 2-1~2-5(transaction 수준 host 모델로 NVMe) → Phase 3 → 2-6~2-9(link · PHY) → Phase 4, 5. NVMe 명령이 NAND까지 가는 경로를 serial link보다 먼저 완성합니다.
 - **검증과 구현.** IP별 TB를 먼저 만들고, SoC 전체는 UVM(Vivado simulator 2019.2)으로 sign-off합니다. lint, 빠른 regression, coverage는 Verilator 5.052, 합성과 multi-corner STA는 Yosys, OpenSTA, Sky130으로 합니다.
 - **현재 상태.** Phase 0(도구 확인, repo 구조, CI, RISC-V GCC)이 끝났고, Phase 1(SoC platform)을 진행 중입니다.
   - 1-1 아키텍처 사양([docs/01_soc_architecture.md](docs/01_soc_architecture.md)): clock 5개와 crossing 규칙, reset 해제 순서, PD_HOST의 isolation·retention·power sequence, AXI4 규칙, address·interrupt map, 목표 주파수를 정했습니다.
@@ -171,5 +180,5 @@ PCIe 계열 serial host link를 갖춘 소형 스토리지 컨트롤러 SoC입�
     - **directed 8종.** 모두 PASS입니다.
     - **random.** 10 seed, 80,000 burst에서 오류 0이고, covergroup 62/62입니다.
     - **mutation.** 일부러 심은 버그 7종을 모두 잡았습니다.
-- **범위.** 공개 자료만으로 구성하며 PCIe, M-PHY, UniPro 규격 준수를 주장하지 않습니다.
+- **범위.** 공개 자료만으로 구성하며 PCIe, NVMe, M-PHY, UniPro 규격 준수를 주장하지 않습니다. NVMe는 공개된 Base Specification의 register · queue · PRP 구조 일부만 따릅니다.
 - **LLM 사용.** 코드, 테스트, 문서 초안에 LLM(Claude)을 쓰고, repo 안의 regression과 검사를 통과한 결과만 반영합니다.
