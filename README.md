@@ -12,8 +12,8 @@ A RISC-V CPU, an AXI4 interconnect, DMA, SystemRDL-generated CSRs and always-on 
 
 | Item | Value |
 | --- | --- |
-| Current phase | Phase 1, SoC platform: step 1-1, the architecture specification, is written |
-| Design | No RTL yet |
+| Current phase | Phase 1, SoC platform: steps 1-1 (architecture) and 1-2 (common blocks) done |
+| Design | Common blocks: dual-clock FIFO, 2-flop synchronizer, channel register slice |
 | Verification tools | Vivado simulator 2019.2 (UVM 1.2), Verilator 5.052 |
 | Implementation tools | Yosys 0.52, OpenSTA 3.1.0, Sky130 HD (ss/tt/ff corners) |
 
@@ -64,7 +64,7 @@ flowchart LR
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 0 | Toolchain checks, repository layout, CI, RISC-V GCC | Done |
-| 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | In progress: 1-1 done |
+| 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | In progress: 1-1, 1-2 done |
 | 2 | Host interface: PHY with a PIPE-style boundary, link training, data link layer, transaction bridge | Planned |
 | 3 | Storage datapath: NAND channel controllers, NAND model, BCH | Planned |
 | 4 | SoC-level UVM, verification plan, coverage closure | Planned |
@@ -85,6 +85,11 @@ Phase 0 findings (2026-11-21, commit ce2671d):
 - Verilator 5.052 writes all 14 covergroup bins, including the cross, to `coverage.dat` with their hit counts. `get_coverage()` on a single coverpoint does not compile, and the covergroup total reads 0.0 at run time, so Verilator coverage numbers are taken from `coverage.dat`.
 - Under `-Wall`, Verilator warns about members it adds to every covergroup (`option`, `total_bins`, ...). The waiver covers the covergroup block only.
 
+Block results (commit 8ce1fac, details in [docs/02_common_blocks.md](docs/02_common_blocks.md)):
+
+- **Dual-clock FIFO.** 12 runs: six clock pairs from 4:1 to 1:4, each with random and full-rate traffic, 20,000 words per run. 0 data errors, and 97.9 to 101.0% of the throughput bound. The FIFO it replaces moved 12.5 to 24.8% of the bound at the same clock pairs, except 50 to 68% at the 4:1 pair.
+- **Register slice.** 5,000 random beats in order. With VALID and READY held high, one beat per clock and one clock of latency. A k-clock downstream stall blocks the upstream for exactly k clocks, k = 1 to 6.
+
 ## How to run
 
 ```bash
@@ -97,6 +102,11 @@ bash flow/tools/check_verilator.sh                                   # [TOOLS] v
 powershell -ExecutionPolicy Bypass -File flow\tools\check_xsim.ps1   # [TOOLS] xsim UVM PASS
 ```
 
+```bash
+# Block checks (Linux or WSL): lint, dual-clock FIFO, register slice
+make -C dv                                                           # [LINT] PASS, [FIFO] all runs PASS, [SLICE] PASS
+```
+
 Outputs go to `build/`, which git ignores. `check_verilator.sh` takes `BUILD_DIR` to build elsewhere, and `check_xsim.ps1` takes `-Vivado <install dir>` or `XILINX_VIVADO`.
 
 ## Repository layout
@@ -104,16 +114,20 @@ Outputs go to `build/`, which git ignores. `check_verilator.sh` takes `BUILD_DIR
 ```text
 .github/workflows/   CI
 docs/                design documents
+dv/                  block testbenches (dv/tb/), FIFO run script, Makefile
 flow/tools/          toolchain checks: smoke_uvm.sv (xsim), smoke_cov.sv (Verilator) and their scripts
+rtl/axi/             AXI channel register slice
+rtl/common/          dual-clock FIFO, 2-flop synchronizer
 ```
 
-Each phase adds its own directories (`rtl/`, `fw/`, `dv/`, `syn/`, ...); the planned layout is in section 11 of the architecture document.
+Later steps add `fw/`, `syn/` and more of `rtl/`; the planned layout is in section 11 of the architecture document.
 
 ## Documents
 
 | Document | Contents |
 | --- | --- |
 | [docs/01_soc_architecture.md](docs/01_soc_architecture.md) | Clock domains and crossings, resets, power domains with isolation, retention and sequences, AXI4 rules, address and interrupt maps, boot, timing targets, phase-1 verification plan |
+| [docs/02_common_blocks.md](docs/02_common_blocks.md) | Blocks taken from axi-pcie-subsystem `b64e36a`, why the dual-clock FIFO was rewritten, FIFO and register-slice measurements |
 
 ## Limitations
 
@@ -133,6 +147,8 @@ PCIe 계열 serial host link를 갖춘 소형 스토리지 컨트롤러 SoC입�
 - **Host interface.** PIPE 방식 경계를 가진 PHY(8b/10b PCS, elastic buffer, digital CDR), link training, data link layer(LCRC, ACK/NAK, replay), TLP→AXI4 bridge입니다.
 - **Storage path.** NAND channel controller 2개와 BCH ECC, host 데이터를 SRAM을 거쳐 NAND로 옮기는 firmware입니다.
 - **검증과 구현.** IP별 TB를 먼저 만들고, SoC 전체는 UVM(Vivado simulator 2019.2)으로 sign-off합니다. lint, 빠른 regression, coverage는 Verilator 5.052, 합성과 multi-corner STA는 Yosys, OpenSTA, Sky130으로 합니다.
-- **현재 상태.** Phase 0(도구 확인, repo 구조, CI, RISC-V GCC)이 끝났고, Phase 1(SoC platform)의 1-1 아키텍처 사양([docs/01_soc_architecture.md](docs/01_soc_architecture.md))을 작성했습니다. clock 5개와 crossing 규칙, reset 해제 순서, PD_HOST의 isolation·retention·power sequence, AXI4 규칙, address·interrupt map, 목표 주파수를 정했습니다.
+- **현재 상태.** Phase 0(도구 확인, repo 구조, CI, RISC-V GCC)이 끝났고, Phase 1(SoC platform)을 진행 중입니다.
+  - 1-1 아키텍처 사양([docs/01_soc_architecture.md](docs/01_soc_architecture.md)): clock 5개와 crossing 규칙, reset 해제 순서, PD_HOST의 isolation·retention·power sequence, AXI4 규칙, address·interrupt map, 목표 주파수를 정했습니다.
+  - 1-2 공통 블록([docs/02_common_blocks.md](docs/02_common_blocks.md)): 이전 프로젝트의 2-FF synchronizer와 register slice는 로직을 그대로 가져왔습니다. dual-clock FIFO는 같은 TB로 측정한 결과 처리량이 상한의 12.5~24.8%(4:1 비율만 50~68%)에 그쳐서 새로 설계했고, 새 FIFO는 12개 run 모두 데이터 오류 0, 상한의 97.9~101.0%를 냈습니다(commit 8ce1fac).
 - **범위.** 공개 자료만으로 구성하며 PCIe, M-PHY, UniPro 규격 준수를 주장하지 않습니다.
 - **LLM 사용.** 코드, 테스트, 문서 초안에 LLM(Claude)을 쓰고, repo 안의 regression과 검사를 통과한 결과만 반영합니다.
