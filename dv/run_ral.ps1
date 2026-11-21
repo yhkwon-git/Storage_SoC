@@ -20,8 +20,10 @@ New-Item -ItemType Directory -Force $out | Out-Null
 $src = @(
     'dv\uvm\apb_if.sv',
     'rtl\csr\gen\sys_regs_pkg.sv', 'rtl\csr\gen\intc_regs_pkg.sv', 'rtl\csr\gen\timer_regs_pkg.sv',
+    'rtl\csr\gen\dma_regs_pkg.sv',
     'rtl\csr\gen\sys_regs.sv', 'rtl\csr\gen\intc_regs.sv', 'rtl\csr\gen\timer_regs.sv',
-    'rtl\periph\apb_sys.sv', 'rtl\periph\apb_intc.sv', 'rtl\periph\apb_timer.sv',
+    'rtl\csr\gen\dma_regs.sv', 'rtl\common\fifo_sync.sv',
+    'rtl\periph\apb_sys.sv', 'rtl\periph\apb_intc.sv', 'rtl\periph\apb_timer.sv', 'rtl\dma\dma.sv',
     'dv\ral\soc_apb_ral_pkg.sv', 'dv\uvm\apb_pkg.sv', 'dv\uvm\ral_test_pkg.sv', 'dv\uvm\ral_tb.sv'
 ) | ForEach-Object { Join-Path $root $_ }
 

@@ -9,7 +9,7 @@ Don't override. Generated from: soc_apb
 
 - Absolute Address: 0x0
 - Base Offset: 0x0
-- Size: 0x3014
+- Size: 0x4020
 
 <p>Register blocks in the APB window at 0x4000_0000, one 4 KiB slot each.</p>
 
@@ -18,6 +18,7 @@ Don't override. Generated from: soc_apb
 |0x0000|    SYS   | SYS |
 |0x2000|   INTC   | INTC|
 |0x3000|   TIMER  |TIMER|
+|0x4000|    DMA   | DMA |
 
 ## SYS address map
 
@@ -53,11 +54,11 @@ Don't override. Generated from: soc_apb
 - Base Offset: 0x4
 - Size: 0x4
 
-<p>Register map version: 0x0001_0005 is the map of step 1-5.</p>
+<p>Register map version: 0x0001_0006 is the map of step 1-6 (DMA added).</p>
 
 |Bits|Identifier|Access| Reset |Name|
 |----|----------|------|-------|----|
-|31:0|   value  |   r  |0x10005|  — |
+|31:0|   value  |   r  |0x10006|  — |
 
 ### SCRATCH register
 
@@ -240,3 +241,150 @@ Don't override. Generated from: soc_apb
 #### prescale field
 
 <p>MTIME advances every PRESCALE + 1 clocks.</p>
+
+## DMA address map
+
+- Absolute Address: 0x4000
+- Base Offset: 0x4000
+- Size: 0x20
+
+<p>Descriptor-based DMA (rtl/dma/dma.sv). Descriptor format and error causes are in docs/06_dma.md.</p>
+
+|Offset|Identifier|   Name  |
+|------|----------|---------|
+| 0x00 |   CTRL   |   CTRL  |
+| 0x04 | DESC_PTR | DESC_PTR|
+| 0x08 |  STATUS  |  STATUS |
+| 0x0C | ERR_INFO | ERR_INFO|
+| 0x10 | ERR_ADDR | ERR_ADDR|
+| 0x14 | CUR_DESC | CUR_DESC|
+| 0x18 | DESC_DONE|DESC_DONE|
+| 0x1C |  CYCLES  |  CYCLES |
+
+### CTRL register
+
+- Absolute Address: 0x4000
+- Base Offset: 0x0
+- Size: 0x4
+
+<p>Write 1 to START to run the chain at DESC_PTR, or to ABORT to stop a running chain. Both read as 0. START while BUSY is ignored.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|  0 |   start  |   w  | 0x0 |  — |
+|  1 |   abort  |   w  | 0x0 |  — |
+
+#### start field
+
+<p>Start the chain at DESC_PTR.</p>
+
+#### abort field
+
+<p>Stop after the transactions already issued complete.</p>
+
+### DESC_PTR register
+
+- Absolute Address: 0x4004
+- Base Offset: 0x4
+- Size: 0x4
+
+<p>Address of the first descriptor; 16-byte aligned.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   addr   |  rw  | 0x0 |  — |
+
+### STATUS register
+
+- Absolute Address: 0x4008
+- Base Offset: 0x8
+- Size: 0x4
+
+<p>DONE and ERR are the DMA's two interrupt sources (INTC 1 and 2). Write 1 to clear; START clears both. A hardware set wins over a software clear in the same clock, so no event is lost.</p>
+
+|Bits|Identifier|  Access |Reset|Name|
+|----|----------|---------|-----|----|
+|  0 |   busy   |    r    |  —  |  — |
+|  1 |   done   |rw, woclr| 0x0 |  — |
+|  2 |    err   |rw, woclr| 0x0 |  — |
+
+#### busy field
+
+<p>A chain is running.</p>
+
+#### done field
+
+<p>The chain completed.</p>
+
+#### err field
+
+<p>The chain stopped on an error or an abort; see ERR_INFO.</p>
+
+### ERR_INFO register
+
+- Absolute Address: 0x400C
+- Base Offset: 0xC
+- Size: 0x4
+
+<p>Why the last run stopped. Cleared by START.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+| 2:0|   cause  |   r  | 0x0 |  — |
+| 5:4|   resp   |   r  | 0x0 |  — |
+
+#### cause field
+
+<p>1 descriptor read error, 2 data read error, 3 data write error, 4 bad descriptor or DESC_PTR, 5 aborted.</p>
+
+#### resp field
+
+<p>RRESP or BRESP of the failed transaction (causes 1 to 3).</p>
+
+### ERR_ADDR register
+
+- Absolute Address: 0x4010
+- Base Offset: 0x10
+- Size: 0x4
+
+<p>Causes 1 and 4: the descriptor's address. Causes 2 and 3: the start address of the failed burst. Cause 5: CUR_DESC.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   addr   |   r  | 0x0 |  — |
+
+### CUR_DESC register
+
+- Absolute Address: 0x4014
+- Base Offset: 0x14
+- Size: 0x4
+
+<p>Address of the descriptor whose data is being read, or was read last.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   addr   |   r  |  —  |  — |
+
+### DESC_DONE register
+
+- Absolute Address: 0x4018
+- Base Offset: 0x18
+- Size: 0x4
+
+<p>Descriptors whose writes all completed in this run, counted until the first error.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|15:0|   count  |   r  |  —  |  — |
+
+### CYCLES register
+
+- Absolute Address: 0x401C
+- Base Offset: 0x1C
+- Size: 0x4
+
+<p>Clocks from START to the end of the run (counting while BUSY).</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   count  |   r  |  —  |  — |

@@ -12,8 +12,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Toolchain check (Verilator covergroups)
         run: bash flow/tools/check_verilator.sh
-      - name: Block and SoC checks (lint, CDC FIFO, register slice, crossbar, firmware on soc_top)
+      - name: Block and SoC checks (lint, CDC FIFO, register slice, crossbar, DMA, firmware on soc_top)
         run: make -C dv
         env:
           SEEDS: "3"
           N: "1000"
+          DMA_N: "100"

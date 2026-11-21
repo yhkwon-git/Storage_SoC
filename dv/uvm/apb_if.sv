@@ -25,4 +25,5 @@ interface apb_if (input logic pclk, input logic presetn);
   logic [31:0] last_code;
   logic        irq_timer;
   logic        irq_external;
+  logic        dma_bus_req;   // the DMA raised AWVALID or ARVALID
 endinterface

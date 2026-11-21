@@ -4,62 +4,64 @@
 // -----------------------------------------------------------------------------
 // soc_top
 //
-// The SoC as far as step 1-4 (docs/04_cpu_subsystem.md): one clock domain
-// (clk_sys), one reset.
+// The SoC as far as step 1-6 (docs/04_cpu_subsystem.md, docs/06_dma.md): one
+// clock domain (clk_sys), one reset.
 //
 //   M0 Ibex instruction port  -> obi2axi (read only)
 //   M1 Ibex data port         -> obi2axi
-//   M2, M3                    -> ports ext_* (DMA and host come in later steps;
-//                                the testbench drives traffic on them)
+//   M2 DMA                    -> dma (registers in APB slot 4)
+//   M3                        -> port ext_* (the host interface comes in phase
+//                                2; the testbench drives traffic on it)
 //   S0 boot ROM 16 KiB        -> axi_mem, read only, loaded from +rom=<file>
 //   S1 SRAM 64 KiB            -> axi_mem
-//   S2 APB window             -> axi2apb: slot 0 SYS, 2 INTC, 3 TIMER
+//   S2 APB window             -> axi2apb: slot 0 SYS, 2 INTC, 3 TIMER, 4 DMA
 //   S3, S4 NAND page buffers  -> axi_mem 4 KiB each until the NAND channels exist
 //
 // The timer drives the core's timer interrupt and the INTC its external
-// interrupt. INTC sources other than software-set ones are not wired yet.
+// interrupt. INTC sources: 1 DMA done, 2 DMA error (docs/01, section 7); the
+// others are not wired yet.
 // -----------------------------------------------------------------------------
 
 module soc_top (
   input  wire                    clk,
   input  wire                    rst_n,
 
-  // AXI4 master ports M2 (index 0) and M3 (index 1), 2-bit IDs.
-  input  wire  [1:0][1:0]        ext_awid,
-  input  wire  [1:0][31:0]       ext_awaddr,
-  input  wire  [1:0][7:0]        ext_awlen,
-  input  wire  [1:0][2:0]        ext_awsize,
-  input  wire  [1:0][1:0]        ext_awburst,
-  input  wire  [1:0][2:0]        ext_awprot,
-  input  wire  [1:0][3:0]        ext_awcache,
-  input  wire  [1:0][3:0]        ext_awqos,
-  input  wire  [1:0]             ext_awvalid,
-  output logic [1:0]             ext_awready,
-  input  wire  [1:0][63:0]       ext_wdata,
-  input  wire  [1:0][7:0]        ext_wstrb,
-  input  wire  [1:0]             ext_wlast,
-  input  wire  [1:0]             ext_wvalid,
-  output logic [1:0]             ext_wready,
-  output logic [1:0][1:0]        ext_bid,
-  output logic [1:0][1:0]        ext_bresp,
-  output logic [1:0]             ext_bvalid,
-  input  wire  [1:0]             ext_bready,
-  input  wire  [1:0][1:0]        ext_arid,
-  input  wire  [1:0][31:0]       ext_araddr,
-  input  wire  [1:0][7:0]        ext_arlen,
-  input  wire  [1:0][2:0]        ext_arsize,
-  input  wire  [1:0][1:0]        ext_arburst,
-  input  wire  [1:0][2:0]        ext_arprot,
-  input  wire  [1:0][3:0]        ext_arcache,
-  input  wire  [1:0][3:0]        ext_arqos,
-  input  wire  [1:0]             ext_arvalid,
-  output logic [1:0]             ext_arready,
-  output logic [1:0][1:0]        ext_rid,
-  output logic [1:0][63:0]       ext_rdata,
-  output logic [1:0][1:0]        ext_rresp,
-  output logic [1:0]             ext_rlast,
-  output logic [1:0]             ext_rvalid,
-  input  wire  [1:0]             ext_rready,
+  // AXI4 master port M3, 2-bit IDs.
+  input  wire  [1:0]             ext_awid,
+  input  wire  [31:0]            ext_awaddr,
+  input  wire  [7:0]             ext_awlen,
+  input  wire  [2:0]             ext_awsize,
+  input  wire  [1:0]             ext_awburst,
+  input  wire  [2:0]             ext_awprot,
+  input  wire  [3:0]             ext_awcache,
+  input  wire  [3:0]             ext_awqos,
+  input  wire                    ext_awvalid,
+  output logic                   ext_awready,
+  input  wire  [63:0]            ext_wdata,
+  input  wire  [7:0]             ext_wstrb,
+  input  wire                    ext_wlast,
+  input  wire                    ext_wvalid,
+  output logic                   ext_wready,
+  output logic [1:0]             ext_bid,
+  output logic [1:0]             ext_bresp,
+  output logic                   ext_bvalid,
+  input  wire                    ext_bready,
+  input  wire  [1:0]             ext_arid,
+  input  wire  [31:0]            ext_araddr,
+  input  wire  [7:0]             ext_arlen,
+  input  wire  [2:0]             ext_arsize,
+  input  wire  [1:0]             ext_arburst,
+  input  wire  [2:0]             ext_arprot,
+  input  wire  [3:0]             ext_arcache,
+  input  wire  [3:0]             ext_arqos,
+  input  wire                    ext_arvalid,
+  output logic                   ext_arready,
+  output logic [1:0]             ext_rid,
+  output logic [63:0]            ext_rdata,
+  output logic [1:0]             ext_rresp,
+  output logic                   ext_rlast,
+  output logic                   ext_rvalid,
+  input  wire                    ext_rready,
 
   // Simulation console and exit (SYS block), and a core lock-up flag.
   output logic                   console_valid,
@@ -186,45 +188,87 @@ module soc_top (
   end
 
   // ---------------------------------------------------------------------------
-  // External master ports (M2, M3)
+  // APB signals (bridge below), declared here for the DMA's register port
   // ---------------------------------------------------------------------------
-  for (genvar i = 0; i < 2; i++) begin : g_ext
-    assign s_awid[2+i]    = ext_awid[i];
-    assign s_awaddr[2+i]  = ext_awaddr[i];
-    assign s_awlen[2+i]   = ext_awlen[i];
-    assign s_awsize[2+i]  = ext_awsize[i];
-    assign s_awburst[2+i] = ext_awburst[i];
-    assign s_awprot[2+i]  = ext_awprot[i];
-    assign s_awcache[2+i] = ext_awcache[i];
-    assign s_awqos[2+i]   = ext_awqos[i];
-    assign s_awvalid[2+i] = ext_awvalid[i];
-    assign ext_awready[i] = s_awready[2+i];
-    assign s_wdata[2+i]   = ext_wdata[i];
-    assign s_wstrb[2+i]   = ext_wstrb[i];
-    assign s_wlast[2+i]   = ext_wlast[i];
-    assign s_wvalid[2+i]  = ext_wvalid[i];
-    assign ext_wready[i]  = s_wready[2+i];
-    assign ext_bid[i]     = s_bid[2+i];
-    assign ext_bresp[i]   = s_bresp[2+i];
-    assign ext_bvalid[i]  = s_bvalid[2+i];
-    assign s_bready[2+i]  = ext_bready[i];
-    assign s_arid[2+i]    = ext_arid[i];
-    assign s_araddr[2+i]  = ext_araddr[i];
-    assign s_arlen[2+i]   = ext_arlen[i];
-    assign s_arsize[2+i]  = ext_arsize[i];
-    assign s_arburst[2+i] = ext_arburst[i];
-    assign s_arprot[2+i]  = ext_arprot[i];
-    assign s_arcache[2+i] = ext_arcache[i];
-    assign s_arqos[2+i]   = ext_arqos[i];
-    assign s_arvalid[2+i] = ext_arvalid[i];
-    assign ext_arready[i] = s_arready[2+i];
-    assign ext_rid[i]     = s_rid[2+i];
-    assign ext_rdata[i]   = s_rdata[2+i];
-    assign ext_rresp[i]   = s_rresp[2+i];
-    assign ext_rlast[i]   = s_rlast[2+i];
-    assign ext_rvalid[i]  = s_rvalid[2+i];
-    assign s_rready[2+i]  = ext_rready[i];
-  end
+  localparam int NSLOT = 8;
+
+  logic [NSLOT-1:0]       psel;
+  logic                   penable, pwrite;
+  logic [15:0]            paddr;
+  logic [31:0]            pwdata;
+  logic [3:0]             pstrb;
+  logic [2:0]             pprot;
+  logic [NSLOT-1:0][31:0] prdata;
+  logic [NSLOT-1:0]       pready, pslverr;
+
+  // ---------------------------------------------------------------------------
+  // M2: DMA (its APB side is slot 4, below)
+  // ---------------------------------------------------------------------------
+  logic        dma_psel;
+  logic [31:0] dma_prdata;
+  logic        dma_pready, dma_pslverr;
+  logic        irq_dma_done, irq_dma_err;
+
+  dma u_dma (
+    .clk       (clk),          .rst_n     (rst_n),
+    .psel      (dma_psel),     .penable   (penable),      .paddr    (paddr[11:0]),
+    .pwrite    (pwrite),       .pwdata    (pwdata),       .pstrb    (pstrb),
+    .prdata    (dma_prdata),   .pready    (dma_pready),   .pslverr  (dma_pslverr),
+    .m_awid    (s_awid[2]),    .m_awaddr  (s_awaddr[2]),  .m_awlen  (s_awlen[2]),
+    .m_awsize  (s_awsize[2]),  .m_awburst (s_awburst[2]), .m_awprot (s_awprot[2]),
+    .m_awcache (s_awcache[2]), .m_awqos   (s_awqos[2]),   .m_awvalid(s_awvalid[2]),
+    .m_awready (s_awready[2]),
+    .m_wdata   (s_wdata[2]),   .m_wstrb   (s_wstrb[2]),   .m_wlast  (s_wlast[2]),
+    .m_wvalid  (s_wvalid[2]),  .m_wready  (s_wready[2]),
+    .m_bid     (s_bid[2]),     .m_bresp   (s_bresp[2]),   .m_bvalid (s_bvalid[2]),
+    .m_bready  (s_bready[2]),
+    .m_arid    (s_arid[2]),    .m_araddr  (s_araddr[2]),  .m_arlen  (s_arlen[2]),
+    .m_arsize  (s_arsize[2]),  .m_arburst (s_arburst[2]), .m_arprot (s_arprot[2]),
+    .m_arcache (s_arcache[2]), .m_arqos   (s_arqos[2]),   .m_arvalid(s_arvalid[2]),
+    .m_arready (s_arready[2]),
+    .m_rid     (s_rid[2]),     .m_rdata   (s_rdata[2]),   .m_rresp  (s_rresp[2]),
+    .m_rlast   (s_rlast[2]),   .m_rvalid  (s_rvalid[2]),  .m_rready (s_rready[2]),
+    .irq_done  (irq_dma_done), .irq_err   (irq_dma_err)
+  );
+
+  // ---------------------------------------------------------------------------
+  // External master port (M3)
+  // ---------------------------------------------------------------------------
+  assign s_awid[3]    = ext_awid;
+  assign s_awaddr[3]  = ext_awaddr;
+  assign s_awlen[3]   = ext_awlen;
+  assign s_awsize[3]  = ext_awsize;
+  assign s_awburst[3] = ext_awburst;
+  assign s_awprot[3]  = ext_awprot;
+  assign s_awcache[3] = ext_awcache;
+  assign s_awqos[3]   = ext_awqos;
+  assign s_awvalid[3] = ext_awvalid;
+  assign ext_awready  = s_awready[3];
+  assign s_wdata[3]   = ext_wdata;
+  assign s_wstrb[3]   = ext_wstrb;
+  assign s_wlast[3]   = ext_wlast;
+  assign s_wvalid[3]  = ext_wvalid;
+  assign ext_wready   = s_wready[3];
+  assign ext_bid      = s_bid[3];
+  assign ext_bresp    = s_bresp[3];
+  assign ext_bvalid   = s_bvalid[3];
+  assign s_bready[3]  = ext_bready;
+  assign s_arid[3]    = ext_arid;
+  assign s_araddr[3]  = ext_araddr;
+  assign s_arlen[3]   = ext_arlen;
+  assign s_arsize[3]  = ext_arsize;
+  assign s_arburst[3] = ext_arburst;
+  assign s_arprot[3]  = ext_arprot;
+  assign s_arcache[3] = ext_arcache;
+  assign s_arqos[3]   = ext_arqos;
+  assign s_arvalid[3] = ext_arvalid;
+  assign ext_arready  = s_arready[3];
+  assign ext_rid      = s_rid[3];
+  assign ext_rdata    = s_rdata[3];
+  assign ext_rresp    = s_rresp[3];
+  assign ext_rlast    = s_rlast[3];
+  assign ext_rvalid   = s_rvalid[3];
+  assign s_rready[3]  = ext_rready;
 
   // ---------------------------------------------------------------------------
   // Memories: S0 ROM, S1 SRAM, S3/S4 NAND page buffers
@@ -257,18 +301,7 @@ module soc_top (
   // ---------------------------------------------------------------------------
   // S2: APB window
   // ---------------------------------------------------------------------------
-  localparam int NSLOT = 8;
-
-  logic [NSLOT-1:0]       psel;
-  logic                   penable, pwrite;
-  logic [15:0]            paddr;
-  logic [31:0]            pwdata;
-  logic [3:0]             pstrb;
-  logic [2:0]             pprot;
-  logic [NSLOT-1:0][31:0] prdata;
-  logic [NSLOT-1:0]       pready, pslverr;
-
-  axi2apb #(.IDW(4), .NSLOT(NSLOT), .SLOT_EN(8'b0000_1101)) u_apb (
+  axi2apb #(.IDW(4), .NSLOT(NSLOT), .SLOT_EN(8'b0001_1101)) u_apb (
     .clk       (clk),          .rst_n     (rst_n),
     .s_awid    (m_awid[2]),    .s_awaddr  (m_awaddr[2]),  .s_awlen  (m_awlen[2]),
     .s_awsize  (m_awsize[2]),  .s_awprot  (m_awprot[2]),  .s_awvalid(m_awvalid[2]),
@@ -302,7 +335,7 @@ module soc_top (
     .psel (psel[2]), .penable (penable), .paddr (paddr[11:0]), .pwrite (pwrite),
     .pwdata (pwdata), .pstrb (pstrb), .prdata (prdata[2]), .pready (pready[2]),
     .pslverr (pslverr[2]),
-    .src (32'd0), .irq (irq_external)
+    .src ({29'd0, irq_dma_err, irq_dma_done, 1'b0}), .irq (irq_external)
   );
 
   apb_timer u_timer (
@@ -312,9 +345,14 @@ module soc_top (
     .pslverr (pslverr[3]), .irq (irq_timer)
   );
 
+  assign dma_psel   = psel[4];
+  assign prdata[4]  = dma_prdata;
+  assign pready[4]  = dma_pready;
+  assign pslverr[4] = dma_pslverr;
+
   // Slots without a peripheral: the bridge never selects them.
   for (genvar i = 0; i < NSLOT; i++) begin : g_empty_slot
-    if (i == 1 || i >= 4) begin : g_e
+    if (i == 1 || i >= 5) begin : g_e
       assign prdata[i]  = 32'd0;
       assign pready[i]  = 1'b1;
       assign pslverr[i] = 1'b1;
@@ -327,7 +365,7 @@ module soc_top (
   /* verilator lint_off UNUSEDSIGNAL */
   wire unused_ok = ^{m_awsize, m_arsize, m_awburst, m_arburst, m_awcache, m_arcache,
                      m_awqos, m_arqos, m_awprot, m_arprot, pprot, paddr[15:12],
-                     psel[1], psel[NSLOT-1:4],
+                     psel[1], psel[NSLOT-1:5],
                      stat_aw_id_stall, stat_ar_id_stall, core_busy};
   /* verilator lint_on UNUSEDSIGNAL */
 

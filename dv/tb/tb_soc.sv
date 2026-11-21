@@ -4,9 +4,11 @@
 //
 //   +rom=<file>      ROM image, 64-bit words (fw/images/<test>.hex)
 //   +test=<name>     name used in the messages
-//   +bg              M2 and M3 run random reads and writes in their quarters of
-//                    SRAM (0x1000_8000 and 0x1000_C000) while the firmware runs,
-//                    checked by the master models
+//   +bg              M3 runs random reads and writes in its quarter of SRAM
+//                    (0x1000_C000) while the firmware runs, checked by the
+//                    master model. M2 is the DMA since step 1-6; the dma
+//                    firmware test keeps its buffers in M2's quarter
+//                    (0x1000_8000)
 //   +max_cycles=<n>  give up after n clocks (default 2,000,000)
 //   +apb_check       after the firmware ends, M3 checks the APB bridge with
 //                    64-bit accesses (apb_check below)
@@ -25,65 +27,63 @@ module tb_soc;
   always #10 clk = ~clk;  // 50 MHz
 
   // ---------------------------------------------------------------------------
-  // External master ports M2, M3
+  // External master port M3
   // ---------------------------------------------------------------------------
-  axi4_if eif [2] (.clk(clk), .rst_n(rst_n));
+  axi4_if eif (.clk(clk), .rst_n(rst_n));
 
-  logic [1:0][1:0]  ext_awid,  ext_arid,  ext_bid,   ext_rid;
-  logic [1:0][31:0] ext_awaddr, ext_araddr;
-  logic [1:0][7:0]  ext_awlen, ext_arlen;
-  logic [1:0][2:0]  ext_awsize, ext_arsize, ext_awprot, ext_arprot;
-  logic [1:0][1:0]  ext_awburst, ext_arburst, ext_bresp, ext_rresp;
-  logic [1:0][3:0]  ext_awcache, ext_arcache, ext_awqos, ext_arqos;
-  logic [1:0]       ext_awvalid, ext_awready, ext_arvalid, ext_arready;
-  logic [1:0][63:0] ext_wdata, ext_rdata;
-  logic [1:0][7:0]  ext_wstrb;
-  logic [1:0]       ext_wlast, ext_wvalid, ext_wready, ext_bvalid, ext_bready;
-  logic [1:0]       ext_rlast, ext_rvalid, ext_rready;
+  logic [1:0]  ext_awid,  ext_arid,  ext_bid,   ext_rid;
+  logic [31:0] ext_awaddr, ext_araddr;
+  logic [7:0]  ext_awlen, ext_arlen;
+  logic [2:0]  ext_awsize, ext_arsize, ext_awprot, ext_arprot;
+  logic [1:0]  ext_awburst, ext_arburst, ext_bresp, ext_rresp;
+  logic [3:0]  ext_awcache, ext_arcache, ext_awqos, ext_arqos;
+  logic        ext_awvalid, ext_awready, ext_arvalid, ext_arready;
+  logic [63:0] ext_wdata, ext_rdata;
+  logic [7:0]  ext_wstrb;
+  logic        ext_wlast, ext_wvalid, ext_wready, ext_bvalid, ext_bready;
+  logic        ext_rlast, ext_rvalid, ext_rready;
 
-  logic             console_valid, exit_valid, cpu_double_fault;
-  logic [7:0]       console_char;
-  logic [31:0]      exit_code;
+  logic        console_valid, exit_valid, cpu_double_fault;
+  logic [7:0]  console_char;
+  logic [31:0] exit_code;
 
   soc_top dut (.*);
 
-  for (genvar g = 0; g < 2; g++) begin : g_ext
-    assign ext_awid[g]    = eif[g].awid[1:0];
-    assign ext_awaddr[g]  = eif[g].awaddr;
-    assign ext_awlen[g]   = eif[g].awlen;
-    assign ext_awsize[g]  = eif[g].awsize;
-    assign ext_awburst[g] = eif[g].awburst;
-    assign ext_awprot[g]  = eif[g].awprot;
-    assign ext_awcache[g] = eif[g].awcache;
-    assign ext_awqos[g]   = eif[g].awqos;
-    assign ext_awvalid[g] = eif[g].awvalid;
-    assign eif[g].awready = ext_awready[g];
-    assign ext_wdata[g]   = eif[g].wdata;
-    assign ext_wstrb[g]   = eif[g].wstrb;
-    assign ext_wlast[g]   = eif[g].wlast;
-    assign ext_wvalid[g]  = eif[g].wvalid;
-    assign eif[g].wready  = ext_wready[g];
-    assign eif[g].bid     = {2'b00, ext_bid[g]};
-    assign eif[g].bresp   = ext_bresp[g];
-    assign eif[g].bvalid  = ext_bvalid[g];
-    assign ext_bready[g]  = eif[g].bready;
-    assign ext_arid[g]    = eif[g].arid[1:0];
-    assign ext_araddr[g]  = eif[g].araddr;
-    assign ext_arlen[g]   = eif[g].arlen;
-    assign ext_arsize[g]  = eif[g].arsize;
-    assign ext_arburst[g] = eif[g].arburst;
-    assign ext_arprot[g]  = eif[g].arprot;
-    assign ext_arcache[g] = eif[g].arcache;
-    assign ext_arqos[g]   = eif[g].arqos;
-    assign ext_arvalid[g] = eif[g].arvalid;
-    assign eif[g].arready = ext_arready[g];
-    assign eif[g].rid     = {2'b00, ext_rid[g]};
-    assign eif[g].rdata   = ext_rdata[g];
-    assign eif[g].rresp   = ext_rresp[g];
-    assign eif[g].rlast   = ext_rlast[g];
-    assign eif[g].rvalid  = ext_rvalid[g];
-    assign ext_rready[g]  = eif[g].rready;
-  end
+  assign ext_awid    = eif.awid[1:0];
+  assign ext_awaddr  = eif.awaddr;
+  assign ext_awlen   = eif.awlen;
+  assign ext_awsize  = eif.awsize;
+  assign ext_awburst = eif.awburst;
+  assign ext_awprot  = eif.awprot;
+  assign ext_awcache = eif.awcache;
+  assign ext_awqos   = eif.awqos;
+  assign ext_awvalid = eif.awvalid;
+  assign eif.awready = ext_awready;
+  assign ext_wdata   = eif.wdata;
+  assign ext_wstrb   = eif.wstrb;
+  assign ext_wlast   = eif.wlast;
+  assign ext_wvalid  = eif.wvalid;
+  assign eif.wready  = ext_wready;
+  assign eif.bid     = {2'b00, ext_bid};
+  assign eif.bresp   = ext_bresp;
+  assign eif.bvalid  = ext_bvalid;
+  assign ext_bready  = eif.bready;
+  assign ext_arid    = eif.arid[1:0];
+  assign ext_araddr  = eif.araddr;
+  assign ext_arlen   = eif.arlen;
+  assign ext_arsize  = eif.arsize;
+  assign ext_arburst = eif.arburst;
+  assign ext_arprot  = eif.arprot;
+  assign ext_arcache = eif.arcache;
+  assign ext_arqos   = eif.arqos;
+  assign ext_arvalid = eif.arvalid;
+  assign eif.arready = ext_arready;
+  assign eif.rid     = {2'b00, ext_rid};
+  assign eif.rdata   = ext_rdata;
+  assign eif.rresp   = ext_rresp;
+  assign eif.rlast   = ext_rlast;
+  assign eif.rvalid  = ext_rvalid;
+  assign ext_rready  = eif.rready;
 
   // ---------------------------------------------------------------------------
   // Protocol checkers on the nine crossbar ports, through monitor interfaces
@@ -202,34 +202,31 @@ module tb_soc;
   end
 
   // ---------------------------------------------------------------------------
-  // Background traffic on M2 and M3
+  // Background traffic on M3
   // ---------------------------------------------------------------------------
-  axi_master mst [2];
+  axi_master mst;
   bit        stop_bg = 1'b0;
 
   initial begin
-    mst[0] = new(eif[0], 2);
-    mst[1] = new(eif[1], 3);
+    mst = new(eif, 3);
     // SRAM starts with unknown contents; only written words are predictable.
-    mst[0].learn_unknown = 1'b1;
-    mst[1].learn_unknown = 1'b1;
+    mst.learn_unknown = 1'b1;
   end
 
-  task automatic gen_bg(int k);
+  task automatic gen_bg();
     axi_txn      t;
     bit          wr;
-    int          len, words, m;
+    int          len, words;
     logic [31:0] base, a;
-    m     = k + 2;
-    base  = region_base(m, 1);
+    base  = region_base(3, 1);
     words = int'(region_size(1) / 8);
     while (!stop_bg) begin
-      while (mst[k].pending() >= 6 && !stop_bg) @(negedge clk);
+      while (mst.pending() >= 6 && !stop_bg) @(negedge clk);
       if (stop_bg) break;
       wr  = ($urandom_range(1) == 1);
       len = $urandom_range(15);
       a   = base + 32'($urandom_range(words - len - 1) * 8);
-      if ((a & 32'hFFF) + 32'((len + 1) * 8) > 32'h1000 || !mst[k].words_free(a, len, wr)) begin
+      if ((a & 32'hFFF) + 32'((len + 1) * 8) > 32'h1000 || !mst.words_free(a, len, wr)) begin
         @(negedge clk);
         continue;
       end
@@ -245,7 +242,7 @@ module tb_soc;
           t.strb.push_back(8'hFF);
         end
       end
-      mst[k].send(t);
+      mst.send(t);
       if ($urandom_range(1) == 1) @(negedge clk);
     end
   endtask
@@ -272,8 +269,8 @@ module tb_soc;
   endfunction
 
   task automatic apb_send(axi_txn t);
-    mst[1].send(t);
-    while (mst[1].pending() != 0) @(negedge clk);
+    mst.send(t);
+    while (mst.pending() != 0) @(negedge clk);
   endtask
 
   task automatic apb_expect(bit ok, string what);
@@ -289,7 +286,7 @@ module tb_soc;
     // rtl/csr/rdl/soc_apb.rdl.
     t = mk_apb(1'b0, 32'h4000_0000, 0, 0);
     apb_send(t);
-    apb_expect(t.rdata[0] == {32'h0001_0005, 32'h5353_4F43}, "64-bit read of ID and VERSION");
+    apb_expect(t.rdata[0] == {32'h0001_0006, 32'h5353_4F43}, "64-bit read of ID and VERSION");
     // SCRATCH written through the lower word only (WSTRB 0x0F).
     t = mk_apb(1'b1, 32'h4000_0008, 0, 0);
     t.data.push_back({32'hDEAD_BEEF, 32'h1234_5678});
@@ -311,7 +308,7 @@ module tb_soc;
     apb_expect(t.rdata.size() == 2 && t.rdata[1] == '1 && t.rdata[0] != 0,
                "two-beat timer read");
     $display("[SOC] apb check: 64-bit read, strobed write, SLVERR beside a valid word, empty slot, 2-beat burst: %0d errors",
-             apb_errors + mst[1].errors);
+             apb_errors + mst.errors);
   endtask
 
   // ---------------------------------------------------------------------------
@@ -319,7 +316,7 @@ module tb_soc;
   // ---------------------------------------------------------------------------
   bit    bg;
   int    errs;
-  int    bg_m2, bg_m3;
+  int    bg_m3;
   string mode;
 
   initial begin
@@ -327,30 +324,27 @@ module tb_soc;
     void'($value$plusargs("max_cycles=%d", max_cycles));
     bg = $test$plusargs("bg");
     #1;
-    mst[0].run();
-    mst[1].run();
+    mst.run();
     repeat (5) @(negedge clk);
     rst_n = 1'b1;
     if (bg) begin
       fork
-        gen_bg(0);
-        gen_bg(1);
+        gen_bg();
       join_none
     end
 
     wait (fw_done);
     stop_bg = 1'b1;
-    while (mst[0].pending() != 0 || mst[1].pending() != 0) @(negedge clk);
+    while (mst.pending() != 0) @(negedge clk);
     repeat (4) @(negedge clk);
-    bg_m2 = mst[0].n_done;
-    bg_m3 = mst[1].n_done;
+    bg_m3 = mst.n_done;
     if ($test$plusargs("apb_check")) apb_check();
 
-    errs = mst[0].errors + mst[1].errors + apb_errors;
+    errs = mst.errors + apb_errors;
     mode = "";
     if (bg) mode = " with background traffic";
-    $display("[SOC] %s%s: exit code %0d after %0d cycles; background bursts %0d (M2) + %0d (M3), errors %0d",
-             test, mode, fw_code, exit_cycle, bg_m2, bg_m3, errs);
+    $display("[SOC] %s%s: exit code %0d after %0d cycles; background bursts %0d (M3), errors %0d",
+             test, mode, fw_code, exit_cycle, bg_m3, errs);
     if (fw_code != 0 || errs != 0) $fatal(1, "[SOC] %s: FAIL", test);
     $display("[SOC] %s: PASS", test);
     $finish;

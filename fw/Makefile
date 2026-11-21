@@ -14,7 +14,7 @@ ARCH    := -march=rv32imc_zicsr_zifencei -mabi=ilp32
 CFLAGS  := $(ARCH) -O2 -g -Wall -Wextra -ffreestanding -fno-builtin -nostdlib -Icommon
 LDFLAGS := $(ARCH) -nostdlib -nostartfiles -T common/link.ld
 
-TESTS   := hello memtest irq buserr perf
+TESTS   := hello memtest irq buserr perf dma
 COMMON  := common/crt0.S common/lib.c
 
 .PHONY: all images clean

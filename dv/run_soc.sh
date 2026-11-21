@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the firmware (when the cross compiler is on PATH; otherwise the
 # committed fw/images are used), builds tb_soc once and runs every firmware
-# test twice: alone and with background traffic on M2 and M3.
+# test twice: alone and with background traffic on M3 (M2 is the DMA).
 #
 #   BUILD_DIR  build root (default: build/dv in the repository)
 set -euo pipefail
@@ -9,7 +9,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 out="${BUILD_DIR:-$root/build/dv}/soc"
-tests=(hello memtest irq buserr perf)
+tests=(hello memtest irq buserr perf dma)
 mkdir -p "$out"
 
 if command -v riscv-none-elf-gcc > /dev/null; then
@@ -29,12 +29,14 @@ rtl="$root/rtl"
 src=(
   "$here/lint/waivers.vlt" -F "$rtl/vendor/ibex/ibex.f"
   "$rtl/csr/gen/sys_regs_pkg.sv" "$rtl/csr/gen/intc_regs_pkg.sv" "$rtl/csr/gen/timer_regs_pkg.sv"
+  "$rtl/csr/gen/dma_regs_pkg.sv"
   "$rtl/csr/gen/sys_regs.sv" "$rtl/csr/gen/intc_regs.sv" "$rtl/csr/gen/timer_regs.sv"
+  "$rtl/csr/gen/dma_regs.sv"
   "$rtl/common/rr_arb.sv" "$rtl/common/fifo_sync.sv"
   "$rtl/axi/axi_id_tracker.sv" "$rtl/axi/axi_err_slv.sv" "$rtl/axi/axi_xbar.sv" "$rtl/axi/axi2apb.sv"
   "$rtl/cpu/cpu_ibex.sv" "$rtl/cpu/obi2axi.sv" "$rtl/mem/axi_mem.sv"
   "$rtl/periph/apb_sys.sv" "$rtl/periph/apb_timer.sv" "$rtl/periph/apb_intc.sv"
-  "$rtl/top/soc_top.sv"
+  "$rtl/dma/dma.sv" "$rtl/top/soc_top.sv"
   "$here/tb/axi4_if.sv" "$here/tb/axi_tb_pkg.sv" "$here/sva/axi4_checker.sv" "$here/tb/tb_soc.sv"
 )
 

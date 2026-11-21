@@ -28,7 +28,7 @@ package soc_apb_ral_pkg;
 
         virtual function void build();
             this.value = new("value");
-            this.value.configure(this, 32, 0, "RO", 0, 'h10005, 1, 1, 0);
+            this.value.configure(this, 32, 0, "RO", 0, 'h10006, 1, 1, 0);
         endfunction : build
     endclass : sys_regs__VERSION
 
@@ -323,11 +323,196 @@ package soc_apb_ral_pkg;
         endfunction : build
     endclass : timer_regs
 
+    // reg - dma_regs::CTRL
+    class dma_regs__CTRL extends uvm_reg;
+        rand uvm_reg_field start;
+        rand uvm_reg_field abort;
+
+        function new(string name = "dma_regs__CTRL");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.start = new("start");
+            this.start.configure(this, 1, 0, "WO", 1, 'h0, 1, 1, 0);
+            this.abort = new("abort");
+            this.abort.configure(this, 1, 1, "WO", 1, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : dma_regs__CTRL
+
+    // reg - dma_regs::DESC_PTR
+    class dma_regs__DESC_PTR extends uvm_reg;
+        rand uvm_reg_field addr;
+
+        function new(string name = "dma_regs__DESC_PTR");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.addr = new("addr");
+            this.addr.configure(this, 32, 0, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : dma_regs__DESC_PTR
+
+    // reg - dma_regs::STATUS
+    class dma_regs__STATUS extends uvm_reg;
+        rand uvm_reg_field busy;
+        rand uvm_reg_field done;
+        rand uvm_reg_field err;
+
+        function new(string name = "dma_regs__STATUS");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.busy = new("busy");
+            this.busy.configure(this, 1, 0, "RO", 1, 'h0, 0, 1, 0);
+            this.done = new("done");
+            this.done.configure(this, 1, 1, "W1C", 1, 'h0, 1, 1, 0);
+            this.err = new("err");
+            this.err.configure(this, 1, 2, "W1C", 1, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : dma_regs__STATUS
+
+    // reg - dma_regs::ERR_INFO
+    class dma_regs__ERR_INFO extends uvm_reg;
+        rand uvm_reg_field cause;
+        rand uvm_reg_field resp;
+
+        function new(string name = "dma_regs__ERR_INFO");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.cause = new("cause");
+            this.cause.configure(this, 3, 0, "RO", 1, 'h0, 1, 1, 0);
+            this.resp = new("resp");
+            this.resp.configure(this, 2, 4, "RO", 1, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : dma_regs__ERR_INFO
+
+    // reg - dma_regs::ERR_ADDR
+    class dma_regs__ERR_ADDR extends uvm_reg;
+        rand uvm_reg_field addr;
+
+        function new(string name = "dma_regs__ERR_ADDR");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.addr = new("addr");
+            this.addr.configure(this, 32, 0, "RO", 1, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : dma_regs__ERR_ADDR
+
+    // reg - dma_regs::CUR_DESC
+    class dma_regs__CUR_DESC extends uvm_reg;
+        rand uvm_reg_field addr;
+
+        function new(string name = "dma_regs__CUR_DESC");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.addr = new("addr");
+            this.addr.configure(this, 32, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : dma_regs__CUR_DESC
+
+    // reg - dma_regs::DESC_DONE
+    class dma_regs__DESC_DONE extends uvm_reg;
+        rand uvm_reg_field count;
+
+        function new(string name = "dma_regs__DESC_DONE");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.count = new("count");
+            this.count.configure(this, 16, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : dma_regs__DESC_DONE
+
+    // reg - dma_regs::CYCLES
+    class dma_regs__CYCLES extends uvm_reg;
+        rand uvm_reg_field count;
+
+        function new(string name = "dma_regs__CYCLES");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.count = new("count");
+            this.count.configure(this, 32, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : dma_regs__CYCLES
+
+    // addrmap - dma_regs
+    class dma_regs extends uvm_reg_block;
+        rand dma_regs__CTRL CTRL;
+        rand dma_regs__DESC_PTR DESC_PTR;
+        rand dma_regs__STATUS STATUS;
+        rand dma_regs__ERR_INFO ERR_INFO;
+        rand dma_regs__ERR_ADDR ERR_ADDR;
+        rand dma_regs__CUR_DESC CUR_DESC;
+        rand dma_regs__DESC_DONE DESC_DONE;
+        rand dma_regs__CYCLES CYCLES;
+
+        function new(string name = "dma_regs");
+            super.new(name);
+        endfunction : new
+
+        virtual function void build();
+            this.default_map = create_map("reg_map", 0, 4, UVM_NO_ENDIAN);
+            this.CTRL = new("CTRL");
+            this.CTRL.configure(this);
+
+            this.CTRL.build();
+            this.default_map.add_reg(this.CTRL, 'h0);
+            this.DESC_PTR = new("DESC_PTR");
+            this.DESC_PTR.configure(this);
+
+            this.DESC_PTR.build();
+            this.default_map.add_reg(this.DESC_PTR, 'h4);
+            this.STATUS = new("STATUS");
+            this.STATUS.configure(this);
+
+            this.STATUS.build();
+            this.default_map.add_reg(this.STATUS, 'h8);
+            this.ERR_INFO = new("ERR_INFO");
+            this.ERR_INFO.configure(this);
+
+            this.ERR_INFO.build();
+            this.default_map.add_reg(this.ERR_INFO, 'hc);
+            this.ERR_ADDR = new("ERR_ADDR");
+            this.ERR_ADDR.configure(this);
+
+            this.ERR_ADDR.build();
+            this.default_map.add_reg(this.ERR_ADDR, 'h10);
+            this.CUR_DESC = new("CUR_DESC");
+            this.CUR_DESC.configure(this);
+
+            this.CUR_DESC.build();
+            this.default_map.add_reg(this.CUR_DESC, 'h14);
+            this.DESC_DONE = new("DESC_DONE");
+            this.DESC_DONE.configure(this);
+
+            this.DESC_DONE.build();
+            this.default_map.add_reg(this.DESC_DONE, 'h18);
+            this.CYCLES = new("CYCLES");
+            this.CYCLES.configure(this);
+
+            this.CYCLES.build();
+            this.default_map.add_reg(this.CYCLES, 'h1c);
+        endfunction : build
+    endclass : dma_regs
+
     // addrmap - soc_apb
     class soc_apb extends uvm_reg_block;
         rand sys_regs SYS;
         rand intc_regs INTC;
         rand timer_regs TIMER;
+        rand dma_regs DMA;
 
         function new(string name = "soc_apb");
             super.new(name);
@@ -347,6 +532,10 @@ package soc_apb_ral_pkg;
             this.TIMER.configure(this);
             this.TIMER.build();
             this.default_map.add_submap(this.TIMER.default_map, 'h3000);
+            this.DMA = new("DMA");
+            this.DMA.configure(this);
+            this.DMA.build();
+            this.default_map.add_submap(this.DMA.default_map, 'h4000);
         endfunction : build
     endclass : soc_apb
 

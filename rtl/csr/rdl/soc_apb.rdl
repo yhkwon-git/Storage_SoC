@@ -24,8 +24,8 @@ addrmap sys_regs {
 
   reg {
     name = "VERSION";
-    desc = "Register map version: 0x0001_0005 is the map of step 1-5.";
-    field { sw = r; hw = na; } value[31:0] = 32'h0001_0005;
+    desc = "Register map version: 0x0001_0006 is the map of step 1-6 (DMA added).";
+    field { sw = r; hw = na; } value[31:0] = 32'h0001_0006;
   } VERSION @ 0x004;
 
   reg {
@@ -115,10 +115,70 @@ addrmap timer_regs {
   } CTRL @ 0x010;
 };
 
+addrmap dma_regs {
+  name = "DMA";
+  desc = "Descriptor-based DMA (rtl/dma/dma.sv). Descriptor format and error causes are in docs/06_dma.md.";
+  default regwidth = 32;
+  default accesswidth = 32;
+
+  reg {
+    name = "CTRL";
+    desc = "Write 1 to START to run the chain at DESC_PTR, or to ABORT to stop a running chain. Both read as 0. START while BUSY is ignored.";
+    field { sw = w; hw = r; singlepulse; desc = "Start the chain at DESC_PTR."; } start[0:0] = 1'b0;
+    field { sw = w; hw = r; singlepulse; desc = "Stop after the transactions already issued complete."; } abort[1:1] = 1'b0;
+  } CTRL @ 0x000;
+
+  reg {
+    name = "DESC_PTR";
+    desc = "Address of the first descriptor; 16-byte aligned.";
+    field { sw = rw; hw = r; } addr[31:0] = 32'h0;
+  } DESC_PTR @ 0x004;
+
+  reg {
+    name = "STATUS";
+    desc = "DONE and ERR are the DMA's two interrupt sources (INTC 1 and 2). Write 1 to clear; START clears both. A hardware set wins over a software clear in the same clock, so no event is lost.";
+    field { sw = r; hw = w; desc = "A chain is running."; } busy[0:0];
+    field { sw = rw; onwrite = woclr; hw = r; hwset; hwclr; precedence = hw; desc = "The chain completed."; } done[1:1] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; hwclr; precedence = hw; desc = "The chain stopped on an error or an abort; see ERR_INFO."; } err[2:2] = 1'b0;
+  } STATUS @ 0x008;
+
+  reg {
+    name = "ERR_INFO";
+    desc = "Why the last run stopped. Cleared by START.";
+    field { sw = r; hw = w; we; desc = "1 descriptor read error, 2 data read error, 3 data write error, 4 bad descriptor or DESC_PTR, 5 aborted."; } cause[2:0] = 3'h0;
+    field { sw = r; hw = w; we; desc = "RRESP or BRESP of the failed transaction (causes 1 to 3)."; } resp[5:4] = 2'h0;
+  } ERR_INFO @ 0x00C;
+
+  reg {
+    name = "ERR_ADDR";
+    desc = "Causes 1 and 4: the descriptor's address. Causes 2 and 3: the start address of the failed burst. Cause 5: CUR_DESC.";
+    field { sw = r; hw = w; we; } addr[31:0] = 32'h0;
+  } ERR_ADDR @ 0x010;
+
+  reg {
+    name = "CUR_DESC";
+    desc = "Address of the descriptor whose data is being read, or was read last.";
+    field { sw = r; hw = w; } addr[31:0];
+  } CUR_DESC @ 0x014;
+
+  reg {
+    name = "DESC_DONE";
+    desc = "Descriptors whose writes all completed in this run, counted until the first error.";
+    field { sw = r; hw = w; } count[15:0];
+  } DESC_DONE @ 0x018;
+
+  reg {
+    name = "CYCLES";
+    desc = "Clocks from START to the end of the run (counting while BUSY).";
+    field { sw = r; hw = w; } count[31:0];
+  } CYCLES @ 0x01C;
+};
+
 addrmap soc_apb {
   name = "APB peripherals";
   desc = "Register blocks in the APB window at 0x4000_0000, one 4 KiB slot each.";
   sys_regs   SYS   @ 0x0000;
   intc_regs  INTC  @ 0x2000;
   timer_regs TIMER @ 0x3000;
+  dma_regs   DMA   @ 0x4000;
 };

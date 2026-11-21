@@ -45,6 +45,36 @@
 #define TIMER_MTIMECMP_HI  APB_REG(TIMER.MTIMECMP_HI)
 #define TIMER_CTRL         APB_REG(TIMER.CTRL)
 
+#define DMA_BASE       (APB_BASE + (uint32_t)offsetof(soc_apb_t, DMA))
+#define DMA_CTRL       APB_REG(DMA.CTRL)
+#define DMA_DESC_PTR   APB_REG(DMA.DESC_PTR)
+#define DMA_STATUS     APB_REG(DMA.STATUS)
+#define DMA_ERR_INFO   APB_REG(DMA.ERR_INFO)
+#define DMA_ERR_ADDR   APB_REG(DMA.ERR_ADDR)
+#define DMA_CUR_DESC   APB_REG(DMA.CUR_DESC)
+#define DMA_DESC_DONE  APB_REG(DMA.DESC_DONE)
+#define DMA_CYCLES     APB_REG(DMA.CYCLES)
+
+#define DMA_START  DMA_REGS__CTRL__START_bm
+#define DMA_ABORT  DMA_REGS__CTRL__ABORT_bm
+#define DMA_BUSY   DMA_REGS__STATUS__BUSY_bm
+#define DMA_DONE   DMA_REGS__STATUS__DONE_bm
+#define DMA_ERR    DMA_REGS__STATUS__ERR_bm
+#define DMA_FENCE  (1u << 24) /* in dma_desc_t.len */
+
+/* DMA descriptor (docs/06_dma.md). len: [23:0] bytes, [24] FENCE. next: the
+ * next descriptor, 16-byte aligned, or 0 to end the chain. */
+typedef struct __attribute__((aligned(16))) {
+  uint32_t src;
+  uint32_t dst;
+  uint32_t len;
+  uint32_t next;
+} dma_desc_t;
+
+/* INTC source IDs (docs/01, section 7). */
+#define IRQ_DMA_DONE 1u
+#define IRQ_DMA_ERR  2u
+
 #define SOC_ID SYS_REGS__ID__VALUE_reset
 
 #define MCAUSE_INSTR_FAULT 1u

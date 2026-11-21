@@ -2,8 +2,9 @@
 //
 // UVM register tests for the APB blocks, run on Vivado's simulator (xsim)
 // with UVM 1.2. The register model is the generated soc_apb
-// (dv/ral/soc_apb_ral_pkg.sv); the DUT is apb_sys, apb_intc and apb_timer,
-// so the generated register RTL is tested together with the logic around it.
+// (dv/ral/soc_apb_ral_pkg.sv); the DUT is apb_sys, apb_intc, apb_timer and
+// dma, so the generated register RTL is tested together with the logic
+// around it.
 //
 //   1. uvm_reg_hw_reset_seq   every register's reset value
 //   2. uvm_reg_bit_bash_seq   every bit of every register: written 1 and 0,
@@ -12,13 +13,18 @@
 //                             prescale, software write over counting, the
 //                             timer and external interrupts, one console and
 //                             exit event per write, writes to read-only
-//                             registers ignored without error
+//                             registers ignored without error; DMA: a
+//                             misaligned DESC_PTR ends in ERR with cause 4
+//                             and no bus request, ERR reaches INTC source 2,
+//                             write-1-to-clear, ABORT while idle does nothing
 //   4. decode                 PSLVERR for offsets and slots with no register
 //
 // Left out of 1 and 2, with the reason: MTIME_LO/HI count from reset
 // (checked in 3); CONSOLE and EXIT are write-only events that read as 0
-// (checked in 3). Fields written by hardware (PENDING, CLAIM, MTIME) are
-// volatile in the model, so the bit bash does not compare them.
+// (checked in 3); DMA CTRL is write-only and a 1 in it starts or aborts the
+// DMA (checked in 3). Fields written by hardware (PENDING, CLAIM, MTIME, the
+// DMA's status and counters) are volatile in the model, so the bit bash does
+// not compare them.
 
 package ral_test_pkg;
   `include "uvm_macros.svh"
@@ -119,6 +125,7 @@ package ral_test_pkg;
       exclude(rm.TIMER.MTIME_HI, "NO_REG_BIT_BASH_TEST");
       exclude(rm.SYS.CONSOLE,    "NO_REG_BIT_BASH_TEST");
       exclude(rm.SYS.EXIT,       "NO_REG_BIT_BASH_TEST");
+      exclude(rm.DMA.CTRL,       "NO_REG_BIT_BASH_TEST");
 
       // 1. Reset values.
       rst_seq = uvm_reg_hw_reset_seq::type_id::create("rst_seq");
@@ -194,10 +201,34 @@ package ral_test_pkg;
       expect_ok(st == UVM_IS_OK, "write to ID answered an error");
       rm.SYS.ID.mirror(st, UVM_CHECK);
 
+      // 3d. DMA without a bus: START with a DESC_PTR that is not 16-byte
+      // aligned ends at once in ERR, cause 4, the pointer in ERR_ADDR, and no
+      // bus request. ERR is INTC source 2. Writing 1 clears it; ABORT while
+      // idle changes nothing.
+      rm.DMA.DESC_PTR.write(st, 32'h1000_0008);
+      rm.DMA.CTRL.write(st, 32'h1);
+      rm.DMA.STATUS.read(st, v);
+      expect_ok(v == 32'h4, $sformatf("DMA STATUS %h after a misaligned START, expected 4 (ERR)", v));
+      rm.DMA.ERR_INFO.read(st, v);
+      expect_ok(v == 32'h4, $sformatf("DMA ERR_INFO %h, expected 4 (bad descriptor pointer)", v));
+      rm.DMA.ERR_ADDR.read(st, v);
+      expect_ok(v == 32'h1000_0008, $sformatf("DMA ERR_ADDR %h, expected 10000008", v));
+      expect_ok(vif.dma_bus_req === 1'b0, "DMA made a bus request for a misaligned DESC_PTR");
+      rm.INTC.PENDING.read(st, v);
+      expect_ok(v == 32'h4, $sformatf("INTC PENDING %h with the DMA in ERR, expected 4 (source 2)", v));
+      rm.DMA.STATUS.write(st, 32'h4);
+      rm.DMA.STATUS.read(st, v);
+      expect_ok(v == 32'h0, $sformatf("DMA STATUS %h after writing 1 to ERR, expected 0", v));
+      rm.DMA.CTRL.write(st, 32'h2);
+      rm.DMA.STATUS.read(st, v);
+      rm.DMA.CYCLES.read(st, v2);
+      expect_ok(v == 32'h0 && v2 == 32'h0, $sformatf("DMA STATUS %h CYCLES %0d after ABORT while idle", v, v2));
+
       // 4. Decode: offsets and slots without a register answer PSLVERR.
       raw(16'h0000, 1'b0, 0, rd, err);
       expect_ok(!err && rd == 32'h5353_4F43, "ID read through a raw transfer");
-      bad_addr = '{16'h0018, 16'h0FFC, 16'h1000, 16'h1FFC, 16'h2010, 16'h3014, 16'h4000, 16'hF000};
+      bad_addr = '{16'h0018, 16'h0FFC, 16'h1000, 16'h1FFC, 16'h2010, 16'h3014, 16'h4020, 16'h5000,
+                   16'hF000};
       foreach (bad_addr[i]) begin
         raw(bad_addr[i], 1'b0, 0, rd, err);
         expect_ok(err, $sformatf("read of %h answered without PSLVERR", bad_addr[i]));

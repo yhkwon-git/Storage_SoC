@@ -20,7 +20,7 @@ extern "C" {
 #define SYS_REGS__VERSION__VALUE_bm 0xffffffff
 #define SYS_REGS__VERSION__VALUE_bp 0
 #define SYS_REGS__VERSION__VALUE_bw 32
-#define SYS_REGS__VERSION__VALUE_reset 0x10005
+#define SYS_REGS__VERSION__VALUE_reset 0x10006
 
 // reg - sys_regs::SCRATCH
 #define SYS_REGS__SCRATCH__VALUE_bm 0xffffffff
@@ -123,6 +123,78 @@ typedef struct __attribute__ ((__packed__)) {
     uint32_t CTRL;
 } timer_regs_t;
 
+// reg - dma_regs::CTRL
+#define DMA_REGS__CTRL__START_bm 0x1
+#define DMA_REGS__CTRL__START_bp 0
+#define DMA_REGS__CTRL__START_bw 1
+#define DMA_REGS__CTRL__START_reset 0x0
+#define DMA_REGS__CTRL__ABORT_bm 0x2
+#define DMA_REGS__CTRL__ABORT_bp 1
+#define DMA_REGS__CTRL__ABORT_bw 1
+#define DMA_REGS__CTRL__ABORT_reset 0x0
+
+// reg - dma_regs::DESC_PTR
+#define DMA_REGS__DESC_PTR__ADDR_bm 0xffffffff
+#define DMA_REGS__DESC_PTR__ADDR_bp 0
+#define DMA_REGS__DESC_PTR__ADDR_bw 32
+#define DMA_REGS__DESC_PTR__ADDR_reset 0x0
+
+// reg - dma_regs::STATUS
+#define DMA_REGS__STATUS__BUSY_bm 0x1
+#define DMA_REGS__STATUS__BUSY_bp 0
+#define DMA_REGS__STATUS__BUSY_bw 1
+#define DMA_REGS__STATUS__DONE_bm 0x2
+#define DMA_REGS__STATUS__DONE_bp 1
+#define DMA_REGS__STATUS__DONE_bw 1
+#define DMA_REGS__STATUS__DONE_reset 0x0
+#define DMA_REGS__STATUS__ERR_bm 0x4
+#define DMA_REGS__STATUS__ERR_bp 2
+#define DMA_REGS__STATUS__ERR_bw 1
+#define DMA_REGS__STATUS__ERR_reset 0x0
+
+// reg - dma_regs::ERR_INFO
+#define DMA_REGS__ERR_INFO__CAUSE_bm 0x7
+#define DMA_REGS__ERR_INFO__CAUSE_bp 0
+#define DMA_REGS__ERR_INFO__CAUSE_bw 3
+#define DMA_REGS__ERR_INFO__CAUSE_reset 0x0
+#define DMA_REGS__ERR_INFO__RESP_bm 0x30
+#define DMA_REGS__ERR_INFO__RESP_bp 4
+#define DMA_REGS__ERR_INFO__RESP_bw 2
+#define DMA_REGS__ERR_INFO__RESP_reset 0x0
+
+// reg - dma_regs::ERR_ADDR
+#define DMA_REGS__ERR_ADDR__ADDR_bm 0xffffffff
+#define DMA_REGS__ERR_ADDR__ADDR_bp 0
+#define DMA_REGS__ERR_ADDR__ADDR_bw 32
+#define DMA_REGS__ERR_ADDR__ADDR_reset 0x0
+
+// reg - dma_regs::CUR_DESC
+#define DMA_REGS__CUR_DESC__ADDR_bm 0xffffffff
+#define DMA_REGS__CUR_DESC__ADDR_bp 0
+#define DMA_REGS__CUR_DESC__ADDR_bw 32
+
+// reg - dma_regs::DESC_DONE
+#define DMA_REGS__DESC_DONE__COUNT_bm 0xffff
+#define DMA_REGS__DESC_DONE__COUNT_bp 0
+#define DMA_REGS__DESC_DONE__COUNT_bw 16
+
+// reg - dma_regs::CYCLES
+#define DMA_REGS__CYCLES__COUNT_bm 0xffffffff
+#define DMA_REGS__CYCLES__COUNT_bp 0
+#define DMA_REGS__CYCLES__COUNT_bw 32
+
+// addrmap - dma_regs
+typedef struct __attribute__ ((__packed__)) {
+    uint32_t CTRL;
+    uint32_t DESC_PTR;
+    uint32_t STATUS;
+    uint32_t ERR_INFO;
+    uint32_t ERR_ADDR;
+    uint32_t CUR_DESC;
+    uint32_t DESC_DONE;
+    uint32_t CYCLES;
+} dma_regs_t;
+
 // addrmap - soc_apb
 typedef struct __attribute__ ((__packed__)) {
     sys_regs_t SYS;
@@ -130,13 +202,15 @@ typedef struct __attribute__ ((__packed__)) {
     intc_regs_t INTC;
     uint8_t RESERVED_2010_2fff[0xff0];
     timer_regs_t TIMER;
+    uint8_t RESERVED_3014_3fff[0xfec];
+    dma_regs_t DMA;
 } soc_apb_t;
 
 // Instances
 #define soc_apb (*(volatile soc_apb_t *)0x40000000UL)
 
 
-static_assert(sizeof(soc_apb_t) == 0x3014, "Packing error");
+static_assert(sizeof(soc_apb_t) == 0x4020, "Packing error");
 
 #ifdef __cplusplus
 }
