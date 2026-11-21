@@ -1,0 +1,14 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verilator:
+    runs-on: ubuntu-24.04
+    container: verilator/verilator:v5.052
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain check (Verilator covergroups)
+        run: bash flow/tools/check_verilator.sh
