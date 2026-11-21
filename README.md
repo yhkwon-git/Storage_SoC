@@ -12,8 +12,8 @@ A RISC-V CPU, an AXI4 interconnect, DMA, SystemRDL-generated CSRs and always-on 
 
 | Item | Value |
 | --- | --- |
-| Current phase | Phase 1, SoC platform: steps 1-1 (architecture) and 1-2 (common blocks) done |
-| Design | Common blocks: dual-clock FIFO, 2-flop synchronizer, channel register slice |
+| Current phase | Phase 1, SoC platform: steps 1-1 (architecture), 1-2 (common blocks) and 1-3 (AXI4 crossbar) done |
+| Design | AXI4 crossbar, 4 masters by 5 slaves; dual-clock FIFO, 2-flop synchronizer, channel register slice |
 | Verification tools | Vivado simulator 2019.2 (UVM 1.2), Verilator 5.052 |
 | Implementation tools | Yosys 0.52, OpenSTA 3.1.0, Sky130 HD (ss/tt/ff corners) |
 
@@ -64,7 +64,7 @@ flowchart LR
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 0 | Toolchain checks, repository layout, CI, RISC-V GCC | Done |
-| 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | In progress: 1-1, 1-2 done |
+| 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | In progress: 1-1 to 1-3 done |
 | 2 | Host interface: PHY with a PIPE-style boundary, link training, data link layer, transaction bridge | Planned |
 | 3 | Storage datapath: NAND channel controllers, NAND model, BCH | Planned |
 | 4 | SoC-level UVM, verification plan, coverage closure | Planned |
@@ -90,6 +90,20 @@ Block results (commit 8ce1fac, details in [docs/02_common_blocks.md](docs/02_com
 - **Dual-clock FIFO.** 12 runs: six clock pairs from 4:1 to 1:4, each with random and full-rate traffic, 20,000 words per run. 0 data errors, and 97.9 to 101.0% of the throughput bound. The FIFO it replaces moved 12.5 to 24.8% of the bound at the same clock pairs, except 50 to 68% at the 4:1 pair.
 - **Register slice.** 5,000 random beats in order. With VALID and READY held high, one beat per clock and one clock of latency. A k-clock downstream stall blocks the upstream for exactly k clocks, k = 1 to 6.
 
+AXI4 crossbar (commit 76fd272, details in [docs/03_axi_crossbar.md](docs/03_axi_crossbar.md)):
+
+- **Directed test.**
+  - 72 unmapped or no-path bursts answered DECERR, none reaching a slave.
+  - 32 bursts from four masters to one slave read back intact.
+  - An ID switching slaves waits for its earlier transaction and is accepted 1 clock after it ends.
+  - At most 4 reads and 4 writes outstanding per master.
+  - Different slaves are served in the same clock.
+  - Round-robin share of 50, 50, 50, 50 of 200 grants.
+  - 1.000 write and read beats per clock for 16-beat bursts.
+- **Random test.** 10 seeds, 80,000 bursts with 8% DECERR traffic, responses reordered across IDs, random READY and latency: 0 errors. 62 of 62 covergroup bins.
+- **RTL coverage.** Line 31 of 32 (an unreachable `default`), branch 72 of 72, toggle 70.6%. The missed toggles are almost all bits fixed by the configuration.
+- **Mutation check.** 7 of 7 planted bugs caught: ID rule, outstanding limit, R lock, AW grant hold, W order, path table, B routing.
+
 ## How to run
 
 ```bash
@@ -103,8 +117,9 @@ powershell -ExecutionPolicy Bypass -File flow\tools\check_xsim.ps1   # [TOOLS] x
 ```
 
 ```bash
-# Block checks (Linux or WSL): lint, dual-clock FIFO, register slice
-make -C dv                                                           # [LINT] PASS, [FIFO] all runs PASS, [SLICE] PASS
+# Block checks (Linux or WSL): lint, dual-clock FIFO, register slice, crossbar
+make -C dv                                                           # [LINT] PASS, [FIFO] all runs PASS, [SLICE] PASS, [XBAR] all runs PASS
+make -C dv xbar-mut                                                  # [MUT] 7 of 7 mutants caught
 ```
 
 Outputs go to `build/`, which git ignores. `check_verilator.sh` takes `BUILD_DIR` to build elsewhere, and `check_xsim.ps1` takes `-Vivado <install dir>` or `XILINX_VIVADO`.
@@ -114,10 +129,10 @@ Outputs go to `build/`, which git ignores. `check_verilator.sh` takes `BUILD_DIR
 ```text
 .github/workflows/   CI
 docs/                design documents
-dv/                  block testbenches (dv/tb/), FIFO run script, Makefile
+dv/                  testbenches (dv/tb/), SVA checkers (dv/sva/), run, mutation and coverage scripts, Makefile
 flow/tools/          toolchain checks: smoke_uvm.sv (xsim), smoke_cov.sv (Verilator) and their scripts
-rtl/axi/             AXI channel register slice
-rtl/common/          dual-clock FIFO, 2-flop synchronizer
+rtl/axi/             AXI4 crossbar, ID tracker, default slave, channel register slice
+rtl/common/          dual-clock FIFO, 2-flop synchronizer, round-robin arbiter, single-clock FIFO
 ```
 
 Later steps add `fw/`, `syn/` and more of `rtl/`; the planned layout is in section 11 of the architecture document.
@@ -128,6 +143,7 @@ Later steps add `fw/`, `syn/` and more of `rtl/`; the planned layout is in secti
 | --- | --- |
 | [docs/01_soc_architecture.md](docs/01_soc_architecture.md) | Clock domains and crossings, resets, power domains with isolation, retention and sequences, AXI4 rules, address and interrupt maps, boot, timing targets, phase-1 verification plan |
 | [docs/02_common_blocks.md](docs/02_common_blocks.md) | Blocks taken from AXI_PCIe_Subsystem `b64e36a`, why the dual-clock FIFO was rewritten, FIFO and register-slice measurements |
+| [docs/03_axi_crossbar.md](docs/03_axi_crossbar.md) | Crossbar structure and design decisions (same-ID rule, default slaves, W routing, R lock), verification environment, directed, random, coverage and mutation results |
 
 ## Limitations
 
@@ -150,5 +166,10 @@ PCIe 계열 serial host link를 갖춘 소형 스토리지 컨트롤러 SoC입�
 - **현재 상태.** Phase 0(도구 확인, repo 구조, CI, RISC-V GCC)이 끝났고, Phase 1(SoC platform)을 진행 중입니다.
   - 1-1 아키텍처 사양([docs/01_soc_architecture.md](docs/01_soc_architecture.md)): clock 5개와 crossing 규칙, reset 해제 순서, PD_HOST의 isolation·retention·power sequence, AXI4 규칙, address·interrupt map, 목표 주파수를 정했습니다.
   - 1-2 공통 블록([docs/02_common_blocks.md](docs/02_common_blocks.md)): 이전 프로젝트의 2-FF synchronizer와 register slice는 로직을 그대로 가져왔습니다. dual-clock FIFO는 같은 TB로 측정한 결과 처리량이 상한의 12.5~24.8%(4:1 비율만 50~68%)에 그쳐서 새로 설계했고, 새 FIFO는 12개 run 모두 데이터 오류 0, 상한의 97.9~101.0%를 냈습니다(commit 8ce1fac).
+  - 1-3 AXI4 crossbar([docs/03_axi_crossbar.md](docs/03_axi_crossbar.md)): 4×5 sparse 구조이고, 같은 ID가 outstanding인 동안 다른 slave로 넘어가지 않게 해서 reorder buffer 없이 응답 순서를 지킵니다. master마다 DECERR slave를 두고, W는 master와 slave 양쪽의 AW 순서를 따르게 했습니다(commit 76fd272).
+    - **검증 환경.** class 기반 master/slave 모델과 9개 포트의 SVA checker를 붙였습니다.
+    - **directed 8종.** 모두 PASS입니다.
+    - **random.** 10 seed, 80,000 burst에서 오류 0이고, covergroup 62/62입니다.
+    - **mutation.** 일부러 심은 버그 7종을 모두 잡았습니다.
 - **범위.** 공개 자료만으로 구성하며 PCIe, M-PHY, UniPro 규격 준수를 주장하지 않습니다.
 - **LLM 사용.** 코드, 테스트, 문서 초안에 LLM(Claude)을 쓰고, repo 안의 regression과 검사를 통과한 결과만 반영합니다.
