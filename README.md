@@ -1,5 +1,7 @@
 # Storage_SoC
 
+[![ci](https://github.com/yhkwon-git/Storage_SoC/actions/workflows/ci.yml/badge.svg)](https://github.com/yhkwon-git/Storage_SoC/actions/workflows/ci.yml)
+
 A small storage-controller SoC with a PCIe-like serial host link.
 
 A RISC-V CPU, an AXI4 interconnect, DMA, SystemRDL-generated CSRs and always-on and switchable power domains form the platform. A serial host interface (PHY with a PIPE-style boundary, data link layer, transaction-to-AXI bridge) and a NAND-flash datapath with BCH sit on it. Each IP has its own testbench, and the SoC is signed off with a UVM environment, synthesis and multi-corner STA in an open-source flow.
@@ -61,7 +63,7 @@ flowchart LR
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| 0 | Toolchain checks, repository layout, CI, RISC-V GCC | Done; the CI workflow goes live with its push |
+| 0 | Toolchain checks, repository layout, CI, RISC-V GCC | Done |
 | 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | In progress: 1-1 done |
 | 2 | Host interface: PHY with a PIPE-style boundary, link training, data link layer, transaction bridge | Planned |
 | 3 | Storage datapath: NAND channel controllers, NAND model, BCH | Planned |
