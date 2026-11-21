@@ -12,9 +12,10 @@ A RISC-V CPU, an AXI4 interconnect, DMA, SystemRDL-generated CSRs and always-on 
 
 | Item | Value |
 | --- | --- |
-| Current phase | Phase 1, SoC platform: steps 1-1 (architecture), 1-2 (common blocks), 1-3 (AXI4 crossbar) and 1-4 (CPU subsystem) done |
-| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 5 AXI4 crossbar, with SRAM and APB SYS, interrupt controller and timer; dual-clock FIFO, 2-flop synchronizer, channel register slice |
+| Current phase | Phase 1, SoC platform: steps 1-1 (architecture), 1-2 (common blocks), 1-3 (AXI4 crossbar), 1-4 (CPU subsystem) and 1-5 (SystemRDL CSRs) done |
+| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 5 AXI4 crossbar, with SRAM and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; dual-clock FIFO, 2-flop synchronizer, channel register slice |
 | Verification tools | Vivado simulator 2019.2 (UVM 1.2), Verilator 5.052 |
+| Register generation | PeakRDL 1.5.0: register RTL, C header, UVM register model and register document from one source |
 | Implementation tools | Yosys 0.52, OpenSTA 3.1.0, Sky130 HD (ss/tt/ff corners) |
 
 Every number in this repository names the commit it was measured at, and the script that produced it is in the repository.
@@ -70,7 +71,7 @@ flowchart LR
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 0 | Toolchain checks, repository layout, CI, RISC-V GCC | Done |
-| 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | In progress: 1-1 to 1-4 done |
+| 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | In progress: 1-1 to 1-5 done |
 | 2 | Host interface: transaction layer and NVMe front-end (steps 2-1 to 2-5), then data link layer, PHY with a PIPE-style boundary and link training (steps 2-6 to 2-9) | Planned |
 | 3 | Storage datapath: NAND channel controllers, NAND model, BCH, NVMe reads and writes through to NAND | Planned |
 | 4 | SoC-level UVM, verification plan, coverage closure | Planned |
@@ -86,6 +87,7 @@ Build order: phase 1, steps 2-1 to 2-5, phase 3, steps 2-6 to 2-9, then phases 4
 | Vivado simulator (xsim) | 2019.2 | UVM 1.2 testbenches: sequences, constrained random, covergroups |
 | Verilator | 5.052 | Lint, fast regressions, line/branch/toggle coverage, covergroup bins |
 | GitHub Actions | `verilator/verilator:v5.052` image | The Verilator checks on every push |
+| PeakRDL | 1.5.0 (`flow/rdl/requirements.txt`) | Generates the register files; `make -C dv rdl-check` confirms the committed files match the source |
 
 Phase 0 findings (2026-11-21, commit ce2671d):
 
@@ -125,6 +127,19 @@ CPU subsystem (commit 3e51bad, details in [docs/04_cpu_subsystem.md](docs/04_cpu
 - **APB bridge.** A 64-bit check from M3 covers paths the CPU never uses: two-word beats, strobed words, PSLVERR inside a beat, an empty slot, a burst.
 - **Lint.** soc_top is `-Wall` clean; vendor files are waived.
 
+CSRs (commit 888d3e5, details in [docs/05_csr.md](docs/05_csr.md)):
+
+- **One source.** `rtl/csr/rdl/soc_apb.rdl` describes SYS, INTC and TIMER (14 registers). PeakRDL generates from it:
+  - the APB register RTL;
+  - the firmware header;
+  - the UVM register model;
+  - [docs/regs/soc_apb.md](docs/regs/soc_apb.md).
+
+  The wrappers keep their ports and add the counting, claim and event logic.
+- **Same behavior.** Same map and same APB timing as the hand-written blocks: every SoC clock count is unchanged, and the firmware images are byte-identical.
+- **UVM register tests on xsim.** UVM's reset sequence (12 registers) and bit bash (10 registers) over the generated model, plus 33 behavior and decode checks: 0 failures, UVM_ERROR 0, in 1,191 APB transfers.
+- **Mutation check.** 4 of 4 planted bugs caught (commit 7bbaca7): a reset value, a stuck bit, the claim order, a missing decode error.
+
 ## How to run
 
 ```bash
@@ -142,6 +157,10 @@ powershell -ExecutionPolicy Bypass -File flow\tools\check_xsim.ps1   # [TOOLS] x
 make -C dv                                                           # [LINT] PASS ... [XBAR] all runs PASS, [SOC] all runs PASS
 make -C dv xbar-mut                                                  # [MUT] 7 of 7 mutants caught
 make -C fw images                                                    # rebuild fw/images (needs riscv-none-elf-gcc on PATH)
+make -C dv rdl-check                                                 # [RDL] generated files match soc_apb.rdl (needs PeakRDL)
+bash flow/rdl/gen.sh                                                 # regenerate after editing rtl/csr/rdl/soc_apb.rdl
+make -C dv ral                                                       # [RAL] PASS: UVM register tests on xsim (WSL calls Windows)
+make -C dv ral-mut                                                   # [MUT] 4 of 4 mutants caught
 ```
 
 Outputs go to `build/`, which git ignores. `check_verilator.sh` takes `BUILD_DIR` to build elsewhere, and `check_xsim.ps1` takes `-Vivado <install dir>` or `XILINX_VIVADO`.
@@ -151,14 +170,19 @@ Outputs go to `build/`, which git ignores. `check_verilator.sh` takes `BUILD_DIR
 ```text
 .github/workflows/   CI
 docs/                design documents
+docs/regs/           register document generated from SystemRDL
 dv/                  testbenches (dv/tb/), SVA checkers (dv/sva/), lint waivers (dv/lint/), run, mutation and coverage scripts
+dv/ral/              UVM register model generated from SystemRDL
+dv/uvm/              APB agent and UVM register tests (xsim)
+flow/rdl/            register generation script and pinned PeakRDL versions
 flow/tools/          toolchain checks: smoke_uvm.sv (xsim), smoke_cov.sv (Verilator) and their scripts
 fw/                  firmware: start-up and linker script (common/), tests (tests/), committed ROM images (images/)
 rtl/axi/             AXI4 crossbar, ID tracker, default slave, AXI-to-APB bridge, channel register slice
 rtl/common/          dual-clock FIFO, 2-flop synchronizer, round-robin arbiter, single-clock FIFO
 rtl/cpu/             Ibex wrapper, Ibex-port-to-AXI4 adapter
+rtl/csr/             SystemRDL source (rdl/) and the register blocks generated from it (gen/)
 rtl/mem/             AXI4 ROM and SRAM
-rtl/periph/          APB SYS, interrupt controller, timer
+rtl/periph/          APB SYS, interrupt controller, timer around the generated registers
 rtl/top/             soc_top
 rtl/vendor/ibex/     Ibex v2.1.0, unchanged (VENDOR.md)
 ```
@@ -173,6 +197,8 @@ Later steps add `syn/` and more of `rtl/`; the planned layout is in section 11 o
 | [docs/02_common_blocks.md](docs/02_common_blocks.md) | Blocks taken from AXI_PCIe_Subsystem `b64e36a`, why the dual-clock FIFO was rewritten, FIFO and register-slice measurements |
 | [docs/03_axi_crossbar.md](docs/03_axi_crossbar.md) | Crossbar structure and design decisions (same-ID rule, default slaves, W routing, R lock), verification environment, directed, random, coverage and mutation results |
 | [docs/04_cpu_subsystem.md](docs/04_cpu_subsystem.md) | Ibex choice and configuration, the memory-port adapter's ordering rules, memories, APB bridge and registers, firmware, SoC test results, CPI, bring-up findings |
+| [docs/05_csr.md](docs/05_csr.md) | SystemRDL source and its four outputs, generator options, logic around the registers, firmware header use, UVM register tests, mutation check, findings |
+| [docs/regs/soc_apb.md](docs/regs/soc_apb.md) | Generated register reference: every register and field with offset, access and reset value |
 
 ## Limitations
 
@@ -205,5 +231,9 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
     - **구성.** Ibex v2.1.0(RV32IMC, 43개 파일을 원본 그대로 반입)을 AXI4 adapter 2개로 crossbar에 붙였습니다. boot ROM, SRAM, AXI→APB bridge와 SYS·INTC·TIMER, firmware를 더했습니다.
     - **firmware 테스트.** 5종이 단독으로도, 다른 master가 SRAM에 random burst를 보내는 중에도 모두 통과했습니다. memtest에는 misaligned 접근 12건이 포함되고, buserr는 결함 6종을 검사합니다.
     - **CPI.** ROM 코드 기준으로 1.40~1.42이고, SRAM 경합 중 CRC는 1.67입니다(commit 3e51bad).
+  - 1-5 SystemRDL CSR([docs/05_csr.md](docs/05_csr.md)):
+    - **단일 source.** SYS·INTC·TIMER 레지스터 14개를 SystemRDL 하나로 기술하고, PeakRDL로 APB register RTL, firmware header, UVM register model, register 문서를 생성합니다.
+    - **동작 동일성.** map과 APB timing이 손으로 쓴 이전 블록과 같아서 SoC 테스트의 clock 수가 전부 그대로이고, firmware image도 byte 단위로 같습니다(commit 888d3e5).
+    - **UVM register test(xsim).** reset 검사 12개, bit bash 10개, 동작·decode 검사 33개에서 실패 0입니다. 일부러 심은 버그 4종도 모두 잡았습니다(commit 7bbaca7).
 - **범위.** 공개 자료만으로 구성하며 PCIe, NVMe, M-PHY, UniPro 규격 준수를 주장하지 않습니다. NVMe는 공개된 Base Specification의 register · queue · PRP 구조 일부만 따릅니다.
 - **LLM 사용.** 코드, 테스트, 문서 초안에 LLM(Claude)을 쓰고, repo 안의 regression과 검사를 통과한 결과만 반영합니다.

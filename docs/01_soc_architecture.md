@@ -210,7 +210,7 @@ The ID-ordering rule is the usual deadlock-free choice for a crossbar without re
 | NAND0 | `0x4000_6000` | Channel timing, command queue, status, ECC counters |
 | NAND1 | `0x4000_7000` | Same as NAND0 |
 
-A slot without a peripheral, and an undefined offset inside one, answer SLVERR (PSLVERR on the APB side). As of step 1-4, SYS, INTC and TIMER exist; their registers are listed in [04_cpu_subsystem.md](04_cpu_subsystem.md).
+A slot without a peripheral, and an undefined offset inside one, answer SLVERR (PSLVERR on the APB side). As of step 1-5, SYS, INTC and TIMER exist. Their register files are generated from one SystemRDL source, `rtl/csr/rdl/soc_apb.rdl` ([05_csr.md](05_csr.md)), and every register and field is listed in [regs/soc_apb.md](regs/soc_apb.md). Blocks added later put their registers in the same source.
 
 The host sees one 64 KiB inbound window. The HOST block's window base register translates it to an AXI address, SRAM by default. The host's doorbell writes land in the HOST block.
 
@@ -271,7 +271,8 @@ rtl/top/      SoC top, PD_HOST boundary wrapper
 rtl/axi/      crossbar, register slices, width converters, AXI to APB bridge
 rtl/cpu/      Ibex wrapper and OBI-to-AXI adapters
 rtl/mem/      ROM and SRAM models
-rtl/csr/      generated register blocks, INTC, timer
+rtl/csr/      SystemRDL source (rdl/) and the register blocks generated from it (gen/)
+rtl/periph/   SYS, INTC and timer: logic around the generated register blocks
 rtl/dma/      DMA
 rtl/pmu/      PMU, reset controller, wake detect, isolation and retention cells
 rtl/common/   synchronizers, async FIFO, clock gate
@@ -288,6 +289,6 @@ docs/         this document and the ones that follow
 | --- | --- |
 | Ibex commit and configuration (RV32IMC, multiplier, register file) | 1-4 |
 | Which AXI_PCIe_Subsystem blocks are reused as they are, and which are rewritten for AXI4 | 1-2, 1-3 |
-| PeakRDL version; generated RTL is committed so simulation needs no Python | 1-5 |
+| PeakRDL version; generated RTL is committed so simulation needs no Python | 1-5: PeakRDL 1.5.0, regblock 1.3.1 (`flow/rdl/requirements.txt`); generated files committed, `make -C dv rdl-check` compares them with the source |
 | How the Sky130 libraries are fetched (script, not committed) | 1-9 |
 | CDC check method on the synthesized netlist | 1-9 |

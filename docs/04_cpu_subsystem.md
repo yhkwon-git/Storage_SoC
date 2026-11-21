@@ -47,7 +47,7 @@ flowchart LR
 
 **Why `ibex_core` and not `ibex_top`.** `ibex_top` adds the clock gate, lockstep, scrambled cache RAMs and their dependencies (PULP common cells among them), and all of those are off here. `cpu_ibex` instantiates the core as `u_ibex_core`, the name Ibex's internal references expect, and the flip-flop register file next to it.
 
-**Lint.** `dv/lint/vendor.vlt` keeps the vendor files out of `-Wall`. That includes three UNOPTFLAT signals that Ibex's own waiver file also lists. Everything else in `soc_top` is `-Wall` clean.
+**Lint.** `dv/lint/vendor.vlt` (renamed `waivers.vlt` in step 1-5) keeps the vendor files out of `-Wall`. That includes three UNOPTFLAT signals that Ibex's own waiver file also lists. Everything else in `soc_top` is `-Wall` clean.
 
 ## Memory-port adapter
 
@@ -85,7 +85,7 @@ flowchart LR
 | INTC, `0x4000_2000` | PENDING `0x000`, ENABLE `0x004`, CLAIM `0x008` (lowest pending and enabled ID, no side effect), SWSET `0x00C` (software-set sources) |
 | TIMER, `0x4000_3000` | MTIME `0x000`/`0x004`, MTIMECMP `0x008`/`0x00C` (reset all ones), CTRL `0x010` (count enable, prescaler) |
 
-Undefined offsets answer PSLVERR. These register blocks are written by hand for this step; step 1-5 generates their register files from SystemRDL.
+Undefined offsets answer PSLVERR. These register blocks were written by hand for this step. Since step 1-5 (`888d3e5`) their register files are generated from SystemRDL with the same map and timing, and the full field list is in [regs/soc_apb.md](regs/soc_apb.md) ([05_csr.md](05_csr.md)).
 
 ## Firmware
 
