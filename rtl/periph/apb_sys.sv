@@ -4,22 +4,16 @@
 // -----------------------------------------------------------------------------
 // apb_sys
 //
-// SYS register block (APB slot 0, 0x4000_0000).
+// SYS block (APB slot 0, 0x4000_0000). The registers are the generated
+// sys_regs (rtl/csr/rdl/soc_apb.rdl, docs/regs/soc_apb.md): ID, VERSION,
+// SCRATCH, CONSOLE, EXIT; any other offset in the slot answers PSLVERR.
 //
-//   0x000 ID       RO  0x5353_4F43 ("SSOC")
-//   0x004 VERSION  RO  VERSION parameter
-//   0x008 SCRATCH  RW  32 bits, byte strobes honored
-//   0x010 CONSOLE  WO  bits [7:0]: one character to the simulation console
-//   0x014 EXIT     WO  ends the simulation; 0 means pass
-// Other offsets answer PSLVERR. Every access completes in one ACCESS cycle.
-//
-// CONSOLE and EXIT drive console_* and exit_* for one clock; the testbench
-// watches them. They stay in the synthesized design as ordinary registers.
+// A write to CONSOLE or EXIT raises console_valid or exit_valid for one
+// clock, with the written value on console_char or exit_code. The testbench
+// watches them; they stay in the synthesized design as ordinary registers.
 // -----------------------------------------------------------------------------
 
-module apb_sys #(
-  parameter logic [31:0] VERSION = 32'h0001_0004
-) (
+module apb_sys (
   input  wire          clk,
   input  wire          rst_n,
   input  wire          psel,
@@ -38,44 +32,38 @@ module apb_sys #(
   output logic [31:0]  exit_code
 );
 
-  localparam logic [31:0] ID = 32'h5353_4F43;
+  sys_regs_pkg::sys_regs__out_t hwif_out;
 
-  logic [31:0] scratch;
+  sys_regs u_regs (
+    .clk           (clk),
+    .arst_n        (rst_n),
+    .s_apb_psel    (psel),
+    .s_apb_penable (penable),
+    .s_apb_pwrite  (pwrite),
+    .s_apb_pprot   (3'b000),
+    .s_apb_paddr   (paddr),
+    .s_apb_pwdata  (pwdata),
+    .s_apb_pstrb   (pstrb),
+    .s_apb_pready  (pready),
+    .s_apb_prdata  (prdata),
+    .s_apb_pslverr (pslverr),
+    .hwif_out      (hwif_out)
+  );
 
-  wire access = psel && penable;
-  wire wr     = access && pwrite;
-
-  assign pready = 1'b1;
-
-  always_comb begin
-    prdata  = 32'd0;
-    pslverr = 1'b0;
-    case (paddr)
-      12'h000: prdata = ID;
-      12'h004: prdata = VERSION;
-      12'h008: prdata = scratch;
-      12'h010, 12'h014: prdata = 32'd0;
-      default: pslverr = 1'b1;
-    endcase
-  end
-
+  // The field stores the written value on the same edge that this flop
+  // records the write, so value and valid line up.
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      scratch       <= 32'd0;
       console_valid <= 1'b0;
-      console_char  <= 8'd0;
       exit_valid    <= 1'b0;
-      exit_code     <= 32'd0;
     end else begin
-      console_valid <= wr && (paddr == 12'h010);
-      exit_valid    <= wr && (paddr == 12'h014);
-      if (wr && paddr == 12'h010) console_char <= pwdata[7:0];
-      if (wr && paddr == 12'h014) exit_code    <= pwdata;
-      if (wr && paddr == 12'h008) begin
-        for (int i = 0; i < 4; i++) if (pstrb[i]) scratch[i*8 +: 8] <= pwdata[i*8 +: 8];
-      end
+      console_valid <= hwif_out.CONSOLE.char.swmod;
+      exit_valid    <= hwif_out.EXIT.code.swmod;
     end
   end
+
+  assign console_char = hwif_out.CONSOLE.char.value;
+  assign exit_code    = hwif_out.EXIT.code.value;
 
 endmodule : apb_sys
 

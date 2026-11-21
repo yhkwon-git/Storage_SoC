@@ -4,16 +4,13 @@
 // -----------------------------------------------------------------------------
 // apb_timer
 //
-// RISC-V machine timer (APB slot 3, 0x4000_3000).
+// RISC-V machine timer (APB slot 3, 0x4000_3000). The registers are the
+// generated timer_regs (MTIME_LO/HI, MTIMECMP_LO/HI, CTRL;
+// docs/regs/soc_apb.md); this module counts.
 //
-//   0x000 MTIME_LO     RW  mtime[31:0]
-//   0x004 MTIME_HI     RW  mtime[63:32]
-//   0x008 MTIMECMP_LO  RW  mtimecmp[31:0]   (reset: all ones)
-//   0x00C MTIMECMP_HI  RW  mtimecmp[63:32]  (reset: all ones)
-//   0x010 CTRL         RW  [0] count enable (reset 1), [15:8] prescale (reset 0)
-// Other offsets answer PSLVERR.
-//
-// With counting enabled, mtime advances by one every PRESCALE + 1 clocks.
+// With CTRL.ENABLE set, mtime advances by one every CTRL.PRESCALE + 1 clocks:
+// both MTIME words are loaded through their hardware write enables, and a
+// software write in the same clock takes precedence (the SystemRDL default).
 // irq is high while mtime >= mtimecmp, the level the core's timer input
 // expects; software moves mtimecmp to clear it.
 // -----------------------------------------------------------------------------
@@ -33,70 +30,50 @@ module apb_timer (
   output logic         irq
 );
 
+  timer_regs_pkg::timer_regs__in_t  hwif_in;
+  timer_regs_pkg::timer_regs__out_t hwif_out;
+
+  timer_regs u_regs (
+    .clk           (clk),
+    .arst_n        (rst_n),
+    .s_apb_psel    (psel),
+    .s_apb_penable (penable),
+    .s_apb_pwrite  (pwrite),
+    .s_apb_pprot   (3'b000),
+    .s_apb_paddr   (paddr),
+    .s_apb_pwdata  (pwdata),
+    .s_apb_pstrb   (pstrb),
+    .s_apb_pready  (pready),
+    .s_apb_prdata  (prdata),
+    .s_apb_pslverr (pslverr),
+    .hwif_in       (hwif_in),
+    .hwif_out      (hwif_out)
+  );
+
   logic [63:0] mtime;
   logic [63:0] mtimecmp;
-  logic        enable;
-  logic [7:0]  prescale;
+  logic [63:0] mtime_next;
   logic [7:0]  pre_cnt;
+  logic        tick;
 
-  wire access = psel && penable;
-  wire wr     = access && pwrite;
-
-  assign pready = 1'b1;
-  assign irq    = (mtime >= mtimecmp);
-
-  always_comb begin
-    prdata  = 32'd0;
-    pslverr = 1'b0;
-    case (paddr)
-      12'h000: prdata = mtime[31:0];
-      12'h004: prdata = mtime[63:32];
-      12'h008: prdata = mtimecmp[31:0];
-      12'h00C: prdata = mtimecmp[63:32];
-      12'h010: prdata = {16'd0, prescale, 7'd0, enable};
-      default: pslverr = 1'b1;
-    endcase
-  end
-
-  function automatic logic [31:0] merge(input logic [31:0] old, input logic [31:0] nw,
-                                        input logic [3:0] strb);
-    logic [31:0] r;
-    r = old;
-    for (int i = 0; i < 4; i++) if (strb[i]) r[i*8 +: 8] = nw[i*8 +: 8];
-    return r;
-  endfunction
+  assign mtime      = {hwif_out.MTIME_HI.value.value, hwif_out.MTIME_LO.value.value};
+  assign mtimecmp   = {hwif_out.MTIMECMP_HI.value.value, hwif_out.MTIMECMP_LO.value.value};
+  assign mtime_next = mtime + 64'd1;
+  assign tick       = hwif_out.CTRL.enable.value && (pre_cnt == hwif_out.CTRL.prescale.value);
+  assign irq        = (mtime >= mtimecmp);
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      mtime    <= 64'd0;
-      mtimecmp <= '1;
-      enable   <= 1'b1;
-      prescale <= 8'd0;
-      pre_cnt  <= 8'd0;
-    end else begin
-      if (enable) begin
-        if (pre_cnt == prescale) begin
-          pre_cnt <= 8'd0;
-          mtime   <= mtime + 64'd1;
-        end else begin
-          pre_cnt <= pre_cnt + 8'd1;
-        end
-      end
-      if (wr) begin
-        case (paddr)
-          12'h000: mtime[31:0]     <= merge(mtime[31:0], pwdata, pstrb);
-          12'h004: mtime[63:32]    <= merge(mtime[63:32], pwdata, pstrb);
-          12'h008: mtimecmp[31:0]  <= merge(mtimecmp[31:0], pwdata, pstrb);
-          12'h00C: mtimecmp[63:32] <= merge(mtimecmp[63:32], pwdata, pstrb);
-          12'h010: begin
-            if (pstrb[0]) enable   <= pwdata[0];
-            if (pstrb[1]) prescale <= pwdata[15:8];
-          end
-          default: ;
-        endcase
-      end
+      pre_cnt <= 8'd0;
+    end else if (hwif_out.CTRL.enable.value) begin
+      pre_cnt <= tick ? 8'd0 : pre_cnt + 8'd1;
     end
   end
+
+  assign hwif_in.MTIME_LO.value.next = mtime_next[31:0];
+  assign hwif_in.MTIME_LO.value.we   = tick;
+  assign hwif_in.MTIME_HI.value.next = mtime_next[63:32];
+  assign hwif_in.MTIME_HI.value.we   = tick;
 
 endmodule : apb_timer
 

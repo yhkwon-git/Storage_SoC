@@ -1,0 +1,18 @@
+`verilator_config
+// -Wall applies to this repository's own RTL. Two kinds of files are waived:
+//
+// Third-party sources keep their own lint rules (Ibex ships its own Verilator
+// waivers).
+lint_off -file "*rtl/vendor/*"
+// UNOPTFLAT is not covered by the line above. Ibex's own waiver file lists
+// the same three signals (ibex_id_stage, ibex_if_stage).
+lint_off -rule UNOPTFLAT -file "*rtl/vendor/*"
+//
+// Generated register blocks (PeakRDL-regblock, flow/rdl/gen.sh): the
+// generator drives members of one unpacked struct from separate always
+// blocks (MULTIDRIVEN, legal SystemVerilog), keeps size parameters in the
+// package, and decodes 32-bit words, leaving paddr[1:0] unused. They are
+// regenerated, never edited, so the waiver covers the directory.
+lint_off -file "*rtl/csr/gen/*"
+// MULTIDRIVEN, like UNOPTFLAT, is reported outside the file-wide waiver.
+lint_off -rule MULTIDRIVEN -file "*rtl/csr/gen/*"

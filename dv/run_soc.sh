@@ -27,7 +27,9 @@ fi
 
 rtl="$root/rtl"
 src=(
-  "$here/lint/vendor.vlt" -F "$rtl/vendor/ibex/ibex.f"
+  "$here/lint/waivers.vlt" -F "$rtl/vendor/ibex/ibex.f"
+  "$rtl/csr/gen/sys_regs_pkg.sv" "$rtl/csr/gen/intc_regs_pkg.sv" "$rtl/csr/gen/timer_regs_pkg.sv"
+  "$rtl/csr/gen/sys_regs.sv" "$rtl/csr/gen/intc_regs.sv" "$rtl/csr/gen/timer_regs.sv"
   "$rtl/common/rr_arb.sv" "$rtl/common/fifo_sync.sv"
   "$rtl/axi/axi_id_tracker.sv" "$rtl/axi/axi_err_slv.sv" "$rtl/axi/axi_xbar.sv" "$rtl/axi/axi2apb.sv"
   "$rtl/cpu/cpu_ibex.sv" "$rtl/cpu/obi2axi.sv" "$rtl/mem/axi_mem.sv"

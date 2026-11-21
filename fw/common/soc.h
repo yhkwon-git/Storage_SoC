@@ -1,8 +1,17 @@
-/* Storage_SoC address map and registers (docs/01_soc_architecture.md, sections 6-7). */
+/*
+ * Storage_SoC address map and registers (docs/01_soc_architecture.md,
+ * sections 6-7). Register offsets come from the generated soc_regs.h
+ * (rtl/csr/rdl/soc_apb.rdl). Its structs are packed, and GCC may access a
+ * member of a packed struct byte by byte; registers such as EXIT act on
+ * every write. So the offsets are taken from the structs with offsetof, and
+ * every access goes through REG32, which is always one 32-bit access.
+ */
 #ifndef SOC_H
 #define SOC_H
 
+#include <stddef.h>
 #include <stdint.h>
+#include "soc_regs.h"
 
 #define REG32(a) (*(volatile uint32_t *)(uintptr_t)(a))
 
@@ -12,29 +21,31 @@
 #define NAND1_BASE  0x30010000u
 #define APB_BASE    0x40000000u
 
-#define SYS_BASE    (APB_BASE + 0x0000u)
-#define PMU_BASE    (APB_BASE + 0x1000u)
-#define INTC_BASE   (APB_BASE + 0x2000u)
-#define TIMER_BASE  (APB_BASE + 0x3000u)
+#define APB_REG(field) REG32(APB_BASE + offsetof(soc_apb_t, field))
 
-#define SYS_ID         REG32(SYS_BASE + 0x000)
-#define SYS_VERSION    REG32(SYS_BASE + 0x004)
-#define SYS_SCRATCH    REG32(SYS_BASE + 0x008)
-#define SYS_CONSOLE    REG32(SYS_BASE + 0x010)
-#define SYS_EXIT       REG32(SYS_BASE + 0x014)
+#define SYS_BASE    (APB_BASE + (uint32_t)offsetof(soc_apb_t, SYS))
+#define INTC_BASE   (APB_BASE + (uint32_t)offsetof(soc_apb_t, INTC))
+#define TIMER_BASE  (APB_BASE + (uint32_t)offsetof(soc_apb_t, TIMER))
+#define PMU_BASE    (APB_BASE + 0x1000u) /* slot reserved; no registers yet */
 
-#define INTC_PENDING   REG32(INTC_BASE + 0x000)
-#define INTC_ENABLE    REG32(INTC_BASE + 0x004)
-#define INTC_CLAIM     REG32(INTC_BASE + 0x008)
-#define INTC_SWSET     REG32(INTC_BASE + 0x00C)
+#define SYS_ID         APB_REG(SYS.ID)
+#define SYS_VERSION    APB_REG(SYS.VERSION)
+#define SYS_SCRATCH    APB_REG(SYS.SCRATCH)
+#define SYS_CONSOLE    APB_REG(SYS.CONSOLE)
+#define SYS_EXIT       APB_REG(SYS.EXIT)
 
-#define TIMER_MTIME_LO     REG32(TIMER_BASE + 0x000)
-#define TIMER_MTIME_HI     REG32(TIMER_BASE + 0x004)
-#define TIMER_MTIMECMP_LO  REG32(TIMER_BASE + 0x008)
-#define TIMER_MTIMECMP_HI  REG32(TIMER_BASE + 0x00C)
-#define TIMER_CTRL         REG32(TIMER_BASE + 0x010)
+#define INTC_PENDING   APB_REG(INTC.PENDING)
+#define INTC_ENABLE    APB_REG(INTC.ENABLE)
+#define INTC_CLAIM     APB_REG(INTC.CLAIM)
+#define INTC_SWSET     APB_REG(INTC.SWSET)
 
-#define SOC_ID 0x53534F43u
+#define TIMER_MTIME_LO     APB_REG(TIMER.MTIME_LO)
+#define TIMER_MTIME_HI     APB_REG(TIMER.MTIME_HI)
+#define TIMER_MTIMECMP_LO  APB_REG(TIMER.MTIMECMP_LO)
+#define TIMER_MTIMECMP_HI  APB_REG(TIMER.MTIMECMP_HI)
+#define TIMER_CTRL         APB_REG(TIMER.CTRL)
+
+#define SOC_ID SYS_REGS__ID__VALUE_reset
 
 #define MCAUSE_INSTR_FAULT 1u
 #define MCAUSE_LOAD_FAULT  5u

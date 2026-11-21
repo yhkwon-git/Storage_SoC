@@ -6,16 +6,13 @@
 //
 // Interrupt controller (APB slot 2, 0x4000_2000) for level sources 1..31;
 // source 0 does not exist. Source IDs are listed in docs/01, section 7.
+// The registers are the generated intc_regs (PENDING, ENABLE, CLAIM, SWSET;
+// docs/regs/soc_apb.md); this module computes what they report.
 //
-//   0x000 PENDING  RO  (src | SWSET), bit 0 always 0
-//   0x004 ENABLE   RW
-//   0x008 CLAIM    RO  lowest ID that is pending and enabled, 0 if none;
-//                      reading has no side effect
-//   0x00C SWSET    RW  software-set sources, for tests and software events
-// Other offsets answer PSLVERR.
-//
-// irq (to the core's external interrupt) is high while any enabled source is
-// pending. A source stays pending until the block that raised it is cleared.
+// PENDING = (src | SWSET) with bit 0 cleared. CLAIM is the lowest ID that is
+// pending and enabled, 0 if none; reading it has no side effect. irq (to the
+// core's external interrupt) is high while any enabled source is pending. A
+// source stays pending until the block that raised it is cleared.
 // -----------------------------------------------------------------------------
 
 module apb_intc (
@@ -35,12 +32,32 @@ module apb_intc (
   output logic         irq
 );
 
-  logic [31:0] enable;
-  logic [31:0] swset;
+  intc_regs_pkg::intc_regs__in_t  hwif_in;
+  intc_regs_pkg::intc_regs__out_t hwif_out;
+
+  intc_regs u_regs (
+    .clk           (clk),
+    .arst_n        (rst_n),
+    .s_apb_psel    (psel),
+    .s_apb_penable (penable),
+    .s_apb_pwrite  (pwrite),
+    .s_apb_pprot   (3'b000),
+    .s_apb_paddr   (paddr),
+    .s_apb_pwdata  (pwdata),
+    .s_apb_pstrb   (pstrb),
+    .s_apb_pready  (pready),
+    .s_apb_prdata  (prdata),
+    .s_apb_pslverr (pslverr),
+    .hwif_in       (hwif_in),
+    .hwif_out      (hwif_out)
+  );
+
   logic [31:0] pending;
+  logic [31:0] enable;
   logic [4:0]  claim;
 
-  assign pending = (src | swset) & 32'hFFFF_FFFE;
+  assign enable  = hwif_out.ENABLE.value.value;
+  assign pending = (src | hwif_out.SWSET.value.value) & 32'hFFFF_FFFE;
   assign irq     = |(pending & enable);
 
   always_comb begin
@@ -50,34 +67,8 @@ module apb_intc (
     end
   end
 
-  wire access = psel && penable;
-  wire wr     = access && pwrite;
-
-  assign pready = 1'b1;
-
-  always_comb begin
-    prdata  = 32'd0;
-    pslverr = 1'b0;
-    case (paddr)
-      12'h000: prdata = pending;
-      12'h004: prdata = enable;
-      12'h008: prdata = {27'd0, claim};
-      12'h00C: prdata = swset;
-      default: pslverr = 1'b1;
-    endcase
-  end
-
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      enable <= 32'd0;
-      swset  <= 32'd0;
-    end else if (wr) begin
-      for (int i = 0; i < 4; i++) begin
-        if (pstrb[i] && paddr == 12'h004) enable[i*8 +: 8] <= pwdata[i*8 +: 8];
-        if (pstrb[i] && paddr == 12'h00C) swset[i*8 +: 8]  <= pwdata[i*8 +: 8];
-      end
-    end
-  end
+  assign hwif_in.PENDING.value.next = pending;
+  assign hwif_in.CLAIM.id.next      = claim;
 
 endmodule : apb_intc
 

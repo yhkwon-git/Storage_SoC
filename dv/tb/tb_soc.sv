@@ -285,10 +285,11 @@ module tb_soc;
 
   task automatic apb_check();
     axi_txn t;
-    // ID (0x000) and VERSION (0x004) in one 64-bit read.
+    // ID (0x000) and VERSION (0x004) in one 64-bit read; reset values from
+    // rtl/csr/rdl/soc_apb.rdl.
     t = mk_apb(1'b0, 32'h4000_0000, 0, 0);
     apb_send(t);
-    apb_expect(t.rdata[0] == {32'h0001_0004, 32'h5353_4F43}, "64-bit read of ID and VERSION");
+    apb_expect(t.rdata[0] == {32'h0001_0005, 32'h5353_4F43}, "64-bit read of ID and VERSION");
     // SCRATCH written through the lower word only (WSTRB 0x0F).
     t = mk_apb(1'b1, 32'h4000_0008, 0, 0);
     t.data.push_back({32'hDEAD_BEEF, 32'h1234_5678});

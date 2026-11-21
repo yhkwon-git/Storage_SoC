@@ -1,0 +1,124 @@
+// Storage_SoC APB register blocks.
+//
+// This file is the single source for:
+//   rtl/csr/gen/*.sv             register RTL         (PeakRDL-regblock, one module per block)
+//   fw/common/soc_regs.h         firmware header      (PeakRDL-cheader)
+//   dv/ral/soc_apb_ral_pkg.sv    UVM register model   (PeakRDL-uvm)
+//   docs/regs/soc_apb.md         register document    (PeakRDL-markdown)
+// flow/rdl/gen.sh regenerates all of them; the generated files are committed.
+//
+// Hardware behavior around the registers (counting, interrupt priority,
+// console and exit events) is in rtl/periph/apb_*.sv.
+
+addrmap sys_regs {
+  name = "SYS";
+  desc = "Identification, a scratch register, and the simulation console and exit registers.";
+  default regwidth = 32;
+  default accesswidth = 32;
+
+  reg {
+    name = "ID";
+    desc = "Fixed identification value, \"SSOC\" in ASCII.";
+    field { sw = r; hw = na; } value[31:0] = 32'h5353_4F43;
+  } ID @ 0x000;
+
+  reg {
+    name = "VERSION";
+    desc = "Register map version: 0x0001_0005 is the map of step 1-5.";
+    field { sw = r; hw = na; } value[31:0] = 32'h0001_0005;
+  } VERSION @ 0x004;
+
+  reg {
+    name = "SCRATCH";
+    desc = "Free for software. Byte strobes are honored.";
+    field { sw = rw; hw = na; } value[31:0] = 32'h0;
+  } SCRATCH @ 0x008;
+
+  reg {
+    name = "CONSOLE";
+    desc = "A write sends CHAR to the simulation console. Reads return 0.";
+    field { sw = w; hw = r; swmod; } char[7:0] = 8'h0;
+  } CONSOLE @ 0x010;
+
+  reg {
+    name = "EXIT";
+    desc = "A write ends the simulation with CODE; 0 means pass. Reads return 0.";
+    field { sw = w; hw = r; swmod; } code[31:0] = 32'h0;
+  } EXIT @ 0x014;
+};
+
+addrmap intc_regs {
+  name = "INTC";
+  desc = "Interrupt controller for level sources 1 to 31. Source IDs are in docs/01, section 7.";
+  default regwidth = 32;
+  default accesswidth = 32;
+
+  reg {
+    name = "PENDING";
+    desc = "Sources that are high, OR SWSET. Bit 0 is always 0.";
+    field { sw = r; hw = w; } value[31:0];
+  } PENDING @ 0x000;
+
+  reg {
+    name = "ENABLE";
+    desc = "A source raises the core's external interrupt only while its bit is set.";
+    field { sw = rw; hw = r; } value[31:0] = 32'h0;
+  } ENABLE @ 0x004;
+
+  reg {
+    name = "CLAIM";
+    desc = "Lowest ID that is pending and enabled, 0 if none. Reading has no side effect.";
+    field { sw = r; hw = w; } id[4:0];
+  } CLAIM @ 0x008;
+
+  reg {
+    name = "SWSET";
+    desc = "Software-set sources, ORed into PENDING.";
+    field { sw = rw; hw = r; } value[31:0] = 32'h0;
+  } SWSET @ 0x00C;
+};
+
+addrmap timer_regs {
+  name = "TIMER";
+  desc = "RISC-V machine timer. The interrupt is high while MTIME >= MTIMECMP.";
+  default regwidth = 32;
+  default accesswidth = 32;
+
+  reg {
+    name = "MTIME_LO";
+    desc = "mtime[31:0]. Counts while CTRL.ENABLE is set; a software write takes precedence.";
+    field { sw = rw; hw = rw; we; } value[31:0] = 32'h0;
+  } MTIME_LO @ 0x000;
+
+  reg {
+    name = "MTIME_HI";
+    desc = "mtime[63:32].";
+    field { sw = rw; hw = rw; we; } value[31:0] = 32'h0;
+  } MTIME_HI @ 0x004;
+
+  reg {
+    name = "MTIMECMP_LO";
+    desc = "mtimecmp[31:0].";
+    field { sw = rw; hw = r; } value[31:0] = 32'hFFFF_FFFF;
+  } MTIMECMP_LO @ 0x008;
+
+  reg {
+    name = "MTIMECMP_HI";
+    desc = "mtimecmp[63:32]. Write 0xFFFF_FFFF here first when changing MTIMECMP.";
+    field { sw = rw; hw = r; } value[31:0] = 32'hFFFF_FFFF;
+  } MTIMECMP_HI @ 0x00C;
+
+  reg {
+    name = "CTRL";
+    field { sw = rw; hw = r; desc = "Count enable."; } enable[0:0] = 1'b1;
+    field { sw = rw; hw = r; desc = "MTIME advances every PRESCALE + 1 clocks."; } prescale[15:8] = 8'h0;
+  } CTRL @ 0x010;
+};
+
+addrmap soc_apb {
+  name = "APB peripherals";
+  desc = "Register blocks in the APB window at 0x4000_0000, one 4 KiB slot each.";
+  sys_regs   SYS   @ 0x0000;
+  intc_regs  INTC  @ 0x2000;
+  timer_regs TIMER @ 0x3000;
+};
