@@ -18,7 +18,7 @@
 // aresetn is asserted asynchronously and released synchronously. Only the
 // valid flops are reset; payload flops are not.
 //
-// Origin: axi-pcie-subsystem commit b64e36a, rtl/axi_register_slice.sv, module
+// Origin: AXI_PCIe_Subsystem commit b64e36a, rtl/axi_register_slice.sv, module
 // axi_channel_reg_slice. Logic and monitors unchanged; this header rewritten.
 // -----------------------------------------------------------------------------
 

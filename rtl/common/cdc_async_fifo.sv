@@ -24,7 +24,7 @@
 // DEPTH is a power of two and at least 4. wr_rst_n and rd_rst_n are asserted
 // together and each released synchronously to its own clock.
 //
-// Same module name and ports as the axi-pcie-subsystem b64e36a FIFO, which it
+// Same module name and ports as the AXI_PCIe_Subsystem b64e36a FIFO, which it
 // replaces; docs/02_common_blocks.md has the measurements behind the change.
 // -----------------------------------------------------------------------------
 

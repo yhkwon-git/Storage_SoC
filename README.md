@@ -127,7 +127,7 @@ Later steps add `fw/`, `syn/` and more of `rtl/`; the planned layout is in secti
 | Document | Contents |
 | --- | --- |
 | [docs/01_soc_architecture.md](docs/01_soc_architecture.md) | Clock domains and crossings, resets, power domains with isolation, retention and sequences, AXI4 rules, address and interrupt maps, boot, timing targets, phase-1 verification plan |
-| [docs/02_common_blocks.md](docs/02_common_blocks.md) | Blocks taken from axi-pcie-subsystem `b64e36a`, why the dual-clock FIFO was rewritten, FIFO and register-slice measurements |
+| [docs/02_common_blocks.md](docs/02_common_blocks.md) | Blocks taken from AXI_PCIe_Subsystem `b64e36a`, why the dual-clock FIFO was rewritten, FIFO and register-slice measurements |
 
 ## Limitations
 

@@ -1,10 +1,10 @@
 # Common blocks
 
-Step 1-2 brings in the blocks this SoC shares with the earlier axi-pcie-subsystem repository (commit `b64e36a`). Two are taken unchanged and one is rewritten. Measurements below were taken with the testbenches at commit `8ce1fac`.
+Step 1-2 brings in the blocks this SoC shares with the earlier AXI_PCIe_Subsystem repository (commit `b64e36a`). Two are taken unchanged and one is rewritten. Measurements below were taken with the testbenches at commit `8ce1fac`.
 
 ## What was taken
 
-| Block | File here | Origin in axi-pcie-subsystem `b64e36a` | Change |
+| Block | File here | Origin in AXI_PCIe_Subsystem `b64e36a` | Change |
 | --- | --- | --- | --- |
 | `cdc_sync_2ff` | `rtl/common/cdc_sync_2ff.sv` | `rtl/cdc_async_fifo.sv` | None. The module body is byte-identical; only the file header is new |
 | `axi_channel_reg_slice` | `rtl/axi/axi_channel_reg_slice.sv` | `rtl/axi_register_slice.sv` | None. The module body, monitors included, is byte-identical; only the file header is new |
@@ -82,7 +82,7 @@ make -C dv fifo       # FIFO only; MIN_EFF sets the full-rate threshold (default
 To measure the `b64e36a` FIFO with the same testbench:
 
 ```bash
-git clone https://github.com/yhkwon-git/axi-pcie-subsystem /tmp/aps
+git clone https://github.com/yhkwon-git/AXI_PCIe_Subsystem /tmp/aps
 git -C /tmp/aps checkout b64e36a
 FIFO_SRC=/tmp/aps/rtl/cdc_async_fifo.sv MIN_EFF=0 bash dv/run_fifo.sh
 ```

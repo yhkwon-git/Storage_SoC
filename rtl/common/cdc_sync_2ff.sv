@@ -11,7 +11,7 @@
 // rst_n is asserted asynchronously and released synchronously to clk. Both
 // stages reset to 0.
 //
-// Origin: axi-pcie-subsystem commit b64e36a, rtl/cdc_async_fifo.sv, module
+// Origin: AXI_PCIe_Subsystem commit b64e36a, rtl/cdc_async_fifo.sv, module
 // cdc_sync_2ff. Logic unchanged; this header rewritten.
 // -----------------------------------------------------------------------------
 

@@ -284,7 +284,7 @@ docs/         this document and the ones that follow
 | Decision | Settled in |
 | --- | --- |
 | Ibex commit and configuration (RV32IMC, multiplier, register file) | 1-4 |
-| Which axi-pcie-subsystem blocks are reused as they are, and which are rewritten for AXI4 | 1-2, 1-3 |
+| Which AXI_PCIe_Subsystem blocks are reused as they are, and which are rewritten for AXI4 | 1-2, 1-3 |
 | PeakRDL version; generated RTL is committed so simulation needs no Python | 1-5 |
 | How the Sky130 libraries are fetched (script, not committed) | 1-9 |
 | CDC check method on the synthesized netlist | 1-9 |
