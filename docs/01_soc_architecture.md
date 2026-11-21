@@ -180,12 +180,13 @@ The crossbar is sparse: only the paths below exist, and an address that maps to 
 | 4 KB boundary | No burst crosses one. Masters split; the DMA does it in hardware |
 | Outstanding | Up to 4 reads and 4 writes per master |
 | Ordering | Responses with the same ID return in order. A new transaction whose ID already has transactions outstanding to a different slave waits until they finish, so responses can never return out of order |
-| Write data | Follows AW order per slave; no interleaving |
+| Write data | Follows AW order per slave; no interleaving. A W beat is accepted only after its AW |
+| Read data | Not interleaved at a master: the crossbar keeps R on one slave until RLAST. Slaves must not interleave read bursts |
 | Arbitration | Round-robin per slave, separately for reads and writes |
 | Exclusive access, QoS, cache attributes | Not supported or passed through unused: `AxLOCK` = 0, `AxQOS` and `AxCACHE` carried but ignored |
 | Errors | DECERR from the default slave; SLVERR from ROM writes and APB `PSLVERR` |
 
-The ID-ordering rule is the usual deadlock-free choice for a crossbar without reorder buffers. Its cost (a stall when one ID switches slaves) is measured in phase 1-3.
+The ID-ordering rule is the usual deadlock-free choice for a crossbar without reorder buffers. Its cost (a stall when one ID switches slaves) is measured in [03_axi_crossbar.md](03_axi_crossbar.md): 47 clocks behind a 40-clock read in the directed test, and 10.7 clocks per write and 5.1 per read under random IDs and targets (commit 76fd272).
 
 ## 6. Address map
 
