@@ -12,7 +12,7 @@ A RISC-V CPU, an AXI4 interconnect, DMA, SystemRDL-generated CSRs and always-on 
 
 | Item | Value |
 | --- | --- |
-| Current phase | Phase 1, SoC platform: steps 1-1 (architecture), 1-2 (common blocks), 1-3 (AXI4 crossbar), 1-4 (CPU subsystem), 1-5 (SystemRDL CSRs), 1-6 (DMA) and 1-7 (clocks, resets, power) done |
+| Current phase | Phase 1, SoC platform: steps 1-1 (architecture), 1-2 (common blocks), 1-3 (AXI4 crossbar), 1-4 (CPU subsystem), 1-5 (SystemRDL CSRs), 1-6 (DMA), 1-7 (clocks, resets, power) and 1-8 (firmware) done |
 | Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 5 AXI4 crossbar, with SRAM, a descriptor-based DMA, and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; an always-on PMU that orders the resets and switches the PD_HOST domain with isolation and retention (UPF); a CPU clock gate; dual-clock FIFO, 2-flop synchronizer, channel register slice |
 | Verification tools | Vivado simulator 2019.2 (UVM 1.2), Verilator 5.052 |
 | Register generation | PeakRDL 1.5.0: register RTL, C header, UVM register model and register document from one source |
@@ -71,7 +71,7 @@ flowchart LR
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 0 | Toolchain checks, repository layout, CI, RISC-V GCC | Done |
-| 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | In progress: 1-1 to 1-7 done |
+| 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | In progress: 1-1 to 1-8 done |
 | 2 | Host interface: transaction layer and NVMe front-end (steps 2-1 to 2-5), then data link layer, PHY with a PIPE-style boundary and link training (steps 2-6 to 2-9) | Planned |
 | 3 | Storage datapath: NAND channel controllers, NAND model, BCH, NVMe reads and writes through to NAND | Planned |
 | 4 | SoC-level UVM, verification plan, coverage closure | Planned |
@@ -175,6 +175,12 @@ Clocks, resets and power (commit ca320d4, details in [docs/07_clock_reset_power.
 - **CPU clock gate.** It gates Ibex in WFI, as `ibex_top` does. With it on, every earlier firmware test exits after the same number of clocks; a 2000-tick WFI removes 1,967 clocks.
 - **Firmware.** `power` power-cycles PD_HOST under interrupts with retained state checked; `reset` covers the DMA soft reset, the clock gate and a chip reset across two boots.
 
+Firmware (commit fbe4b8a, details in [docs/08_firmware.md](docs/08_firmware.md)):
+
+- **Drivers.** One trap handler dispatches the timer and each INTC source to its driver. A sleep tests its flag with interrupts masked, so an interrupt between the test and WFI cannot be lost. Drivers cover the timer, the DMA, the PMU, the PD_HOST placeholder and CRC-32.
+- **soc_app.** The phase-1 flow in 3.5 KiB of code: boot, a 16 KiB memory check, a DMA copy through the NAND0 page buffer checked by CRC, the CPU and the DMA together, and a PD_HOST power cycle with retained state. It passes alone and with background traffic.
+- **CPU and DMA together.** An 8 KiB copy runs entirely inside a 4 KiB CRC and costs the CRC 1.5% more clocks.
+
 ## How to run
 
 ```bash
@@ -215,7 +221,7 @@ dv/uvm/              APB agent and UVM register tests (xsim)
 flow/rdl/            register generation script and pinned PeakRDL versions
 flow/power/          check that the UPF and the RTL agree on isolation and retention
 flow/tools/          toolchain checks: smoke_uvm.sv (xsim), smoke_cov.sv (Verilator) and their scripts
-fw/                  firmware: start-up and linker script (common/), tests (tests/), committed ROM images (images/)
+fw/                  firmware: start-up and linker script (common/), tests (tests/), drivers (drv/), soc_app (app/), committed ROM images (images/)
 rtl/axi/             AXI4 crossbar, ID tracker, default slave, AXI-to-APB bridge, channel register slice
 rtl/common/          dual-clock FIFO, 2-flop synchronizer, round-robin arbiter, single-clock FIFO
 rtl/cpu/             Ibex wrapper, Ibex-port-to-AXI4 adapter
@@ -242,6 +248,7 @@ rtl/vendor/ibex/     Ibex v2.1.0, unchanged (VENDOR.md)
 | [docs/05_csr.md](docs/05_csr.md) | SystemRDL source and its four outputs, generator options, logic around the registers, firmware header use, UVM register tests, mutation check, findings |
 | [docs/06_dma.md](docs/06_dma.md) | DMA programming model, design decisions (read IDs, read credits, full-burst AW, aligner), block testbench, throughput, mutation check, SoC firmware test, findings |
 | [docs/07_clock_reset_power.md](docs/07_clock_reset_power.md) | Clocks and crossings, reset order and chip reset, PD_HOST power sequence, isolation, retention and UPF, CPU clock gate, power testbench (random and X off-state values), mutation check, SoC power and reset tests, findings |
+| [docs/08_firmware.md](docs/08_firmware.md) | Driver layer, interrupt dispatch and race-free sleep, soc_app's phases and results, CPU and DMA together, clock counts of every program |
 | [docs/regs/soc_apb.md](docs/regs/soc_apb.md) | Generated register reference: every register and field with offset, access and reset value |
 
 ## Limitations
@@ -301,5 +308,9 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
       - 전원 cycle 뒤 retention 값은 복원되고 비보존 값은 reset 값으로 돌아옵니다.
       - 일부러 심은 버그 11종을 모두 잡았습니다.
     - **CPU clock gate.** ibex_top과 같은 방식으로 WFI 중 Ibex clock을 끕니다. 켜진 상태에서도 기존 firmware test의 clock 수가 모두 같고, 2000-tick WFI에서 1,967 clock을 줄였습니다(commit ca320d4).
+  - 1-8 firmware([docs/08_firmware.md](docs/08_firmware.md)):
+    - **driver.** trap handler 하나가 timer와 INTC source별 driver를 호출하고, interrupt를 끈 상태에서 flag를 확인하는 sleep으로 WFI 직전 interrupt 유실을 막습니다.
+    - **soc_app.** 3.5 KiB 코드로 phase 1 흐름 전체를 실행합니다. boot, 16 KiB memory check, NAND0 page buffer를 거치는 DMA 복사의 CRC 검증, CPU·DMA 동시 실행, retention을 확인하는 PD_HOST 전원 cycle 순서입니다.
+    - **CPU·DMA 동시 실행.** 8 KiB DMA 복사는 4 KiB CRC 계산 중에 끝나고, CRC는 1.5% 느려집니다(commit fbe4b8a).
 - **범위.** 공개 자료만으로 구성하며 PCIe, NVMe, M-PHY, UniPro 규격 준수를 주장하지 않습니다. NVMe는 공개된 Base Specification의 register · queue · PRP 구조 일부만 따릅니다.
 - **LLM 사용.** 코드, 테스트, 문서 초안에 LLM(Claude)을 쓰고, repo 안의 regression과 검사를 통과한 결과만 반영합니다.
