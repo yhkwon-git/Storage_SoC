@@ -1,0 +1,19 @@
+# Build and simulator outputs
+build/
+obj_dir/
+xsim.dir/
+.Xil/
+*.jou
+*.pb
+*.wdb
+webtalk*
+coverage.dat
+transcript
+work/
+*.vcd
+*.fst
+*.wlf
+
+# Python
+__pycache__/
+*.pyc
