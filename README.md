@@ -12,8 +12,8 @@ A RISC-V CPU, an AXI4 interconnect, DMA, SystemRDL-generated CSRs and always-on 
 
 | Item | Value |
 | --- | --- |
-| Current phase | Phase 1, SoC platform: steps 1-1 (architecture), 1-2 (common blocks), 1-3 (AXI4 crossbar), 1-4 (CPU subsystem), 1-5 (SystemRDL CSRs) and 1-6 (DMA) done |
-| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 5 AXI4 crossbar, with SRAM, a descriptor-based DMA, and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; dual-clock FIFO, 2-flop synchronizer, channel register slice |
+| Current phase | Phase 1, SoC platform: steps 1-1 (architecture), 1-2 (common blocks), 1-3 (AXI4 crossbar), 1-4 (CPU subsystem), 1-5 (SystemRDL CSRs), 1-6 (DMA) and 1-7 (clocks, resets, power) done |
+| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 5 AXI4 crossbar, with SRAM, a descriptor-based DMA, and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; an always-on PMU that orders the resets and switches the PD_HOST domain with isolation and retention (UPF); a CPU clock gate; dual-clock FIFO, 2-flop synchronizer, channel register slice |
 | Verification tools | Vivado simulator 2019.2 (UVM 1.2), Verilator 5.052 |
 | Register generation | PeakRDL 1.5.0: register RTL, C header, UVM register model and register document from one source |
 | Implementation tools | Yosys 0.52, OpenSTA 3.1.0, Sky130 HD (ss/tt/ff corners) |
@@ -71,7 +71,7 @@ flowchart LR
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 0 | Toolchain checks, repository layout, CI, RISC-V GCC | Done |
-| 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | In progress: 1-1 to 1-6 done |
+| 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | In progress: 1-1 to 1-7 done |
 | 2 | Host interface: transaction layer and NVMe front-end (steps 2-1 to 2-5), then data link layer, PHY with a PIPE-style boundary and link training (steps 2-6 to 2-9) | Planned |
 | 3 | Storage datapath: NAND channel controllers, NAND model, BCH, NVMe reads and writes through to NAND | Planned |
 | 4 | SoC-level UVM, verification plan, coverage closure | Planned |
@@ -160,6 +160,21 @@ DMA (commit 2c90ba1, details in [docs/06_dma.md](docs/06_dma.md)):
 - **Throughput.** 7.97 bytes per clock on a 64 KiB copy with a memory that never stalls (99.6% of the bus). 4096 B SRAM to SRAM takes 571 clocks in the SoC (`dma` firmware test).
 - **SoC.** The `dma` firmware test copies through SRAM and both NAND page buffers, scatters unaligned pieces under the DONE interrupt, and gets the ERR interrupt with DECERR for paths M2 does not have. Alone, the earlier tests keep their clock counts.
 
+Clocks, resets and power (commit ca320d4, details in [docs/07_clock_reset_power.md](docs/07_clock_reset_power.md)):
+
+- **Structure.** Four clock inputs and a power-on reset feed:
+  - a PMU in the always-on domain, reached through an APB request/acknowledge crossing;
+  - reset synchronizers that release AON, core, NAND, then host;
+  - a chip reset that keeps the always-on registers;
+  - a PD_HOST sequencer: isolation, save, PLL, reset, switch, each wait with a timeout, a wake pin, and a refusal while the host path is busy.
+- **PD_HOST.** A placeholder for the phase-2 logic with retention registers, behind four isolation cells. `syn/upf/storage_soc.upf` describes the domains, and a script checks it against the RTL's isolation and retention cells.
+- **Power testbench.** It runs on Verilator, with random values while PD_HOST is off, and on xsim, with X. Sequencing is checked every cycle.
+  - Retention holds across power cycles, and non-retained state comes back at reset.
+  - Refusal, wake, switch and PLL timeouts and the chip reset all behave as specified.
+  - Mutation check: 11 of 11 planted bugs caught.
+- **CPU clock gate.** It gates Ibex in WFI, as `ibex_top` does. With it on, every earlier firmware test exits after the same number of clocks; a 2000-tick WFI removes 1,967 clocks.
+- **Firmware.** `power` power-cycles PD_HOST under interrupts with retained state checked; `reset` covers the DMA soft reset, the clock gate and a chip reset across two boots.
+
 ## How to run
 
 ```bash
@@ -173,10 +188,12 @@ powershell -ExecutionPolicy Bypass -File flow\tools\check_xsim.ps1   # [TOOLS] x
 ```
 
 ```bash
-# Block and SoC checks (Linux or WSL): lint, dual-clock FIFO, register slice, crossbar, DMA, firmware on soc_top
-make -C dv                                                           # [LINT] PASS ... [XBAR] [DMA] [SOC] all runs PASS
+# Block and SoC checks (Linux or WSL): lint, UPF check, dual-clock FIFO, register slice, crossbar, DMA, power, firmware on soc_top
+make -C dv                                                           # [LINT] [ISO] PASS ... [XBAR] [DMA] [PWR] [SOC] all runs PASS
 make -C dv xbar-mut                                                  # [MUT] 7 of 7 mutants caught
 make -C dv dma-mut                                                   # [MUT] 10 of 10 mutants caught
+make -C dv power-mut                                                 # [MUT] 11 of 11 mutants caught
+make -C dv power-x                                                   # [PWR] X run PASS: power testbench on xsim (WSL calls Windows)
 make -C fw images                                                    # rebuild fw/images (needs riscv-none-elf-gcc on PATH)
 make -C dv rdl-check                                                 # [RDL] generated files match soc_apb.rdl (needs PeakRDL)
 bash flow/rdl/gen.sh                                                 # regenerate after editing rtl/csr/rdl/soc_apb.rdl
@@ -196,6 +213,7 @@ dv/                  testbenches (dv/tb/), SVA checkers (dv/sva/), lint waivers 
 dv/ral/              UVM register model generated from SystemRDL
 dv/uvm/              APB agent and UVM register tests (xsim)
 flow/rdl/            register generation script and pinned PeakRDL versions
+flow/power/          check that the UPF and the RTL agree on isolation and retention
 flow/tools/          toolchain checks: smoke_uvm.sv (xsim), smoke_cov.sv (Verilator) and their scripts
 fw/                  firmware: start-up and linker script (common/), tests (tests/), committed ROM images (images/)
 rtl/axi/             AXI4 crossbar, ID tracker, default slave, AXI-to-APB bridge, channel register slice
@@ -203,13 +221,15 @@ rtl/common/          dual-clock FIFO, 2-flop synchronizer, round-robin arbiter, 
 rtl/cpu/             Ibex wrapper, Ibex-port-to-AXI4 adapter
 rtl/csr/             SystemRDL source (rdl/) and the register blocks generated from it (gen/)
 rtl/dma/             descriptor-based DMA
+rtl/host/            PD_HOST boundary, its placeholder logic, core side (HOST registers, FIFOs), PLL model
 rtl/mem/             AXI4 ROM and SRAM
 rtl/periph/          APB SYS, interrupt controller, timer around the generated registers
+rtl/pmu/             PMU, APB clock-domain crossing, isolation cell, retention register
 rtl/top/             soc_top
 rtl/vendor/ibex/     Ibex v2.1.0, unchanged (VENDOR.md)
 ```
 
-Later steps add `syn/` and more of `rtl/`; the planned layout is in section 11 of the architecture document.
+`syn/upf/` holds the power intent; later steps add the rest of `syn/` and more of `rtl/`, and the planned layout is in section 11 of the architecture document.
 
 ## Documents
 
@@ -221,6 +241,7 @@ Later steps add `syn/` and more of `rtl/`; the planned layout is in section 11 o
 | [docs/04_cpu_subsystem.md](docs/04_cpu_subsystem.md) | Ibex choice and configuration, the memory-port adapter's ordering rules, memories, APB bridge and registers, firmware, SoC test results, CPI, bring-up findings |
 | [docs/05_csr.md](docs/05_csr.md) | SystemRDL source and its four outputs, generator options, logic around the registers, firmware header use, UVM register tests, mutation check, findings |
 | [docs/06_dma.md](docs/06_dma.md) | DMA programming model, design decisions (read IDs, read credits, full-burst AW, aligner), block testbench, throughput, mutation check, SoC firmware test, findings |
+| [docs/07_clock_reset_power.md](docs/07_clock_reset_power.md) | Clocks and crossings, reset order and chip reset, PD_HOST power sequence, isolation, retention and UPF, CPU clock gate, power testbench (random and X off-state values), mutation check, SoC power and reset tests, findings |
 | [docs/regs/soc_apb.md](docs/regs/soc_apb.md) | Generated register reference: every register and field with offset, access and reset value |
 
 ## Limitations
@@ -270,5 +291,15 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
       - directed test는 offset 조합 64종, 4KB 분할, FENCE, 오류 원인 5종, abort와 재시작을 다룹니다.
       - random chain과 mutation 10/10도 통과했습니다.
     - **성능.** stall 없는 메모리에서 7.97 B/clock(bus 폭의 99.6%)이고, SoC의 SRAM→SRAM 4096 B는 571 clock입니다(commit 2c90ba1).
+  - 1-7 clock·reset·power([docs/07_clock_reset_power.md](docs/07_clock_reset_power.md)):
+    - **구조.** clock 4개와 power-on reset을 받습니다.
+      - always-on domain의 PMU는 APB request/acknowledge crossing 너머에 있습니다.
+      - PMU가 AON → core → NAND → host 순서로 reset을 풀고, always-on register를 보존하는 chip reset도 제공합니다.
+      - PD_HOST는 isolation → save → PLL → reset → switch 순서로 켜고 끄며, 모든 대기에 timeout이 있고, wake pin과 host 경로가 바쁠 때의 거부를 지원합니다.
+    - **PD_HOST.** phase 2 logic 자리에 retention register를 가진 placeholder를 두고 출력 4개에 isolation cell을 달았습니다. UPF로 기술하고, 스크립트로 RTL과 대조합니다.
+    - **power-aware TB.** 꺼진 PD_HOST 출력을 Verilator에서는 random 값으로, xsim에서는 X로 만들고, sequencing 규칙을 매 cycle 검사합니다.
+      - 전원 cycle 뒤 retention 값은 복원되고 비보존 값은 reset 값으로 돌아옵니다.
+      - 일부러 심은 버그 11종을 모두 잡았습니다.
+    - **CPU clock gate.** ibex_top과 같은 방식으로 WFI 중 Ibex clock을 끕니다. 켜진 상태에서도 기존 firmware test의 clock 수가 모두 같고, 2000-tick WFI에서 1,967 clock을 줄였습니다(commit ca320d4).
 - **범위.** 공개 자료만으로 구성하며 PCIe, NVMe, M-PHY, UniPro 규격 준수를 주장하지 않습니다. NVMe는 공개된 Base Specification의 register · queue · PRP 구조 일부만 따릅니다.
 - **LLM 사용.** 코드, 테스트, 문서 초안에 LLM(Claude)을 쓰고, repo 안의 regression과 검사를 통과한 결과만 반영합니다.

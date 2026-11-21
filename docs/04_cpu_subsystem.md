@@ -121,7 +121,7 @@ Undefined offsets answer PSLVERR. These register blocks were written by hand for
 | --- | --- | --- |
 | Load from `0x2000_0000` (unmapped) | DECERR | Load access fault (5) |
 | Store to ROM `0x0000_1000` | SLVERR | Store access fault (7) |
-| Load from the empty PMU slot `0x4000_1000` | PSLVERR, SLVERR | Load access fault (5) |
+| Load from the empty PMU slot `0x4000_1000` (since step 1-7, where the PMU fills that slot: the empty slot `0x4000_6000`) | PSLVERR, SLVERR | Load access fault (5) |
 | Load from undefined SYS offset `0x4000_0020` | PSLVERR, SLVERR | Load access fault (5) |
 | Call to `0x2000_0000` | DECERR on the instruction port | Instruction access fault (1) |
 | Call into the APB window | DECERR: the instruction port has no APB path | Instruction access fault (1) |
