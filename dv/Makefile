@@ -6,6 +6,7 @@
 #   make -C dv soc        firmware tests on soc_top, alone and with background traffic
 #   make -C dv ral        UVM register tests on Vivado's simulator (Windows, through WSL interop;
 #                         not part of all: the CI image has no Vivado)
+#   make -C dv ral-mut    register tests against four planted bugs (Vivado, not part of all)
 #   make -C dv rdl-check  generated register files still match rtl/csr/rdl/soc_apb.rdl
 #                         (needs PeakRDL, flow/rdl/requirements.txt; PEAKRDL=<path> if not on PATH)
 # BUILD_DIR defaults to build/dv in the repository.
@@ -22,7 +23,7 @@ SOC_RTL  := $(CSR_GEN) $(XBAR_RTL) $(RTL)/axi/axi2apb.sv $(RTL)/cpu/cpu_ibex.sv 
             $(RTL)/mem/axi_mem.sv $(RTL)/periph/apb_sys.sv $(RTL)/periph/apb_timer.sv \
             $(RTL)/periph/apb_intc.sv $(RTL)/top/soc_top.sv
 
-.PHONY: all lint fifo slice xbar xbar-mut soc ral rdl-check
+.PHONY: all lint fifo slice xbar xbar-mut soc ral ral-mut rdl-check
 
 all: lint fifo slice xbar soc
 
@@ -58,6 +59,9 @@ soc:
 
 ral:
 	powershell.exe -ExecutionPolicy Bypass -File "$$(wslpath -w run_ral.ps1)"
+
+ral-mut:
+	powershell.exe -ExecutionPolicy Bypass -File "$$(wslpath -w mutate_ral.ps1)"
 
 rdl-check:
 	bash ../flow/rdl/gen.sh --check
