@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Toolchain check (Verilator covergroups)
         run: bash flow/tools/check_verilator.sh
-      - name: Block checks (lint, CDC FIFO, register slice, crossbar)
+      - name: Block and SoC checks (lint, CDC FIFO, register slice, crossbar, firmware on soc_top)
         run: make -C dv
         env:
           SEEDS: "3"

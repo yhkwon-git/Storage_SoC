@@ -1,0 +1,7 @@
+`verilator_config
+// Third-party sources keep their own lint rules (Ibex ships its own Verilator
+// waivers); -Wall applies to this repository's RTL only.
+lint_off -file "*rtl/vendor/*"
+// UNOPTFLAT is not covered by the line above. Ibex's own waiver file lists
+// the same three signals (ibex_id_stage, ibex_if_stage).
+lint_off -rule UNOPTFLAT -file "*rtl/vendor/*"

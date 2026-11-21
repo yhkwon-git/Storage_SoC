@@ -1,8 +1,9 @@
 # Block-level checks: lint of rtl/ and the block testbenches.
-#   make -C dv            lint, fifo, slice, xbar
+#   make -C dv            lint, fifo, slice, xbar, soc
 #   make -C dv fifo       FIFO at six clock pairs (FIFO_SRC, MIN_EFF: see run_fifo.sh)
 #   make -C dv xbar       crossbar: directed test and SEEDS random seeds (SEEDS, N: see run_xbar.sh)
 #   make -C dv xbar-mut   crossbar testbench against seven planted bugs (not part of all)
+#   make -C dv soc        firmware tests on soc_top, alone and with background traffic
 # BUILD_DIR defaults to build/dv in the repository.
 
 BUILD_DIR ?= $(abspath ../build/dv)
@@ -11,10 +12,13 @@ RTL := ../rtl
 
 XBAR_RTL := $(RTL)/common/rr_arb.sv $(RTL)/common/fifo_sync.sv \
             $(RTL)/axi/axi_id_tracker.sv $(RTL)/axi/axi_err_slv.sv $(RTL)/axi/axi_xbar.sv
+SOC_RTL  := $(XBAR_RTL) $(RTL)/axi/axi2apb.sv $(RTL)/cpu/cpu_ibex.sv $(RTL)/cpu/obi2axi.sv \
+            $(RTL)/mem/axi_mem.sv $(RTL)/periph/apb_sys.sv $(RTL)/periph/apb_timer.sv \
+            $(RTL)/periph/apb_intc.sv $(RTL)/top/soc_top.sv
 
-.PHONY: all lint fifo slice xbar xbar-mut
+.PHONY: all lint fifo slice xbar xbar-mut soc
 
-all: lint fifo slice xbar
+all: lint fifo slice xbar soc
 
 lint:
 	verilator --lint-only -Wall --top-module cdc_async_fifo \
@@ -22,6 +26,8 @@ lint:
 	verilator --lint-only -Wall --top-module axi_channel_reg_slice \
 	  $(RTL)/axi/axi_channel_reg_slice.sv
 	verilator --lint-only -Wall --top-module axi_xbar $(XBAR_RTL)
+	verilator --lint-only -Wall --timescale 1ns/1ps --top-module soc_top \
+	  lint/vendor.vlt -F $(RTL)/vendor/ibex/ibex.f $(SOC_RTL)
 	@echo "[LINT] PASS"
 
 fifo:
@@ -40,3 +46,6 @@ xbar:
 
 xbar-mut:
 	bash mutate_xbar.sh
+
+soc:
+	bash run_soc.sh

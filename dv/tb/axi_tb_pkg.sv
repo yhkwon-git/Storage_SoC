@@ -92,6 +92,14 @@ package axi_tb_pkg;
     longint      t_req;
     longint      t_acc;
     longint      t_done;
+    // Directed checks: the expected response instead of the one implied by
+    // tgt (-1: implied), and no data check or shadow update (registers rather
+    // than memory). Responses and read data are recorded per beat.
+    int          exp_resp = -1;
+    bit          no_check = 1'b0;
+    logic [63:0] rdata[$];
+    logic [1:0]  rresp[$];
+    logic [1:0]  bresp;
   endclass
 
   // ---------------------------------------------------------------------------
@@ -105,6 +113,11 @@ package axi_tb_pkg;
     int ar_gap_pct = 30;
     int bready_pct = 80;
     int rready_pct = 80;
+
+    // 0: a word nobody wrote holds init_word(addr), as in the slave models of
+    // this package. 1: its contents are unknown (a real memory); the first
+    // read of such a word sets the expected value for later reads.
+    bit learn_unknown = 1'b0;
 
     axi_txn aw_q[$];
     axi_txn w_q[$];
@@ -303,12 +316,13 @@ package axi_tb_pkg;
         return;
       end
       t   = wr_out[bid].pop_front();
-      exp = (t.tgt == T_ERR) ? DECERR : OKAY;
+      exp = (t.exp_resp >= 0) ? 2'(t.exp_resp) : (t.tgt == T_ERR) ? DECERR : OKAY;
+      t.bresp = bresp;
       if (bresp != exp) begin
         err($sformatf("B for write to %h (%s): resp %0d, expected %0d",
                       t.addr, tgt_name(t.tgt), bresp, exp));
       end
-      if (t.tgt != T_ERR) begin
+      if (t.tgt != T_ERR && !t.no_check) begin
         for (int b = 0; b <= t.len; b++) begin
           w = t.addr + 32'(b * 8);
           shadow[w] = merge(expect_word(w), t.data[b], t.strb[b]);
@@ -336,14 +350,18 @@ package axi_tb_pkg;
         return;
       end
       t   = rd_out[rid][0];
-      exp = (t.tgt == T_ERR) ? DECERR : OKAY;
+      exp = (t.exp_resp >= 0) ? 2'(t.exp_resp) : (t.tgt == T_ERR) ? DECERR : OKAY;
+      t.rdata.push_back(rdata);
+      t.rresp.push_back(rresp);
       if (rresp != exp) begin
         err($sformatf("R beat %0d for read of %h (%s): resp %0d, expected %0d",
                       t.beat, t.addr, tgt_name(t.tgt), rresp, exp));
       end
-      if (t.tgt != T_ERR) begin
+      if (t.tgt != T_ERR && !t.no_check) begin
         w = t.addr + 32'(t.beat * 8);
-        if (rdata !== expect_word(w)) begin
+        if (learn_unknown && !shadow.exists(w)) begin
+          shadow[w] = rdata;
+        end else if (rdata !== expect_word(w)) begin
           err($sformatf("R data at %h: %h, expected %h", w, rdata, expect_word(w)));
         end
       end

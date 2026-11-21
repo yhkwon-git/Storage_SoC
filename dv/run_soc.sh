@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Builds the firmware (when the cross compiler is on PATH; otherwise the
+# committed fw/images are used), builds tb_soc once and runs every firmware
+# test twice: alone and with background traffic on M2 and M3.
+#
+#   BUILD_DIR  build root (default: build/dv in the repository)
+set -euo pipefail
+
+here="$(cd "$(dirname "$0")" && pwd)"
+root="$(cd "$here/.." && pwd)"
+out="${BUILD_DIR:-$root/build/dv}/soc"
+tests=(hello memtest irq buserr perf)
+mkdir -p "$out"
+
+if command -v riscv-none-elf-gcc > /dev/null; then
+  make -s -C "$root/fw" BUILD="$out/fw" > "$out/fw_build.log" 2>&1 || { cat "$out/fw_build.log"; exit 1; }
+  img="$out/fw"
+  for t in "${tests[@]}"; do
+    if ! cmp -s "$img/$t.hex" "$root/fw/images/$t.hex"; then
+      echo "[SOC] note: fw/images/$t.hex differs from a fresh build (run make -C fw images)"
+    fi
+  done
+else
+  img="$root/fw/images"
+  echo "[SOC] riscv-none-elf-gcc not found; using the committed images in fw/images"
+fi
+
+rtl="$root/rtl"
+src=(
+  "$here/lint/vendor.vlt" -F "$rtl/vendor/ibex/ibex.f"
+  "$rtl/common/rr_arb.sv" "$rtl/common/fifo_sync.sv"
+  "$rtl/axi/axi_id_tracker.sv" "$rtl/axi/axi_err_slv.sv" "$rtl/axi/axi_xbar.sv" "$rtl/axi/axi2apb.sv"
+  "$rtl/cpu/cpu_ibex.sv" "$rtl/cpu/obi2axi.sv" "$rtl/mem/axi_mem.sv"
+  "$rtl/periph/apb_sys.sv" "$rtl/periph/apb_timer.sv" "$rtl/periph/apb_intc.sv"
+  "$rtl/top/soc_top.sv"
+  "$here/tb/axi4_if.sv" "$here/tb/axi_tb_pkg.sv" "$here/sva/axi4_checker.sv" "$here/tb/tb_soc.sv"
+)
+
+verilator --binary --timing --assert -j 0 --timescale 1ns/1ps --top-module tb_soc \
+  "${src[@]}" -Mdir "$out/obj" > "$out/build.log" 2>&1 \
+  || { cat "$out/build.log"; exit 1; }
+
+fail=0
+for t in "${tests[@]}"; do
+  for mode in "" "+bg"; do
+    name="$t${mode:+_bg}"
+    extra=""
+    [ "$t" = hello ] && extra="+apb_check"
+    # shellcheck disable=SC2086
+    if ! (cd "$out" && ./obj/Vtb_soc +rom="$img/$t.hex" +test="$t" $mode $extra +verilator+seed+1) \
+         > "$out/$name.log" 2>&1; then
+      fail=1
+    fi
+    grep -E '^\[(FW|SOC)\]|%Error|Assertion' "$out/$name.log" | sed "s/^/$name: /"
+  done
+done
+
+if [ "$fail" -eq 0 ]; then
+  echo "[SOC] all runs PASS"
+else
+  echo "[SOC] FAIL"
+  exit 1
+fi
