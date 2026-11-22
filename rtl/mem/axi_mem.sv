@@ -19,9 +19,9 @@
 //
 // READ_ONLY: W beats are accepted and dropped, and B answers SLVERR.
 //
-// Simulation only: if INIT_PLUSARG is not empty and +<INIT_PLUSARG>=<file> is
-// given, the memory is loaded with $readmemh from that file (one 64-bit word
-// per line). Synthesis treats the array as a black box (docs/01, section 9).
+// The words sit in mem_array (step 1-9): an array in simulation, loaded with
+// $readmemh from +<INIT_PLUSARG>=<file> (one 64-bit word per line) when
+// INIT_PLUSARG is not empty; an SRAM macro (black box) in synthesis.
 // -----------------------------------------------------------------------------
 
 module axi_mem #(
@@ -63,16 +63,9 @@ module axi_mem #(
 
   localparam int WA = $clog2(WORDS);
 
-  logic [63:0] mem [WORDS];
-
-`ifndef SYNTHESIS
-  initial begin
-    string f;
-    if (INIT_PLUSARG != "" && $value$plusargs({INIT_PLUSARG, "=%s"}, f)) begin
-      $readmemh(f, mem);
-    end
-  end
-`endif
+  logic [7:0]    m_we;
+  logic          m_re;
+  logic [WA-1:0] m_raddr;
 
   // ---------------------------------------------------------------------------
   // Write path
@@ -111,13 +104,7 @@ module axi_mem #(
     end
   end
 
-  always_ff @(posedge clk) begin
-    if (w_hs && !READ_ONLY) begin
-      for (int i = 0; i < 8; i++) begin
-        if (s_wstrb[i]) mem[w_ptr][i*8 +: 8] <= s_wdata[i*8 +: 8];
-      end
-    end
-  end
+  assign m_we = (w_hs && !READ_ONLY) ? s_wstrb : 8'd0;
 
   // ---------------------------------------------------------------------------
   // Read path
@@ -153,13 +140,19 @@ module axi_mem #(
     end
   end
 
-  always_ff @(posedge clk) begin
-    if (ar_hs) begin
-      s_rdata <= mem[s_araddr[3 +: WA]];
-    end else if (r_hs && !s_rlast) begin
-      s_rdata <= mem[r_ptr];
-    end
-  end
+  // Read data: the word of a new AR, or the next word of the burst.
+  assign m_re    = ar_hs || (r_hs && !s_rlast);
+  assign m_raddr = ar_hs ? s_araddr[3 +: WA] : r_ptr;
+
+  mem_array #(.WORDS(WORDS), .INIT_PLUSARG(INIT_PLUSARG)) u_array (
+    .clk   (clk),
+    .we    (m_we),
+    .waddr (w_ptr),
+    .wdata (s_wdata),
+    .re    (m_re),
+    .raddr (m_raddr),
+    .rdata (s_rdata)
+  );
 
   // Address bits above the window and below the word are decoded elsewhere;
   // the write burst ends on WLAST, so AWLEN is not needed.

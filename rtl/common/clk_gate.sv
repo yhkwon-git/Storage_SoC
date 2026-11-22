@@ -18,6 +18,10 @@ module clk_gate (
   output wire gclk
 );
 
+`ifdef SKY130
+  // The library's integrated clock gate (flow/syn/run_syn.sh defines SKY130).
+  sky130_fd_sc_hd__dlclkp_1 u_icg (.CLK(clk), .GATE(en | test_en), .GCLK(gclk));
+`else
   logic en_l;
 
   always_latch begin
@@ -25,6 +29,7 @@ module clk_gate (
   end
 
   assign gclk = clk & en_l;
+`endif
 
 endmodule : clk_gate
 

@@ -106,13 +106,22 @@ module host_if (
   assign tx_drop = tx_wr && !tx_push;
   assign rx_pop  = hwif_out.RX.data.swacc && !rx_empty && qrst_n;
 
-  // Commands sent minus responses read.
-  logic [4:0] pending;
+  // Commands sent minus responses read. host_idle goes to the PMU through a
+  // synchronizer, so it is a flop: a decode of the counter could glitch high
+  // while its bits change, and the synchronizer could catch the glitch
+  // (flow/cdc/check_cdc.py found it). It is registered from the counter's
+  // next value, so it changes on the same clock as the counter.
+  logic [4:0] pending, pending_next;
+  assign pending_next = pending + (tx_push ? 5'd1 : 5'd0) - (rx_pop ? 5'd1 : 5'd0);
   always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) pending <= 5'd0;
-    else        pending <= pending + (tx_push ? 5'd1 : 5'd0) - (rx_pop ? 5'd1 : 5'd0);
+    if (!rst_n) begin
+      pending   <= 5'd0;
+      host_idle <= 1'b1;
+    end else begin
+      pending   <= pending_next;
+      host_idle <= (pending_next == 5'd0);
+    end
   end
-  assign host_idle = (pending == 5'd0);
 
   always_comb begin
     hwif_in.RX.data.next            = (rx_empty || !qrst_n) ? 32'd0 : rx_data;

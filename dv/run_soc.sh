@@ -37,7 +37,7 @@ src=(
   "$rtl/common/rr_arb.sv" "$rtl/common/fifo_sync.sv" "$rtl/common/cdc_sync_2ff.sv"
   "$rtl/common/cdc_async_fifo.sv" "$rtl/common/rst_sync.sv" "$rtl/common/clk_gate.sv"
   "$rtl/axi/axi_id_tracker.sv" "$rtl/axi/axi_err_slv.sv" "$rtl/axi/axi_xbar.sv" "$rtl/axi/axi2apb.sv"
-  "$rtl/cpu/cpu_ibex.sv" "$rtl/cpu/obi2axi.sv" "$rtl/mem/axi_mem.sv"
+  "$rtl/cpu/cpu_ibex.sv" "$rtl/cpu/obi2axi.sv" "$rtl/mem/mem_array.sv" "$rtl/mem/axi_mem.sv"
   "$rtl/periph/apb_sys.sv" "$rtl/periph/apb_timer.sv" "$rtl/periph/apb_intc.sv"
   "$rtl/dma/dma.sv"
   "$rtl/pmu/iso_clamp.sv" "$rtl/pmu/ret_reg.sv" "$rtl/pmu/apb_cdc.sv" "$rtl/pmu/pmu.sv"

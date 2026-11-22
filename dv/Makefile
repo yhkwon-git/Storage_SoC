@@ -36,7 +36,7 @@ PWR_RTL  := $(RTL)/csr/gen/pmu_regs_pkg.sv $(RTL)/csr/gen/host_regs_pkg.sv \
             $(RTL)/pmu/pmu.sv $(RTL)/host/phy_pll_model.sv $(RTL)/host/host_stub.sv $(RTL)/host/pd_host.sv \
             $(RTL)/host/host_if.sv $(RTL)/top/soc_pwr.sv
 SOC_RTL  := $(CSR_GEN) $(XBAR_RTL) $(RTL)/axi/axi2apb.sv $(RTL)/cpu/cpu_ibex.sv $(RTL)/cpu/obi2axi.sv \
-            $(RTL)/mem/axi_mem.sv $(RTL)/periph/apb_sys.sv $(RTL)/periph/apb_timer.sv \
+            $(RTL)/mem/mem_array.sv $(RTL)/mem/axi_mem.sv $(RTL)/periph/apb_sys.sv $(RTL)/periph/apb_timer.sv \
             $(RTL)/periph/apb_intc.sv $(RTL)/dma/dma.sv \
             $(RTL)/common/cdc_sync_2ff.sv $(RTL)/common/cdc_async_fifo.sv $(RTL)/common/rst_sync.sv \
             $(RTL)/common/clk_gate.sv $(RTL)/pmu/iso_clamp.sv $(RTL)/pmu/ret_reg.sv $(RTL)/pmu/apb_cdc.sv \
