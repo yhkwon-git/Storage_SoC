@@ -249,7 +249,7 @@ Ibex has dedicated timer and external interrupt inputs. The timer drives `irq_ti
 
 - **Library.** Sky130 HD standard cells. The ROM and SRAM are behavioral in simulation and black boxes in synthesis, so the area tables state that memories are excluded.
 - **CDC constraints.** Gray pointers and handshake data get `set_max_delay` from the source clock to the first synchronizer flop, and a false path is set only into the synchronizer input. There are no blanket asynchronous clock groups, because those would override the max-delay constraints.
-- **These are targets.** Step 1-9 reports measured slack per corner with the commit it was measured at.
+- **These are targets.** Step 1-9 reports measured slack per corner with the commit it was measured at ([09_timing.md](09_timing.md)). Pre-layout, 50 MHz and 62.5 MHz are met at tt and ff; setup at `ss_n40C_1v40` is not met (`clk_sys` would run at about 14.5 MHz there), and hold at ff misses by tens of picoseconds into the SRAM macros, left to layout. The crossing constraint is applied as a max delay of the destination period between every pair of clocks, and `flow/cdc/check_cdc.py` shows that every crossing path ends at a synchronizer, a handshake register, a FIFO word or a PMU control, where that bound is the right check.
 
 ## 10. Phase-1 verification plan
 
@@ -290,5 +290,5 @@ docs/         this document and the ones that follow
 | Ibex commit and configuration (RV32IMC, multiplier, register file) | 1-4 |
 | Which AXI_PCIe_Subsystem blocks are reused as they are, and which are rewritten for AXI4 | 1-2, 1-3 |
 | PeakRDL version; generated RTL is committed so simulation needs no Python | 1-5: PeakRDL 1.5.0, regblock 1.3.1 (`flow/rdl/requirements.txt`); generated files committed, `make -C dv rdl-check` compares them with the source |
-| How the Sky130 libraries are fetched (script, not committed) | 1-9 |
+| How the Sky130 libraries are fetched (script, not committed) | 1-9: `flow/syn/fetch_sky130.sh` from lambdapdk v0.2.9, SHA-256 checked, into `build/pdk` |
 | CDC check method on the synthesized netlist | 1-9 |

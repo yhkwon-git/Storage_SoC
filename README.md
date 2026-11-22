@@ -12,11 +12,11 @@ A RISC-V CPU, an AXI4 interconnect, DMA, SystemRDL-generated CSRs and always-on 
 
 | Item | Value |
 | --- | --- |
-| Current phase | Phase 1, SoC platform: steps 1-1 (architecture), 1-2 (common blocks), 1-3 (AXI4 crossbar), 1-4 (CPU subsystem), 1-5 (SystemRDL CSRs), 1-6 (DMA), 1-7 (clocks, resets, power) and 1-8 (firmware) done |
+| Current phase | Phase 1, SoC platform, done: steps 1-1 (architecture) to 1-9 (synthesis, STA, CDC); setup at the ss corner is not met (docs/09). Next: phase 2, steps 2-1 to 2-5 |
 | Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 5 AXI4 crossbar, with SRAM, a descriptor-based DMA, and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; an always-on PMU that orders the resets and switches the PD_HOST domain with isolation and retention (UPF); a CPU clock gate; dual-clock FIFO, 2-flop synchronizer, channel register slice |
 | Verification tools | Vivado simulator 2019.2 (UVM 1.2), Verilator 5.052 |
 | Register generation | PeakRDL 1.5.0: register RTL, C header, UVM register model and register document from one source |
-| Implementation tools | Yosys 0.52, OpenSTA 3.1.0, Sky130 HD (ss/tt/ff corners) |
+| Implementation tools | sv2v 0.0.13, Yosys 0.52, OpenSTA 3.1.0, Sky130 HD from lambdapdk v0.2.9 (ss/tt/ff corners) |
 
 Every number in this repository names the commit it was measured at, and the script that produced it is in the repository.
 
@@ -71,7 +71,7 @@ flowchart LR
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 0 | Toolchain checks, repository layout, CI, RISC-V GCC | Done |
-| 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | In progress: 1-1 to 1-8 done |
+| 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | Done: 1-1 to 1-9; setup at ss not met (docs/09) |
 | 2 | Host interface: transaction layer and NVMe front-end (steps 2-1 to 2-5), then data link layer, PHY with a PIPE-style boundary and link training (steps 2-6 to 2-9) | Planned |
 | 3 | Storage datapath: NAND channel controllers, NAND model, BCH, NVMe reads and writes through to NAND | Planned |
 | 4 | SoC-level UVM, verification plan, coverage closure | Planned |
@@ -181,6 +181,15 @@ Firmware (commit fbe4b8a, details in [docs/08_firmware.md](docs/08_firmware.md))
 - **soc_app.** The phase-1 flow in 3.5 KiB of code: boot, a 16 KiB memory check, a DMA copy through the NAND0 page buffer checked by CRC, the CPU and the DMA together, and a PD_HOST power cycle with retained state. It passes alone and with background traffic.
 - **CPU and DMA together.** An 8 KiB copy runs entirely inside a 4 KiB CRC and costs the CRC 1.5% more clocks.
 
+Synthesis, timing and CDC (commit 7a0d727, details in [docs/09_timing.md](docs/09_timing.md)):
+
+- **Synthesis.** sv2v and Yosys map the whole SoC, Ibex included, onto Sky130 HD: 40,432 cells and 0.47 mm² of standard cells, SRAM macros not counted. The DMA is the largest block (42%, mostly its two 32-beat FIFOs in flops), then the CPU (26%).
+- **STA.** OpenSTA with multi-clock constraints:
+  - at tt, `clk_sys` meets 50 MHz and `pclk` 62.5 MHz, with +3.99 ns register to register;
+  - at ff, setup meets and hold misses by 23 ps into the SRAM macros, left to layout;
+  - at ss_n40C_1v40, setup misses by 49 ns, so `clk_sys` would run at about 14.5 MHz there. The worst path runs from the CPU through the crossbar's arbitration into the DMA; register slices at the masters would cut it.
+- **CDC check.** A script traces every crossing in the netlist. All are synchronizers (26 bits), handshake registers (80), FIFO words (400) or PMU controls (560). It found one real bug: an idle flag decoded from a counter fed a synchronizer and could glitch. It is now a flop.
+
 ## How to run
 
 ```bash
@@ -219,7 +228,10 @@ dv/                  testbenches (dv/tb/), SVA checkers (dv/sva/), lint waivers 
 dv/ral/              UVM register model generated from SystemRDL
 dv/uvm/              APB agent and UVM register tests (xsim)
 flow/rdl/            register generation script and pinned PeakRDL versions
+flow/cdc/            structural clock-domain-crossing check of the netlist
 flow/power/          check that the UPF and the RTL agree on isolation and retention
+flow/sta/            OpenSTA at three corners
+flow/syn/            Sky130 library fetch, sv2v and Yosys synthesis, fanout buffering, area by block
 flow/tools/          toolchain checks: smoke_uvm.sv (xsim), smoke_cov.sv (Verilator) and their scripts
 fw/                  firmware: start-up and linker script (common/), tests (tests/), drivers (drv/), soc_app (app/), committed ROM images (images/)
 rtl/axi/             AXI4 crossbar, ID tracker, default slave, AXI-to-APB bridge, channel register slice
@@ -249,6 +261,7 @@ rtl/vendor/ibex/     Ibex v2.1.0, unchanged (VENDOR.md)
 | [docs/06_dma.md](docs/06_dma.md) | DMA programming model, design decisions (read IDs, read credits, full-burst AW, aligner), block testbench, throughput, mutation check, SoC firmware test, findings |
 | [docs/07_clock_reset_power.md](docs/07_clock_reset_power.md) | Clocks and crossings, reset order and chip reset, PD_HOST power sequence, isolation, retention and UPF, CPU clock gate, power testbench (random and X off-state values), mutation check, SoC power and reset tests, findings |
 | [docs/08_firmware.md](docs/08_firmware.md) | Driver layer, interrupt dispatch and race-free sleep, soc_app's phases and results, CPU and DMA together, clock counts of every program |
+| [docs/09_timing.md](docs/09_timing.md) | Synthesis flow, SRAM macro models, constraints, area by block, timing at three corners and the critical paths, the CDC check and what it found |
 | [docs/regs/soc_apb.md](docs/regs/soc_apb.md) | Generated register reference: every register and field with offset, access and reset value |
 
 ## Limitations
@@ -270,7 +283,7 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
 - **Storage path.** NAND channel controller 2개와 BCH ECC, NVMe Read·Write를 SRAM을 거쳐 NAND까지 처리하는 firmware입니다.
 - **진행 순서.** Phase 1 → 2-1~2-5(transaction 수준 host 모델로 NVMe) → Phase 3 → 2-6~2-9(link · PHY) → Phase 4, 5. NVMe 명령이 NAND까지 가는 경로를 serial link보다 먼저 완성합니다.
 - **검증과 구현.** IP별 TB를 먼저 만들고, SoC 전체는 UVM(Vivado simulator 2019.2)으로 sign-off합니다. lint, 빠른 regression, coverage는 Verilator 5.052, 합성과 multi-corner STA는 Yosys, OpenSTA, Sky130으로 합니다.
-- **현재 상태.** Phase 0(도구 확인, repo 구조, CI, RISC-V GCC)이 끝났고, Phase 1(SoC platform)을 진행 중입니다.
+- **현재 상태.** Phase 0(도구 확인, repo 구조, CI, RISC-V GCC)과 Phase 1(SoC platform, 1-1~1-9)이 끝났고, ss corner의 setup 미충족은 docs/09에 기록했습니다. 다음은 Phase 2의 2-1~2-5입니다.
   - 1-1 아키텍처 사양([docs/01_soc_architecture.md](docs/01_soc_architecture.md)): clock 5개와 crossing 규칙, reset 해제 순서, PD_HOST의 isolation·retention·power sequence, AXI4 규칙, address·interrupt map, 목표 주파수를 정했습니다.
   - 1-2 공통 블록([docs/02_common_blocks.md](docs/02_common_blocks.md)): 이전 프로젝트의 2-FF synchronizer와 register slice는 로직을 그대로 가져왔습니다. dual-clock FIFO는 같은 TB로 측정한 결과 처리량이 상한의 12.5~24.8%(4:1 비율만 50~68%)에 그쳐서 새로 설계했고, 새 FIFO는 12개 run 모두 데이터 오류 0, 상한의 97.9~101.0%를 냈습니다(commit 8ce1fac).
   - 1-3 AXI4 crossbar([docs/03_axi_crossbar.md](docs/03_axi_crossbar.md)): 4×5 sparse 구조이고, 같은 ID가 outstanding인 동안 다른 slave로 넘어가지 않게 해서 reorder buffer 없이 응답 순서를 지킵니다. master마다 DECERR slave를 두고, W는 master와 slave 양쪽의 AW 순서를 따르게 했습니다(commit 76fd272).
@@ -312,5 +325,12 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
     - **driver.** trap handler 하나가 timer와 INTC source별 driver를 호출하고, interrupt를 끈 상태에서 flag를 확인하는 sleep으로 WFI 직전 interrupt 유실을 막습니다.
     - **soc_app.** 3.5 KiB 코드로 phase 1 흐름 전체를 실행합니다. boot, 16 KiB memory check, NAND0 page buffer를 거치는 DMA 복사의 CRC 검증, CPU·DMA 동시 실행, retention을 확인하는 PD_HOST 전원 cycle 순서입니다.
     - **CPU·DMA 동시 실행.** 8 KiB DMA 복사는 4 KiB CRC 계산 중에 끝나고, CRC는 1.5% 느려집니다(commit fbe4b8a).
+  - 1-9 합성·STA·CDC([docs/09_timing.md](docs/09_timing.md)):
+    - **합성.** sv2v와 Yosys로 Ibex를 포함한 SoC 전체를 Sky130 HD에 mapping했습니다. 40,432 cell, 표준 cell 면적 0.47 mm²이며 SRAM macro는 제외한 값입니다.
+    - **STA.**
+      - tt에서 50 MHz(clk_sys)와 62.5 MHz(pclk)를 만족합니다.
+      - ff에서 setup은 만족하고, SRAM 입력의 hold는 23 ps 부족해 layout 단계로 넘깁니다.
+      - ss_n40C_1v40에서는 setup이 49 ns 부족해 약 14.5 MHz에 해당합니다. 최악 경로는 CPU → crossbar arbitration → DMA이고, master 쪽에 register slice를 넣으면 끊을 수 있습니다.
+    - **CDC 검사.** netlist의 모든 crossing이 synchronizer, handshake register, FIFO word, PMU control 중 하나인지 스크립트로 확인합니다. counter를 decode한 idle 신호가 synchronizer로 바로 들어가 glitch가 날 수 있는 실제 버그를 찾아 flop으로 고쳤습니다(commit 7a0d727).
 - **범위.** 공개 자료만으로 구성하며 PCIe, NVMe, M-PHY, UniPro 규격 준수를 주장하지 않습니다. NVMe는 공개된 Base Specification의 register · queue · PRP 구조 일부만 따릅니다.
 - **LLM 사용.** 코드, 테스트, 문서 초안에 LLM(Claude)을 쓰고, repo 안의 regression과 검사를 통과한 결과만 반영합니다.
