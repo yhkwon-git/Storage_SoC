@@ -90,6 +90,23 @@ module host_regs (
         logic TX;
         logic RX;
         logic STATUS;
+        logic LINK_CTRL;
+        logic LINK_STATUS;
+        logic BAR0_WIN;
+        logic BAR2_WIN;
+        logic BM_HADDR_LO;
+        logic BM_HADDR_HI;
+        logic BM_LADDR;
+        logic BM_LEN;
+        logic BM_CTRL;
+        logic BM_STATUS;
+        logic BM_CYCLES;
+        logic MSIX_REQ;
+        logic MSIX_PEND;
+        logic CPL_TIMEOUT;
+        logic ERR_STATUS;
+        logic RX_TLPS;
+        logic TX_TLPS;
     } decoded_reg_strb_t;
     decoded_reg_strb_t decoded_reg_strb;
     logic decoded_err;
@@ -110,6 +127,40 @@ module host_regs (
         is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h4);
         decoded_reg_strb.STATUS = cpuif_req_masked & (cpuif_addr == 12'h8);
         is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h8);
+        decoded_reg_strb.LINK_CTRL = cpuif_req_masked & (cpuif_addr == 12'h10);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h10);
+        decoded_reg_strb.LINK_STATUS = cpuif_req_masked & (cpuif_addr == 12'h14) & !cpuif_req_is_wr;
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h14);
+        decoded_reg_strb.BAR0_WIN = cpuif_req_masked & (cpuif_addr == 12'h18);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h18);
+        decoded_reg_strb.BAR2_WIN = cpuif_req_masked & (cpuif_addr == 12'h1c);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h1c);
+        decoded_reg_strb.BM_HADDR_LO = cpuif_req_masked & (cpuif_addr == 12'h20);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h20);
+        decoded_reg_strb.BM_HADDR_HI = cpuif_req_masked & (cpuif_addr == 12'h24);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h24);
+        decoded_reg_strb.BM_LADDR = cpuif_req_masked & (cpuif_addr == 12'h28);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h28);
+        decoded_reg_strb.BM_LEN = cpuif_req_masked & (cpuif_addr == 12'h2c);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h2c);
+        decoded_reg_strb.BM_CTRL = cpuif_req_masked & (cpuif_addr == 12'h30);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h30);
+        decoded_reg_strb.BM_STATUS = cpuif_req_masked & (cpuif_addr == 12'h34);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h34);
+        decoded_reg_strb.BM_CYCLES = cpuif_req_masked & (cpuif_addr == 12'h38) & !cpuif_req_is_wr;
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h38);
+        decoded_reg_strb.MSIX_REQ = cpuif_req_masked & (cpuif_addr == 12'h3c) & cpuif_req_is_wr;
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h3c);
+        decoded_reg_strb.MSIX_PEND = cpuif_req_masked & (cpuif_addr == 12'h40) & !cpuif_req_is_wr;
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h40);
+        decoded_reg_strb.CPL_TIMEOUT = cpuif_req_masked & (cpuif_addr == 12'h44);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h44);
+        decoded_reg_strb.ERR_STATUS = cpuif_req_masked & (cpuif_addr == 12'h48);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h48);
+        decoded_reg_strb.RX_TLPS = cpuif_req_masked & (cpuif_addr == 12'h50) & !cpuif_req_is_wr;
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h50);
+        decoded_reg_strb.TX_TLPS = cpuif_req_masked & (cpuif_addr == 12'h54) & !cpuif_req_is_wr;
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h54);
         decoded_err = ~is_valid_addr & decoded_req;
     end
 
@@ -136,6 +187,122 @@ module host_regs (
                 logic load_next;
             } tx_drop;
         } STATUS;
+        struct {
+            struct {
+                logic next;
+                logic load_next;
+            } hold;
+        } LINK_CTRL;
+        struct {
+            struct {
+                logic [18:0] next;
+                logic load_next;
+            } base;
+        } BAR0_WIN;
+        struct {
+            struct {
+                logic [16:0] next;
+                logic load_next;
+            } base;
+        } BAR2_WIN;
+        struct {
+            struct {
+                logic [29:0] next;
+                logic load_next;
+            } addr;
+        } BM_HADDR_LO;
+        struct {
+            struct {
+                logic [31:0] next;
+                logic load_next;
+            } addr;
+        } BM_HADDR_HI;
+        struct {
+            struct {
+                logic [29:0] next;
+                logic load_next;
+            } addr;
+        } BM_LADDR;
+        struct {
+            struct {
+                logic [17:0] next;
+                logic load_next;
+            } bytes;
+        } BM_LEN;
+        struct {
+            struct {
+                logic next;
+                logic load_next;
+            } start;
+            struct {
+                logic next;
+                logic load_next;
+            } d2h;
+        } BM_CTRL;
+        struct {
+            struct {
+                logic next;
+                logic load_next;
+            } done;
+            struct {
+                logic next;
+                logic load_next;
+            } err;
+            struct {
+                logic [2:0] next;
+                logic load_next;
+            } cause;
+        } BM_STATUS;
+        struct {
+            struct {
+                logic [2:0] next;
+                logic load_next;
+            } vector;
+        } MSIX_REQ;
+        struct {
+            struct {
+                logic [7:0] next;
+                logic load_next;
+            } ticks;
+        } CPL_TIMEOUT;
+        struct {
+            struct {
+                logic next;
+                logic load_next;
+            } ur;
+            struct {
+                logic next;
+                logic load_next;
+            } malformed;
+            struct {
+                logic next;
+                logic load_next;
+            } poisoned;
+            struct {
+                logic next;
+                logic load_next;
+            } unexp_cpl;
+            struct {
+                logic next;
+                logic load_next;
+            } cpl_timeout;
+            struct {
+                logic next;
+                logic load_next;
+            } cpl_err;
+            struct {
+                logic next;
+                logic load_next;
+            } axi_err;
+            struct {
+                logic next;
+                logic load_next;
+            } discard;
+            struct {
+                logic next;
+                logic load_next;
+            } msix_drop;
+        } ERR_STATUS;
     } field_combo_t;
     field_combo_t field_combo;
 
@@ -150,6 +317,99 @@ module host_regs (
                 logic value;
             } tx_drop;
         } STATUS;
+        struct {
+            struct {
+                logic value;
+            } hold;
+        } LINK_CTRL;
+        struct {
+            struct {
+                logic [18:0] value;
+            } base;
+        } BAR0_WIN;
+        struct {
+            struct {
+                logic [16:0] value;
+            } base;
+        } BAR2_WIN;
+        struct {
+            struct {
+                logic [29:0] value;
+            } addr;
+        } BM_HADDR_LO;
+        struct {
+            struct {
+                logic [31:0] value;
+            } addr;
+        } BM_HADDR_HI;
+        struct {
+            struct {
+                logic [29:0] value;
+            } addr;
+        } BM_LADDR;
+        struct {
+            struct {
+                logic [17:0] value;
+            } bytes;
+        } BM_LEN;
+        struct {
+            struct {
+                logic value;
+            } start;
+            struct {
+                logic value;
+            } d2h;
+        } BM_CTRL;
+        struct {
+            struct {
+                logic value;
+            } done;
+            struct {
+                logic value;
+            } err;
+            struct {
+                logic [2:0] value;
+            } cause;
+        } BM_STATUS;
+        struct {
+            struct {
+                logic [2:0] value;
+            } vector;
+        } MSIX_REQ;
+        struct {
+            struct {
+                logic [7:0] value;
+            } ticks;
+        } CPL_TIMEOUT;
+        struct {
+            struct {
+                logic value;
+            } ur;
+            struct {
+                logic value;
+            } malformed;
+            struct {
+                logic value;
+            } poisoned;
+            struct {
+                logic value;
+            } unexp_cpl;
+            struct {
+                logic value;
+            } cpl_timeout;
+            struct {
+                logic value;
+            } cpl_err;
+            struct {
+                logic value;
+            } axi_err;
+            struct {
+                logic value;
+            } discard;
+            struct {
+                logic value;
+            } msix_drop;
+        } ERR_STATUS;
     } field_storage_t;
     field_storage_t field_storage;
 
@@ -204,6 +464,577 @@ module host_regs (
         end
     end
     assign hwif_out.STATUS.tx_drop.value = field_storage.STATUS.tx_drop.value;
+    // Field: host_regs.LINK_CTRL.hold
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.LINK_CTRL.hold.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.LINK_CTRL && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.LINK_CTRL.hold.value & ~decoded_wr_biten[0:0]) | (decoded_wr_data[0:0] & decoded_wr_biten[0:0]);
+            load_next_c = '1;
+        end
+        field_combo.LINK_CTRL.hold.next = next_c;
+        field_combo.LINK_CTRL.hold.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.LINK_CTRL.hold.value <= 1'h0;
+        end else begin
+            if(field_combo.LINK_CTRL.hold.load_next) begin
+                field_storage.LINK_CTRL.hold.value <= field_combo.LINK_CTRL.hold.next;
+            end
+        end
+    end
+    assign hwif_out.LINK_CTRL.hold.value = field_storage.LINK_CTRL.hold.value;
+    // Field: host_regs.BAR0_WIN.base
+    always_comb begin
+        automatic logic [18:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.BAR0_WIN.base.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.BAR0_WIN && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.BAR0_WIN.base.value & ~decoded_wr_biten[31:13]) | (decoded_wr_data[31:13] & decoded_wr_biten[31:13]);
+            load_next_c = '1;
+        end
+        field_combo.BAR0_WIN.base.next = next_c;
+        field_combo.BAR0_WIN.base.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.BAR0_WIN.base.value <= 19'h20004;
+        end else begin
+            if(field_combo.BAR0_WIN.base.load_next) begin
+                field_storage.BAR0_WIN.base.value <= field_combo.BAR0_WIN.base.next;
+            end
+        end
+    end
+    assign hwif_out.BAR0_WIN.base.value = field_storage.BAR0_WIN.base.value;
+    // Field: host_regs.BAR2_WIN.base
+    always_comb begin
+        automatic logic [16:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.BAR2_WIN.base.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.BAR2_WIN && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.BAR2_WIN.base.value & ~decoded_wr_biten[31:15]) | (decoded_wr_data[31:15] & decoded_wr_biten[31:15]);
+            load_next_c = '1;
+        end
+        field_combo.BAR2_WIN.base.next = next_c;
+        field_combo.BAR2_WIN.base.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.BAR2_WIN.base.value <= 17'h2001;
+        end else begin
+            if(field_combo.BAR2_WIN.base.load_next) begin
+                field_storage.BAR2_WIN.base.value <= field_combo.BAR2_WIN.base.next;
+            end
+        end
+    end
+    assign hwif_out.BAR2_WIN.base.value = field_storage.BAR2_WIN.base.value;
+    // Field: host_regs.BM_HADDR_LO.addr
+    always_comb begin
+        automatic logic [29:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.BM_HADDR_LO.addr.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.BM_HADDR_LO && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.BM_HADDR_LO.addr.value & ~decoded_wr_biten[31:2]) | (decoded_wr_data[31:2] & decoded_wr_biten[31:2]);
+            load_next_c = '1;
+        end
+        field_combo.BM_HADDR_LO.addr.next = next_c;
+        field_combo.BM_HADDR_LO.addr.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.BM_HADDR_LO.addr.value <= 30'h0;
+        end else begin
+            if(field_combo.BM_HADDR_LO.addr.load_next) begin
+                field_storage.BM_HADDR_LO.addr.value <= field_combo.BM_HADDR_LO.addr.next;
+            end
+        end
+    end
+    assign hwif_out.BM_HADDR_LO.addr.value = field_storage.BM_HADDR_LO.addr.value;
+    // Field: host_regs.BM_HADDR_HI.addr
+    always_comb begin
+        automatic logic [31:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.BM_HADDR_HI.addr.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.BM_HADDR_HI && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.BM_HADDR_HI.addr.value & ~decoded_wr_biten[31:0]) | (decoded_wr_data[31:0] & decoded_wr_biten[31:0]);
+            load_next_c = '1;
+        end
+        field_combo.BM_HADDR_HI.addr.next = next_c;
+        field_combo.BM_HADDR_HI.addr.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.BM_HADDR_HI.addr.value <= 32'h0;
+        end else begin
+            if(field_combo.BM_HADDR_HI.addr.load_next) begin
+                field_storage.BM_HADDR_HI.addr.value <= field_combo.BM_HADDR_HI.addr.next;
+            end
+        end
+    end
+    assign hwif_out.BM_HADDR_HI.addr.value = field_storage.BM_HADDR_HI.addr.value;
+    // Field: host_regs.BM_LADDR.addr
+    always_comb begin
+        automatic logic [29:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.BM_LADDR.addr.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.BM_LADDR && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.BM_LADDR.addr.value & ~decoded_wr_biten[31:2]) | (decoded_wr_data[31:2] & decoded_wr_biten[31:2]);
+            load_next_c = '1;
+        end
+        field_combo.BM_LADDR.addr.next = next_c;
+        field_combo.BM_LADDR.addr.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.BM_LADDR.addr.value <= 30'h0;
+        end else begin
+            if(field_combo.BM_LADDR.addr.load_next) begin
+                field_storage.BM_LADDR.addr.value <= field_combo.BM_LADDR.addr.next;
+            end
+        end
+    end
+    assign hwif_out.BM_LADDR.addr.value = field_storage.BM_LADDR.addr.value;
+    // Field: host_regs.BM_LEN.bytes
+    always_comb begin
+        automatic logic [17:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.BM_LEN.bytes.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.BM_LEN && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.BM_LEN.bytes.value & ~decoded_wr_biten[19:2]) | (decoded_wr_data[19:2] & decoded_wr_biten[19:2]);
+            load_next_c = '1;
+        end
+        field_combo.BM_LEN.bytes.next = next_c;
+        field_combo.BM_LEN.bytes.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.BM_LEN.bytes.value <= 18'h0;
+        end else begin
+            if(field_combo.BM_LEN.bytes.load_next) begin
+                field_storage.BM_LEN.bytes.value <= field_combo.BM_LEN.bytes.next;
+            end
+        end
+    end
+    assign hwif_out.BM_LEN.bytes.value = field_storage.BM_LEN.bytes.value;
+    // Field: host_regs.BM_CTRL.start
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.BM_CTRL.start.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.BM_CTRL && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.BM_CTRL.start.value & ~decoded_wr_biten[0:0]) | (decoded_wr_data[0:0] & decoded_wr_biten[0:0]);
+            load_next_c = '1;
+        end else begin // singlepulse clears back to 0
+            next_c = '0;
+            load_next_c = '1;
+        end
+        field_combo.BM_CTRL.start.next = next_c;
+        field_combo.BM_CTRL.start.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.BM_CTRL.start.value <= 1'h0;
+        end else begin
+            if(field_combo.BM_CTRL.start.load_next) begin
+                field_storage.BM_CTRL.start.value <= field_combo.BM_CTRL.start.next;
+            end
+        end
+    end
+    assign hwif_out.BM_CTRL.start.value = field_storage.BM_CTRL.start.value;
+    // Field: host_regs.BM_CTRL.d2h
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.BM_CTRL.d2h.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.BM_CTRL && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.BM_CTRL.d2h.value & ~decoded_wr_biten[1:1]) | (decoded_wr_data[1:1] & decoded_wr_biten[1:1]);
+            load_next_c = '1;
+        end
+        field_combo.BM_CTRL.d2h.next = next_c;
+        field_combo.BM_CTRL.d2h.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.BM_CTRL.d2h.value <= 1'h0;
+        end else begin
+            if(field_combo.BM_CTRL.d2h.load_next) begin
+                field_storage.BM_CTRL.d2h.value <= field_combo.BM_CTRL.d2h.next;
+            end
+        end
+    end
+    assign hwif_out.BM_CTRL.d2h.value = field_storage.BM_CTRL.d2h.value;
+    // Field: host_regs.BM_STATUS.done
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.BM_STATUS.done.value;
+        load_next_c = '0;
+        if(hwif_in.BM_STATUS.done.hwset) begin // HW Set
+            next_c = '1;
+            load_next_c = '1;
+        end else if(hwif_in.BM_STATUS.done.hwclr) begin // HW Clear
+            next_c = '0;
+            load_next_c = '1;
+        end else if(decoded_reg_strb.BM_STATUS && decoded_req_is_wr) begin // SW write 1 clear
+            next_c = field_storage.BM_STATUS.done.value & ~(decoded_wr_data[1:1] & decoded_wr_biten[1:1]);
+            load_next_c = '1;
+        end
+        field_combo.BM_STATUS.done.next = next_c;
+        field_combo.BM_STATUS.done.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.BM_STATUS.done.value <= 1'h0;
+        end else begin
+            if(field_combo.BM_STATUS.done.load_next) begin
+                field_storage.BM_STATUS.done.value <= field_combo.BM_STATUS.done.next;
+            end
+        end
+    end
+    assign hwif_out.BM_STATUS.done.value = field_storage.BM_STATUS.done.value;
+    // Field: host_regs.BM_STATUS.err
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.BM_STATUS.err.value;
+        load_next_c = '0;
+        if(hwif_in.BM_STATUS.err.hwset) begin // HW Set
+            next_c = '1;
+            load_next_c = '1;
+        end else if(hwif_in.BM_STATUS.err.hwclr) begin // HW Clear
+            next_c = '0;
+            load_next_c = '1;
+        end else if(decoded_reg_strb.BM_STATUS && decoded_req_is_wr) begin // SW write 1 clear
+            next_c = field_storage.BM_STATUS.err.value & ~(decoded_wr_data[2:2] & decoded_wr_biten[2:2]);
+            load_next_c = '1;
+        end
+        field_combo.BM_STATUS.err.next = next_c;
+        field_combo.BM_STATUS.err.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.BM_STATUS.err.value <= 1'h0;
+        end else begin
+            if(field_combo.BM_STATUS.err.load_next) begin
+                field_storage.BM_STATUS.err.value <= field_combo.BM_STATUS.err.next;
+            end
+        end
+    end
+    assign hwif_out.BM_STATUS.err.value = field_storage.BM_STATUS.err.value;
+    // Field: host_regs.BM_STATUS.cause
+    always_comb begin
+        automatic logic [2:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.BM_STATUS.cause.value;
+        load_next_c = '0;
+        if(hwif_in.BM_STATUS.cause.we) begin // HW Write - we
+            next_c = hwif_in.BM_STATUS.cause.next;
+            load_next_c = '1;
+        end
+        field_combo.BM_STATUS.cause.next = next_c;
+        field_combo.BM_STATUS.cause.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.BM_STATUS.cause.value <= 3'h0;
+        end else begin
+            if(field_combo.BM_STATUS.cause.load_next) begin
+                field_storage.BM_STATUS.cause.value <= field_combo.BM_STATUS.cause.next;
+            end
+        end
+    end
+    // Field: host_regs.MSIX_REQ.vector
+    always_comb begin
+        automatic logic [2:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.MSIX_REQ.vector.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.MSIX_REQ && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.MSIX_REQ.vector.value & ~decoded_wr_biten[2:0]) | (decoded_wr_data[2:0] & decoded_wr_biten[2:0]);
+            load_next_c = '1;
+        end
+        field_combo.MSIX_REQ.vector.next = next_c;
+        field_combo.MSIX_REQ.vector.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.MSIX_REQ.vector.value <= 3'h0;
+        end else begin
+            if(field_combo.MSIX_REQ.vector.load_next) begin
+                field_storage.MSIX_REQ.vector.value <= field_combo.MSIX_REQ.vector.next;
+            end
+        end
+    end
+    assign hwif_out.MSIX_REQ.vector.value = field_storage.MSIX_REQ.vector.value;
+    assign hwif_out.MSIX_REQ.vector.swmod = decoded_reg_strb.MSIX_REQ && decoded_req_is_wr && |(decoded_wr_biten[2:0]);
+    // Field: host_regs.CPL_TIMEOUT.ticks
+    always_comb begin
+        automatic logic [7:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.CPL_TIMEOUT.ticks.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.CPL_TIMEOUT && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.CPL_TIMEOUT.ticks.value & ~decoded_wr_biten[7:0]) | (decoded_wr_data[7:0] & decoded_wr_biten[7:0]);
+            load_next_c = '1;
+        end
+        field_combo.CPL_TIMEOUT.ticks.next = next_c;
+        field_combo.CPL_TIMEOUT.ticks.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.CPL_TIMEOUT.ticks.value <= 8'h40;
+        end else begin
+            if(field_combo.CPL_TIMEOUT.ticks.load_next) begin
+                field_storage.CPL_TIMEOUT.ticks.value <= field_combo.CPL_TIMEOUT.ticks.next;
+            end
+        end
+    end
+    assign hwif_out.CPL_TIMEOUT.ticks.value = field_storage.CPL_TIMEOUT.ticks.value;
+    // Field: host_regs.ERR_STATUS.ur
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.ERR_STATUS.ur.value;
+        load_next_c = '0;
+        if(hwif_in.ERR_STATUS.ur.hwset) begin // HW Set
+            next_c = '1;
+            load_next_c = '1;
+        end else if(decoded_reg_strb.ERR_STATUS && decoded_req_is_wr) begin // SW write 1 clear
+            next_c = field_storage.ERR_STATUS.ur.value & ~(decoded_wr_data[0:0] & decoded_wr_biten[0:0]);
+            load_next_c = '1;
+        end
+        field_combo.ERR_STATUS.ur.next = next_c;
+        field_combo.ERR_STATUS.ur.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.ERR_STATUS.ur.value <= 1'h0;
+        end else begin
+            if(field_combo.ERR_STATUS.ur.load_next) begin
+                field_storage.ERR_STATUS.ur.value <= field_combo.ERR_STATUS.ur.next;
+            end
+        end
+    end
+    assign hwif_out.ERR_STATUS.ur.value = field_storage.ERR_STATUS.ur.value;
+    // Field: host_regs.ERR_STATUS.malformed
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.ERR_STATUS.malformed.value;
+        load_next_c = '0;
+        if(hwif_in.ERR_STATUS.malformed.hwset) begin // HW Set
+            next_c = '1;
+            load_next_c = '1;
+        end else if(decoded_reg_strb.ERR_STATUS && decoded_req_is_wr) begin // SW write 1 clear
+            next_c = field_storage.ERR_STATUS.malformed.value & ~(decoded_wr_data[1:1] & decoded_wr_biten[1:1]);
+            load_next_c = '1;
+        end
+        field_combo.ERR_STATUS.malformed.next = next_c;
+        field_combo.ERR_STATUS.malformed.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.ERR_STATUS.malformed.value <= 1'h0;
+        end else begin
+            if(field_combo.ERR_STATUS.malformed.load_next) begin
+                field_storage.ERR_STATUS.malformed.value <= field_combo.ERR_STATUS.malformed.next;
+            end
+        end
+    end
+    assign hwif_out.ERR_STATUS.malformed.value = field_storage.ERR_STATUS.malformed.value;
+    // Field: host_regs.ERR_STATUS.poisoned
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.ERR_STATUS.poisoned.value;
+        load_next_c = '0;
+        if(hwif_in.ERR_STATUS.poisoned.hwset) begin // HW Set
+            next_c = '1;
+            load_next_c = '1;
+        end else if(decoded_reg_strb.ERR_STATUS && decoded_req_is_wr) begin // SW write 1 clear
+            next_c = field_storage.ERR_STATUS.poisoned.value & ~(decoded_wr_data[2:2] & decoded_wr_biten[2:2]);
+            load_next_c = '1;
+        end
+        field_combo.ERR_STATUS.poisoned.next = next_c;
+        field_combo.ERR_STATUS.poisoned.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.ERR_STATUS.poisoned.value <= 1'h0;
+        end else begin
+            if(field_combo.ERR_STATUS.poisoned.load_next) begin
+                field_storage.ERR_STATUS.poisoned.value <= field_combo.ERR_STATUS.poisoned.next;
+            end
+        end
+    end
+    assign hwif_out.ERR_STATUS.poisoned.value = field_storage.ERR_STATUS.poisoned.value;
+    // Field: host_regs.ERR_STATUS.unexp_cpl
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.ERR_STATUS.unexp_cpl.value;
+        load_next_c = '0;
+        if(hwif_in.ERR_STATUS.unexp_cpl.hwset) begin // HW Set
+            next_c = '1;
+            load_next_c = '1;
+        end else if(decoded_reg_strb.ERR_STATUS && decoded_req_is_wr) begin // SW write 1 clear
+            next_c = field_storage.ERR_STATUS.unexp_cpl.value & ~(decoded_wr_data[3:3] & decoded_wr_biten[3:3]);
+            load_next_c = '1;
+        end
+        field_combo.ERR_STATUS.unexp_cpl.next = next_c;
+        field_combo.ERR_STATUS.unexp_cpl.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.ERR_STATUS.unexp_cpl.value <= 1'h0;
+        end else begin
+            if(field_combo.ERR_STATUS.unexp_cpl.load_next) begin
+                field_storage.ERR_STATUS.unexp_cpl.value <= field_combo.ERR_STATUS.unexp_cpl.next;
+            end
+        end
+    end
+    assign hwif_out.ERR_STATUS.unexp_cpl.value = field_storage.ERR_STATUS.unexp_cpl.value;
+    // Field: host_regs.ERR_STATUS.cpl_timeout
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.ERR_STATUS.cpl_timeout.value;
+        load_next_c = '0;
+        if(hwif_in.ERR_STATUS.cpl_timeout.hwset) begin // HW Set
+            next_c = '1;
+            load_next_c = '1;
+        end else if(decoded_reg_strb.ERR_STATUS && decoded_req_is_wr) begin // SW write 1 clear
+            next_c = field_storage.ERR_STATUS.cpl_timeout.value & ~(decoded_wr_data[4:4] & decoded_wr_biten[4:4]);
+            load_next_c = '1;
+        end
+        field_combo.ERR_STATUS.cpl_timeout.next = next_c;
+        field_combo.ERR_STATUS.cpl_timeout.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.ERR_STATUS.cpl_timeout.value <= 1'h0;
+        end else begin
+            if(field_combo.ERR_STATUS.cpl_timeout.load_next) begin
+                field_storage.ERR_STATUS.cpl_timeout.value <= field_combo.ERR_STATUS.cpl_timeout.next;
+            end
+        end
+    end
+    assign hwif_out.ERR_STATUS.cpl_timeout.value = field_storage.ERR_STATUS.cpl_timeout.value;
+    // Field: host_regs.ERR_STATUS.cpl_err
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.ERR_STATUS.cpl_err.value;
+        load_next_c = '0;
+        if(hwif_in.ERR_STATUS.cpl_err.hwset) begin // HW Set
+            next_c = '1;
+            load_next_c = '1;
+        end else if(decoded_reg_strb.ERR_STATUS && decoded_req_is_wr) begin // SW write 1 clear
+            next_c = field_storage.ERR_STATUS.cpl_err.value & ~(decoded_wr_data[5:5] & decoded_wr_biten[5:5]);
+            load_next_c = '1;
+        end
+        field_combo.ERR_STATUS.cpl_err.next = next_c;
+        field_combo.ERR_STATUS.cpl_err.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.ERR_STATUS.cpl_err.value <= 1'h0;
+        end else begin
+            if(field_combo.ERR_STATUS.cpl_err.load_next) begin
+                field_storage.ERR_STATUS.cpl_err.value <= field_combo.ERR_STATUS.cpl_err.next;
+            end
+        end
+    end
+    assign hwif_out.ERR_STATUS.cpl_err.value = field_storage.ERR_STATUS.cpl_err.value;
+    // Field: host_regs.ERR_STATUS.axi_err
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.ERR_STATUS.axi_err.value;
+        load_next_c = '0;
+        if(hwif_in.ERR_STATUS.axi_err.hwset) begin // HW Set
+            next_c = '1;
+            load_next_c = '1;
+        end else if(decoded_reg_strb.ERR_STATUS && decoded_req_is_wr) begin // SW write 1 clear
+            next_c = field_storage.ERR_STATUS.axi_err.value & ~(decoded_wr_data[6:6] & decoded_wr_biten[6:6]);
+            load_next_c = '1;
+        end
+        field_combo.ERR_STATUS.axi_err.next = next_c;
+        field_combo.ERR_STATUS.axi_err.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.ERR_STATUS.axi_err.value <= 1'h0;
+        end else begin
+            if(field_combo.ERR_STATUS.axi_err.load_next) begin
+                field_storage.ERR_STATUS.axi_err.value <= field_combo.ERR_STATUS.axi_err.next;
+            end
+        end
+    end
+    assign hwif_out.ERR_STATUS.axi_err.value = field_storage.ERR_STATUS.axi_err.value;
+    // Field: host_regs.ERR_STATUS.discard
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.ERR_STATUS.discard.value;
+        load_next_c = '0;
+        if(hwif_in.ERR_STATUS.discard.hwset) begin // HW Set
+            next_c = '1;
+            load_next_c = '1;
+        end else if(decoded_reg_strb.ERR_STATUS && decoded_req_is_wr) begin // SW write 1 clear
+            next_c = field_storage.ERR_STATUS.discard.value & ~(decoded_wr_data[7:7] & decoded_wr_biten[7:7]);
+            load_next_c = '1;
+        end
+        field_combo.ERR_STATUS.discard.next = next_c;
+        field_combo.ERR_STATUS.discard.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.ERR_STATUS.discard.value <= 1'h0;
+        end else begin
+            if(field_combo.ERR_STATUS.discard.load_next) begin
+                field_storage.ERR_STATUS.discard.value <= field_combo.ERR_STATUS.discard.next;
+            end
+        end
+    end
+    assign hwif_out.ERR_STATUS.discard.value = field_storage.ERR_STATUS.discard.value;
+    // Field: host_regs.ERR_STATUS.msix_drop
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.ERR_STATUS.msix_drop.value;
+        load_next_c = '0;
+        if(hwif_in.ERR_STATUS.msix_drop.hwset) begin // HW Set
+            next_c = '1;
+            load_next_c = '1;
+        end else if(decoded_reg_strb.ERR_STATUS && decoded_req_is_wr) begin // SW write 1 clear
+            next_c = field_storage.ERR_STATUS.msix_drop.value & ~(decoded_wr_data[8:8] & decoded_wr_biten[8:8]);
+            load_next_c = '1;
+        end
+        field_combo.ERR_STATUS.msix_drop.next = next_c;
+        field_combo.ERR_STATUS.msix_drop.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.ERR_STATUS.msix_drop.value <= 1'h0;
+        end else begin
+            if(field_combo.ERR_STATUS.msix_drop.load_next) begin
+                field_storage.ERR_STATUS.msix_drop.value <= field_combo.ERR_STATUS.msix_drop.next;
+            end
+        end
+    end
+    assign hwif_out.ERR_STATUS.msix_drop.value = field_storage.ERR_STATUS.msix_drop.value;
 
     //--------------------------------------------------------------------------
     // Write response
@@ -234,6 +1065,73 @@ module host_regs (
             readback_data_var[2] = hwif_in.STATUS.on.next;
             readback_data_var[3] = hwif_in.STATUS.idle.next;
             readback_data_var[8] = field_storage.STATUS.tx_drop.value;
+        end
+        if(rd_mux_addr == 12'h10) begin
+            readback_data_var[0] = field_storage.LINK_CTRL.hold.value;
+        end
+        if(rd_mux_addr == 12'h14) begin
+            readback_data_var[0] = hwif_in.LINK_STATUS.hold_ack.next;
+            readback_data_var[1] = hwif_in.LINK_STATUS.idle.next;
+            readback_data_var[2] = hwif_in.LINK_STATUS.mse.next;
+            readback_data_var[3] = hwif_in.LINK_STATUS.bme.next;
+            readback_data_var[4] = hwif_in.LINK_STATUS.msix_en.next;
+            readback_data_var[5] = hwif_in.LINK_STATUS.msix_fmask.next;
+            readback_data_var[6] = hwif_in.LINK_STATUS.mps256.next;
+            readback_data_var[10:8] = hwif_in.LINK_STATUS.mrrs.next;
+            readback_data_var[31:16] = hwif_in.LINK_STATUS.id.next;
+        end
+        if(rd_mux_addr == 12'h18) begin
+            readback_data_var[31:13] = field_storage.BAR0_WIN.base.value;
+        end
+        if(rd_mux_addr == 12'h1c) begin
+            readback_data_var[31:15] = field_storage.BAR2_WIN.base.value;
+        end
+        if(rd_mux_addr == 12'h20) begin
+            readback_data_var[31:2] = field_storage.BM_HADDR_LO.addr.value;
+        end
+        if(rd_mux_addr == 12'h24) begin
+            readback_data_var[31:0] = field_storage.BM_HADDR_HI.addr.value;
+        end
+        if(rd_mux_addr == 12'h28) begin
+            readback_data_var[31:2] = field_storage.BM_LADDR.addr.value;
+        end
+        if(rd_mux_addr == 12'h2c) begin
+            readback_data_var[19:2] = field_storage.BM_LEN.bytes.value;
+        end
+        if(rd_mux_addr == 12'h30) begin
+            readback_data_var[1] = field_storage.BM_CTRL.d2h.value;
+        end
+        if(rd_mux_addr == 12'h34) begin
+            readback_data_var[0] = hwif_in.BM_STATUS.busy.next;
+            readback_data_var[1] = field_storage.BM_STATUS.done.value;
+            readback_data_var[2] = field_storage.BM_STATUS.err.value;
+            readback_data_var[6:4] = field_storage.BM_STATUS.cause.value;
+        end
+        if(rd_mux_addr == 12'h38) begin
+            readback_data_var[31:0] = hwif_in.BM_CYCLES.count.next;
+        end
+        if(rd_mux_addr == 12'h40) begin
+            readback_data_var[7:0] = hwif_in.MSIX_PEND.pending.next;
+        end
+        if(rd_mux_addr == 12'h44) begin
+            readback_data_var[7:0] = field_storage.CPL_TIMEOUT.ticks.value;
+        end
+        if(rd_mux_addr == 12'h48) begin
+            readback_data_var[0] = field_storage.ERR_STATUS.ur.value;
+            readback_data_var[1] = field_storage.ERR_STATUS.malformed.value;
+            readback_data_var[2] = field_storage.ERR_STATUS.poisoned.value;
+            readback_data_var[3] = field_storage.ERR_STATUS.unexp_cpl.value;
+            readback_data_var[4] = field_storage.ERR_STATUS.cpl_timeout.value;
+            readback_data_var[5] = field_storage.ERR_STATUS.cpl_err.value;
+            readback_data_var[6] = field_storage.ERR_STATUS.axi_err.value;
+            readback_data_var[7] = field_storage.ERR_STATUS.discard.value;
+            readback_data_var[8] = field_storage.ERR_STATUS.msix_drop.value;
+        end
+        if(rd_mux_addr == 12'h50) begin
+            readback_data_var[31:0] = hwif_in.RX_TLPS.count.next;
+        end
+        if(rd_mux_addr == 12'h54) begin
+            readback_data_var[31:0] = hwif_in.TX_TLPS.count.next;
         end
         readback_data = readback_data_var;
         readback_done = decoded_req & ~decoded_req_is_wr;

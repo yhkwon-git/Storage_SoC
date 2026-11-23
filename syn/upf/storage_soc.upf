@@ -28,7 +28,8 @@ connect_supply_net VSS -ports VSS
 # ---------------------------------------------------------------------------
 create_power_domain PD_CORE -include_scope
 create_power_domain PD_AON  -elements {u_pwr/u_pmu}
-create_power_domain PD_HOST -elements {u_pwr/u_pd_host/u_rst u_pwr/u_pd_host/u_restore_sync u_pwr/u_pd_host/u_stub}
+create_power_domain PD_HOST -elements {u_pwr/u_pd_host/u_rst u_pwr/u_pd_host/u_restore_sync u_pwr/u_pd_host/u_stub \
+                                       u_pwr/u_pd_host/u_port}
 
 set_domain_supply_net PD_CORE -primary_power_net VDD      -primary_ground_net VSS
 set_domain_supply_net PD_AON  -primary_power_net VDD      -primary_ground_net VSS
@@ -51,7 +52,10 @@ create_power_switch SW_HOST -domain PD_HOST \
 set_isolation ISO_HOST_CLAMP0 -domain PD_HOST \
   -isolation_power_net VDD -isolation_ground_net VSS \
   -clamp_value 0 -applies_to outputs \
-  -elements {u_pwr/u_pd_host/cmd_pop u_pwr/u_pd_host/rsp_push u_pwr/u_pd_host/rsp_data u_pwr/u_pd_host/rst_out_n}
+  -elements {u_pwr/u_pd_host/cmd_pop u_pwr/u_pd_host/rsp_push u_pwr/u_pd_host/rsp_data u_pwr/u_pd_host/rst_out_n \
+             u_pwr/u_pd_host/rxf_push u_pwr/u_pd_host/rxf_data u_pwr/u_pd_host/txf_pop u_pwr/u_pd_host/hold_ack \
+             u_pwr/u_pd_host/pin_rx_ready u_pwr/u_pd_host/pin_tx_valid u_pwr/u_pd_host/pin_tx_data \
+             u_pwr/u_pd_host/pin_tx_sop u_pwr/u_pd_host/pin_tx_eop u_pwr/u_pd_host/pin_tx_ehalf}
 set_isolation_control ISO_HOST_CLAMP0 -domain PD_HOST \
   -isolation_signal u_pwr/u_pmu/iso_en -isolation_sense high -location parent
 

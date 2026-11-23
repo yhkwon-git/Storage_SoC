@@ -9,7 +9,7 @@ Don't override. Generated from: soc_apb
 
 - Absolute Address: 0x0
 - Base Offset: 0x0
-- Size: 0x500C
+- Size: 0x5058
 
 <p>Register blocks in the APB window at 0x4000_0000, one 4 KiB slot each.</p>
 
@@ -59,11 +59,11 @@ Don't override. Generated from: soc_apb
 - Base Offset: 0x4
 - Size: 0x4
 
-<p>Register map version: 0x0001_0007 is the map of step 1-7 (PMU, HOST placeholder, SYS control registers added).</p>
+<p>Register map version: 0x0002_0001 is the map of step 2-1 (HOST block with the transaction layer's registers).</p>
 
 |Bits|Identifier|Access| Reset |Name|
 |----|----------|------|-------|----|
-|31:0|   value  |   r  |0x10007|  — |
+|31:0|   value  |   r  |0x20001|  — |
 
 ### SCRATCH register
 
@@ -598,15 +598,32 @@ Don't override. Generated from: soc_apb
 
 - Absolute Address: 0x5000
 - Base Offset: 0x5000
-- Size: 0xC
+- Size: 0x58
 
-<p>Core side of the PD_HOST placeholder (rtl/host/): a command FIFO into PD_HOST and a response FIFO out of it. Phase 2 replaces this block with the host interface's registers.</p>
+<p>Host interface (rtl/host/): the transaction layer's windows, bus master, MSI-X requests, link hold and error status (docs/10_transaction_layer.md), and the PD_HOST placeholder's command and response FIFOs at 0x000 to 0x008, kept for the power tests until the link layer arrives in step 2-6.</p>
 
-|Offset|Identifier| Name |
-|------|----------|------|
-|  0x0 |    TX    |  TX  |
-|  0x4 |    RX    |  RX  |
-|  0x8 |  STATUS  |STATUS|
+|Offset| Identifier|    Name   |
+|------|-----------|-----------|
+| 0x00 |     TX    |     TX    |
+| 0x04 |     RX    |     RX    |
+| 0x08 |   STATUS  |   STATUS  |
+| 0x10 | LINK_CTRL | LINK_CTRL |
+| 0x14 |LINK_STATUS|LINK_STATUS|
+| 0x18 |  BAR0_WIN |  BAR0_WIN |
+| 0x1C |  BAR2_WIN |  BAR2_WIN |
+| 0x20 |BM_HADDR_LO|BM_HADDR_LO|
+| 0x24 |BM_HADDR_HI|BM_HADDR_HI|
+| 0x28 |  BM_LADDR |  BM_LADDR |
+| 0x2C |   BM_LEN  |   BM_LEN  |
+| 0x30 |  BM_CTRL  |  BM_CTRL  |
+| 0x34 | BM_STATUS | BM_STATUS |
+| 0x38 | BM_CYCLES | BM_CYCLES |
+| 0x3C |  MSIX_REQ |  MSIX_REQ |
+| 0x40 | MSIX_PEND | MSIX_PEND |
+| 0x44 |CPL_TIMEOUT|CPL_TIMEOUT|
+| 0x48 | ERR_STATUS| ERR_STATUS|
+| 0x50 |  RX_TLPS  |  RX_TLPS  |
+| 0x54 |  TX_TLPS  |  TX_TLPS  |
 
 ### TX register
 
@@ -665,3 +682,335 @@ Don't override. Generated from: soc_apb
 #### tx_drop field
 
 <p>A command was dropped.</p>
+
+### LINK_CTRL register
+
+- Absolute Address: 0x5010
+- Base Offset: 0x10
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|  0 |   hold   |  rw  | 0x0 |  — |
+
+#### hold field
+
+<p>Hold: the link side stops taking new TLPs from the host at the next TLP boundary. Set it before a PD_HOST power-down (the PMU refuses one while the host path is not held and idle) and clear it after the power-up.</p>
+
+### LINK_STATUS register
+
+- Absolute Address: 0x5014
+- Base Offset: 0x14
+- Size: 0x4
+
+<p>Transaction layer state and the configuration-space settings the host has made.</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+|  0  | hold_ack |   r  |  —  |  — |
+|  1  |   idle   |   r  |  —  |  — |
+|  2  |    mse   |   r  |  —  |  — |
+|  3  |    bme   |   r  |  —  |  — |
+|  4  |  msix_en |   r  |  —  |  — |
+|  5  |msix_fmask|   r  |  —  |  — |
+|  6  |  mps256  |   r  |  —  |  — |
+| 10:8|   mrrs   |   r  |  —  |  — |
+|31:16|    id    |   r  |  —  |  — |
+
+#### hold_ack field
+
+<p>Hold is in effect: no TLP from the host is in progress.</p>
+
+#### idle field
+
+<p>The host path is held and idle, as the PMU sees it.</p>
+
+#### mse field
+
+<p>Memory Space Enable.</p>
+
+#### bme field
+
+<p>Bus Master Enable.</p>
+
+#### msix_en field
+
+<p>MSI-X Enable.</p>
+
+#### msix_fmask field
+
+<p>MSI-X Function Mask.</p>
+
+#### mps256 field
+
+<p>Max_Payload_Size is 256 bytes (else 128).</p>
+
+#### mrrs field
+
+<p>Max_Read_Request_Size code: 128 &lt;&lt; MRRS bytes.</p>
+
+#### id field
+
+<p>Bus and device number captured from configuration writes; function 0.</p>
+
+### BAR0_WIN register
+
+- Absolute Address: 0x5018
+- Base Offset: 0x18
+- Size: 0x4
+
+<p>AXI address of BAR0 offsets 0x0000 to 0x1FFF (8 KiB aligned). BAR0 0x2000 to 0x3FFF hold the MSI-X table and PBA inside the transaction layer.</p>
+
+| Bits|Identifier|Access| Reset |Name|
+|-----|----------|------|-------|----|
+|31:13|   base   |  rw  |0x20004|  — |
+
+### BAR2_WIN register
+
+- Absolute Address: 0x501C
+- Base Offset: 0x1C
+- Size: 0x4
+
+<p>AXI address of BAR2 (32 KiB aligned). Reset value: the upper half of SRAM.</p>
+
+| Bits|Identifier|Access| Reset|Name|
+|-----|----------|------|------|----|
+|31:15|   base   |  rw  |0x2001|  — |
+
+### BM_HADDR_LO register
+
+- Absolute Address: 0x5020
+- Base Offset: 0x20
+- Size: 0x4
+
+<p>Bus master: host address, bits 31:2. Host address, local address and length are DW-granular.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:2|   addr   |  rw  | 0x0 |  — |
+
+### BM_HADDR_HI register
+
+- Absolute Address: 0x5024
+- Base Offset: 0x24
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   addr   |  rw  | 0x0 |  — |
+
+#### addr field
+
+<p>Bus master: host address, bits 63:32.</p>
+
+### BM_LADDR register
+
+- Absolute Address: 0x5028
+- Base Offset: 0x28
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:2|   addr   |  rw  | 0x0 |  — |
+
+#### addr field
+
+<p>Bus master: local (AXI) address, bits 31:2.</p>
+
+### BM_LEN register
+
+- Absolute Address: 0x502C
+- Base Offset: 0x2C
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|19:2|   bytes  |  rw  | 0x0 |  — |
+
+#### bytes field
+
+<p>Bus master: length in bytes, a multiple of 4, 4 to 1 MiB - 4.</p>
+
+### BM_CTRL register
+
+- Absolute Address: 0x5030
+- Base Offset: 0x30
+- Size: 0x4
+
+<p>START while BM_STATUS.BUSY is ignored.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|  0 |   start  |   w  | 0x0 |  — |
+|  1 |    d2h   |  rw  | 0x0 |  — |
+
+#### start field
+
+<p>Start the transfer.</p>
+
+#### d2h field
+
+<p>Direction: 1 SoC to host (memory writes), 0 host to SoC (memory reads).</p>
+
+### BM_STATUS register
+
+- Absolute Address: 0x5034
+- Base Offset: 0x34
+- Size: 0x4
+
+<p>DONE or ERR is INTC source 12. Write 1 to clear; START clears both.</p>
+
+|Bits|Identifier|  Access |Reset|Name|
+|----|----------|---------|-----|----|
+|  0 |   busy   |    r    |  —  |  — |
+|  1 |   done   |rw, woclr| 0x0 |  — |
+|  2 |    err   |rw, woclr| 0x0 |  — |
+| 6:4|   cause  |    r    | 0x0 |  — |
+
+#### busy field
+
+<p>A transfer is running.</p>
+
+#### done field
+
+<p>The transfer ended without an error.</p>
+
+#### err field
+
+<p>The transfer ended with an error; see CAUSE.</p>
+
+#### cause field
+
+<p>Cause of the last error: 1 Bus Master Enable clear, 2 local AXI error, 3 UR completion, 4 CA completion, 5 completion timeout, 6 bad or poisoned completion.</p>
+
+### BM_CYCLES register
+
+- Absolute Address: 0x5038
+- Base Offset: 0x38
+- Size: 0x4
+
+<p>Clocks from START to the end of the last transfer.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   count  |   r  |  —  |  — |
+
+### MSIX_REQ register
+
+- Absolute Address: 0x503C
+- Base Offset: 0x3C
+- Size: 0x4
+
+<p>A write requests the MSI-X vector it names. While MSI-X is disabled the request is dropped (ERR_STATUS.MSIX_DROP).</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+| 2:0|  vector  |   w  | 0x0 |  — |
+
+### MSIX_PEND register
+
+- Absolute Address: 0x5040
+- Base Offset: 0x40
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+| 7:0|  pending |   r  |  —  |  — |
+
+#### pending field
+
+<p>Pending Bit Array: vectors requested while masked.</p>
+
+### CPL_TIMEOUT register
+
+- Absolute Address: 0x5044
+- Base Offset: 0x44
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+| 7:0|   ticks  |  rw  | 0x40|  — |
+
+#### ticks field
+
+<p>Bus master completion timeout in units of 64 clocks (reset: 4096 clocks). Device Control 2 can disable it.</p>
+
+### ERR_STATUS register
+
+- Absolute Address: 0x5048
+- Base Offset: 0x48
+- Size: 0x4
+
+<p>Transaction layer errors, set by hardware and cleared by writing 1. Bits 0 to 6 together are INTC source 5.</p>
+
+|Bits| Identifier|  Access |Reset|Name|
+|----|-----------|---------|-----|----|
+|  0 |     ur    |rw, woclr| 0x0 |  — |
+|  1 | malformed |rw, woclr| 0x0 |  — |
+|  2 |  poisoned |rw, woclr| 0x0 |  — |
+|  3 | unexp_cpl |rw, woclr| 0x0 |  — |
+|  4 |cpl_timeout|rw, woclr| 0x0 |  — |
+|  5 |  cpl_err  |rw, woclr| 0x0 |  — |
+|  6 |  axi_err  |rw, woclr| 0x0 |  — |
+|  7 |  discard  |rw, woclr| 0x0 |  — |
+|  8 | msix_drop |rw, woclr| 0x0 |  — |
+
+#### ur field
+
+<p>An unsupported request was received.</p>
+
+#### malformed field
+
+<p>A malformed TLP was received and dropped.</p>
+
+#### poisoned field
+
+<p>A poisoned TLP was received.</p>
+
+#### unexp_cpl field
+
+<p>A completion matched no outstanding request.</p>
+
+#### cpl_timeout field
+
+<p>A bus master request timed out.</p>
+
+#### cpl_err field
+
+<p>A UR or CA completion, or one that failed the checks, was received.</p>
+
+#### axi_err field
+
+<p>An inbound write or read got an AXI error.</p>
+
+#### discard field
+
+<p>The link layer discarded a TLP (from step 2-6).</p>
+
+#### msix_drop field
+
+<p>An MSI-X request was dropped (MSI-X disabled).</p>
+
+### RX_TLPS register
+
+- Absolute Address: 0x5050
+- Base Offset: 0x50
+- Size: 0x4
+
+<p>TLPs received and dispatched since reset (wraps).</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   count  |   r  |  —  |  — |
+
+### TX_TLPS register
+
+- Absolute Address: 0x5054
+- Base Offset: 0x54
+- Size: 0x4
+
+<p>TLPs sent since reset (wraps).</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   count  |   r  |  —  |  — |

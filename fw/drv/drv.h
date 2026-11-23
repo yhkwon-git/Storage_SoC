@@ -60,6 +60,8 @@ void pmu_chip_reset(void) __attribute__((noreturn));
 
 /* host */
 uint32_t host_cmd(uint32_t cmd);
+void     host_hold(void);      /* LINK_CTRL.HOLD, then wait for the host path to be idle */
+void     host_release(void);
 
 /* crc32 */
 uint32_t crc32(const void *p, uint32_t len);

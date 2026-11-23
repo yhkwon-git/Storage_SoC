@@ -3,15 +3,23 @@
 // soc_top running a firmware image from the boot ROM.
 //
 //   +rom=<file>      ROM image, 64-bit words (fw/images/<test>.hex)
-//   +test=<name>     name used in the messages
-//   +bg              M3 runs random reads and writes in its quarter of SRAM
-//                    (0x1000_C000) while the firmware runs, checked by the
-//                    master model. M2 is the DMA since step 1-6; the dma
+//   +test=<name>     name used in the messages; "host" also checks what the
+//                    host test's firmware wrote to host memory
+//   +bg              the host sends random memory writes and reads through
+//                    BAR2 into its quarter of SRAM (0x1000_C000) while the
+//                    firmware runs; read data is checked against every byte
+//                    the host wrote. M2 is the DMA since step 1-6; the dma
 //                    firmware test keeps its buffers in M2's quarter
 //                    (0x1000_8000)
 //   +max_cycles=<n>  give up after n clocks (default 2,000,000)
-//   +apb_check       after the firmware ends, M3 checks the APB bridge with
-//                    64-bit accesses (apb_check below)
+//   +apb_check       after the firmware ends, the host checks the APB bridge
+//                    with DW, QW and burst reads through BAR0 (apb_check below)
+//
+// Since step 2-1, M3 is the transaction layer: the host model (tlp_tb_pkg) on
+// the host_rx_* and host_tx_* pins, on pclk_in, enumerates the device once
+// PD_HOST is up (BARs, Memory Space and Bus Master Enable, Max_Payload_Size
+// 256, MSI-X table and enable). When the firmware holds the link or powers
+// PD_HOST down, the host's next TLP simply waits for READY.
 //
 // Console characters are printed line by line as [FW] lines. A write to the
 // SYS EXIT register ends the run: code 0 is a pass. An axi4_checker watches
@@ -26,7 +34,7 @@
 `timescale 1ns/1ps
 
 module tb_soc;
-  import axi_tb_pkg::*;
+  import tlp_tb_pkg::*;
 
   logic clk_sys  = 1'b0;
   logic clk_aon  = 1'b0;
@@ -62,63 +70,33 @@ module tb_soc;
   end
 
   // ---------------------------------------------------------------------------
-  // External master port M3
+  // Host link: packed TLPs on pclk_in (the PHY PLL's gated clock is pclk_in
+  // while it runs)
   // ---------------------------------------------------------------------------
-  axi4_if eif (.clk(clk), .rst_n(rst_n));
+  tlp_if hif (.clk(pclk_in), .rst_n(por_n));
 
-  logic [1:0]  ext_awid,  ext_arid,  ext_bid,   ext_rid;
-  logic [31:0] ext_awaddr, ext_araddr;
-  logic [7:0]  ext_awlen, ext_arlen;
-  logic [2:0]  ext_awsize, ext_arsize, ext_awprot, ext_arprot;
-  logic [1:0]  ext_awburst, ext_arburst, ext_bresp, ext_rresp;
-  logic [3:0]  ext_awcache, ext_arcache, ext_awqos, ext_arqos;
-  logic        ext_awvalid, ext_awready, ext_arvalid, ext_arready;
-  logic [63:0] ext_wdata, ext_rdata;
-  logic [7:0]  ext_wstrb;
-  logic        ext_wlast, ext_wvalid, ext_wready, ext_bvalid, ext_bready;
-  logic        ext_rlast, ext_rvalid, ext_rready;
+  logic        host_rx_valid, host_rx_ready, host_rx_sop, host_rx_eop, host_rx_ehalf;
+  logic [63:0] host_rx_data, host_tx_data;
+  logic        host_tx_valid, host_tx_ready, host_tx_sop, host_tx_eop, host_tx_ehalf;
+
+  assign host_rx_valid = hif.rx_valid;
+  assign host_rx_data  = hif.rx_data;
+  assign host_rx_sop   = hif.rx_sop;
+  assign host_rx_eop   = hif.rx_eop;
+  assign host_rx_ehalf = hif.rx_ehalf;
+  assign hif.rx_ready  = host_rx_ready;
+  assign hif.tx_valid  = host_tx_valid;
+  assign hif.tx_data   = host_tx_data;
+  assign hif.tx_sop    = host_tx_sop;
+  assign hif.tx_eop    = host_tx_eop;
+  assign hif.tx_ehalf  = host_tx_ehalf;
+  assign host_tx_ready = hif.tx_ready;
 
   logic        console_valid, exit_valid, cpu_double_fault;
   logic [7:0]  console_char;
   logic [31:0] exit_code;
 
   soc_top dut (.*);
-
-  assign ext_awid    = eif.awid[1:0];
-  assign ext_awaddr  = eif.awaddr;
-  assign ext_awlen   = eif.awlen;
-  assign ext_awsize  = eif.awsize;
-  assign ext_awburst = eif.awburst;
-  assign ext_awprot  = eif.awprot;
-  assign ext_awcache = eif.awcache;
-  assign ext_awqos   = eif.awqos;
-  assign ext_awvalid = eif.awvalid;
-  assign eif.awready = ext_awready;
-  assign ext_wdata   = eif.wdata;
-  assign ext_wstrb   = eif.wstrb;
-  assign ext_wlast   = eif.wlast;
-  assign ext_wvalid  = eif.wvalid;
-  assign eif.wready  = ext_wready;
-  assign eif.bid     = {2'b00, ext_bid};
-  assign eif.bresp   = ext_bresp;
-  assign eif.bvalid  = ext_bvalid;
-  assign ext_bready  = eif.bready;
-  assign ext_arid    = eif.arid[1:0];
-  assign ext_araddr  = eif.araddr;
-  assign ext_arlen   = eif.arlen;
-  assign ext_arsize  = eif.arsize;
-  assign ext_arburst = eif.arburst;
-  assign ext_arprot  = eif.arprot;
-  assign ext_arcache = eif.arcache;
-  assign ext_arqos   = eif.arqos;
-  assign ext_arvalid = eif.arvalid;
-  assign eif.arready = ext_arready;
-  assign eif.rid     = {2'b00, ext_rid};
-  assign eif.rdata   = ext_rdata;
-  assign eif.rresp   = ext_rresp;
-  assign eif.rlast   = ext_rlast;
-  assign eif.rvalid  = ext_rvalid;
-  assign ext_rready  = eif.rready;
 
   // ---------------------------------------------------------------------------
   // Protocol checkers on the nine crossbar ports, through monitor interfaces
@@ -237,76 +215,140 @@ module tb_soc;
   end
 
   // ---------------------------------------------------------------------------
-  // Background traffic on M3
+  // Host model and enumeration
   // ---------------------------------------------------------------------------
-  axi_master mst;
-  bit        stop_bg = 1'b0;
+  localparam bit [63:0] BAR0 = 64'h0000_0008_0000_0000;   // 64-bit: 4DW headers
+  localparam bit [63:0] BAR2 = 64'h0000_0000_C000_0000;   // below 4 GiB: 3DW
+  localparam bit [63:0] MSI  = 64'h0000_0000_FEE0_0000;
 
-  initial begin
-    mst = new(eif, 3);
-    // SRAM starts with unknown contents; only written words are predictable.
-    mst.learn_unknown = 1'b1;
-  end
+  tlp_host host;
+  int      host_errors = 0;
+  bit      enumerated  = 1'b0;
 
-  task automatic gen_bg();
-    axi_txn      t;
-    bit          wr;
-    int          len, words;
-    logic [31:0] base, a;
-    base  = region_base(3, 1);
-    words = int'(region_size(1) / 8);
-    while (!stop_bg) begin
-      while (mst.pending() >= 6 && !stop_bg) @(negedge clk);
-      if (stop_bg) break;
-      wr  = ($urandom_range(1) == 1);
-      len = $urandom_range(15);
-      a   = base + 32'($urandom_range(words - len - 1) * 8);
-      if ((a & 32'hFFF) + 32'((len + 1) * 8) > 32'h1000 || !mst.words_free(a, len, wr)) begin
-        @(negedge clk);
-        continue;
-      end
-      t       = new();
-      t.write = wr;
-      t.id    = 4'($urandom_range(3));
-      t.addr  = a;
-      t.len   = len;
-      t.tgt   = 1;
-      if (wr) begin
-        for (int b = 0; b <= len; b++) begin
-          t.data.push_back({$urandom(), $urandom()});
-          t.strb.push_back(8'hFF);
-        end
-      end
-      mst.send(t);
-      if ($urandom_range(1) == 1) @(negedge clk);
-    end
-  endtask
-
-  // ---------------------------------------------------------------------------
-  // APB through 64-bit accesses from M3 (+apb_check, after the firmware ends):
-  // the CPU only makes 32-bit accesses, so this covers the bridge's two-word
-  // beats, strobe-selected words, PSLVERR inside a beat, an empty slot and a
-  // burst.
-  // ---------------------------------------------------------------------------
-  int apb_errors = 0;
-
-  function automatic axi_txn mk_apb(bit wr, logic [31:0] a, int len, int resp);
-    axi_txn t;
-    t          = new();
-    t.write    = wr;
-    t.id       = 4'd0;
-    t.addr     = a;
-    t.len      = len;
-    t.tgt      = 2;
-    t.exp_resp = resp;
-    t.no_check = 1'b1;
-    return t;
+  function automatic void herr(string s);
+    host_errors++;
+    if (host_errors <= 10) $display("[SOC] ERROR host: %s", s);
   endfunction
 
-  task automatic apb_send(axi_txn t);
-    mst.send(t);
-    while (mst.pending() != 0) @(negedge clk);
+  function automatic byteq_t le_bytes(bit [63:0] v, int n);
+    byteq_t b;
+    for (int i = 0; i < n; i++) b.push_back(v[8*i +: 8]);
+    return b;
+  endfunction
+
+  task automatic cfgwr(bit [9:0] r, bit [31:0] d, bit [3:0] be = 4'hF);
+    bit [2:0] st;
+    host.cfg_wr(r, d, be, st);
+    if (st != SC) herr($sformatf("CfgWr reg %0d status %0d", r, st));
   endtask
+
+  task automatic enumerate();
+    bit [31:0] d;
+    bit [2:0]  st;
+    host.cfg_rd(10'd0, d, st);
+    if (st != SC || d != 32'h0001_0000) herr($sformatf("IDs %h", d));
+    cfgwr(10'd4, BAR0[31:0]); cfgwr(10'd5, BAR0[63:32]);
+    cfgwr(10'd6, BAR2[31:0]); cfgwr(10'd7, BAR2[63:32]);
+    // Max_Payload_Size 256, Max_Read_Request_Size 512, relaxed ordering and
+    // no snoop as at reset.
+    cfgwr(10'd18, 32'h0000_2830, 4'h3);
+    host.dev_mps  = 256;
+    host.dev_mrrs = 512;
+    cfgwr(10'd1, 32'h0000_0006, 4'h1);
+    for (int v = 0; v < 8; v++) begin
+      host.mem_wr(BAR0 + 64'h2000 + 64'(16 * v), le_bytes(MSI + 64'(16 * v), 8));
+      host.mem_wr(BAR0 + 64'h2008 + 64'(16 * v), le_bytes({32'd0, 32'h1000 + 32'(v)}, 8));
+    end
+    host.cfg_rd(10'd32, d, st);
+    cfgwr(10'd32, {1'b1, 1'b0, d[29:0]}, 4'h8);
+    enumerated = 1'b1;
+  endtask
+
+  // ---------------------------------------------------------------------------
+  // Background traffic: the host writes and reads its quarter of SRAM through
+  // BAR2 (BAR2 offset 0x4000 is SRAM 0x1000_C000). A read is checked against
+  // the bytes the host wrote; no write touches the bytes of a read in flight.
+  // ---------------------------------------------------------------------------
+  localparam int BG_OFF = 32'h4000;
+  localparam int BG_LEN = 32'h4000;
+
+  bit [7:0] shadow [int];
+  bit       stop_bg = 1'b0;
+  int       bg_ops = 0, bg_bytes = 0;
+
+  task automatic gen_bg();
+    host_req rq[$];
+    int      ro[$], rn[$];
+    int      off, n;
+    bit      clash;
+    while (!stop_bg) begin
+      while (host.sendq.size() > 4 && !stop_bg) @(negedge clk);
+      if (stop_bg) break;
+      if ($urandom_range(1) == 1) begin
+        off = BG_OFF + $urandom_range(BG_LEN - 256, 0);
+        n   = $urandom_range(256 - (off % 4), 1);
+        if ((off % 4096) + n > 4096) n = 4096 - (off % 4096);
+        clash = 1'b0;
+        foreach (rq[j]) if (!rq[j].done && off < ro[j] + rn[j] && ro[j] < off + n) clash = 1'b1;
+        if (clash) begin
+          @(negedge clk);
+          continue;
+        end
+        begin
+          byteq_t b;
+          for (int i = 0; i < n; i++) b.push_back(8'($urandom));
+          host.mem_wr(BAR2 + 64'(off), b);
+          foreach (b[i]) shadow[off + i] = b[i];
+        end
+      end else begin
+        host_req r;
+        off = BG_OFF + $urandom_range(BG_LEN - 512, 0);
+        n   = $urandom_range(512, 1);
+        if ((off % 4096) + n > 4096) n = 4096 - (off % 4096);
+        while (host.outq.size() >= 8 && !stop_bg) @(negedge clk);
+        host.mem_rd_nb(BAR2 + 64'(off), n, r);
+        rq.push_back(r); ro.push_back(off); rn.push_back(n);
+        begin
+          byteq_t e;
+          bit     known [$];
+          for (int i = 0; i < n; i++) begin
+            known.push_back(shadow.exists(off + i));
+            e.push_back(shadow.exists(off + i) ? shadow[off + i] : 8'h00);
+          end
+          fork
+            begin
+              host_req rr = r;
+              byteq_t  ee = e;
+              bit      kk [$] = known;
+              int      o2 = off;
+              while (!rr.done) @(negedge clk);
+              if (rr.status != SC) herr($sformatf("background read +%h status %0d", o2, rr.status));
+              else for (int i = 0; i < ee.size(); i++)
+                if (kk[i] && rr.bytes[i] !== ee[i]) begin
+                  herr($sformatf("background read +%h byte %0d: %h, wrote %h", o2, i, rr.bytes[i], ee[i]));
+                  break;
+                end
+            end
+          join_none
+        end
+      end
+      bg_ops++;
+      bg_bytes += n;
+      while (rq.size() > 0 && rq[0].done) begin
+        void'(rq.pop_front()); void'(ro.pop_front()); void'(rn.pop_front());
+      end
+      if ($urandom_range(3) == 0) @(negedge clk);
+    end
+    while (host.outq.size() != 0) @(negedge clk);
+  endtask
+
+  // ---------------------------------------------------------------------------
+  // APB through the BAR0 window (+apb_check, after the firmware ends). The
+  // testbench points the window at the APB slots it needs (forcing BAR0_WIN's
+  // value inside the transaction layer); DW accesses become 32-bit AXI beats,
+  // QW and longer ones 64-bit beats that the bridge splits into two words.
+  // ---------------------------------------------------------------------------
+  int apb_errors = 0;
 
   task automatic apb_expect(bit ok, string what);
     if (!ok) begin
@@ -315,35 +357,64 @@ module tb_soc;
     end
   endtask
 
+  function automatic bit [63:0] qw(byteq_t b, int at);
+    bit [63:0] v;
+    for (int i = 0; i < 8; i++) v[8*i +: 8] = (at + i < b.size()) ? b[at + i] : 8'h00;
+    return v;
+  endfunction
+
   task automatic apb_check();
-    axi_txn t;
-    // ID (0x000) and VERSION (0x004) in one 64-bit read; reset values from
-    // rtl/csr/rdl/soc_apb.rdl.
-    t = mk_apb(1'b0, 32'h4000_0000, 0, 0);
-    apb_send(t);
-    apb_expect(t.rdata[0] == {32'h0001_0007, 32'h5353_4F43}, "64-bit read of ID and VERSION");
-    // SCRATCH written through the lower word only (WSTRB 0x0F).
-    t = mk_apb(1'b1, 32'h4000_0008, 0, 0);
-    t.data.push_back({32'hDEAD_BEEF, 32'h1234_5678});
-    t.strb.push_back(8'h0F);
-    apb_send(t);
-    // Reading both words: 0x00C is undefined, so the beat is SLVERR, and the
-    // lower word still carries SCRATCH.
-    t = mk_apb(1'b0, 32'h4000_0008, 0, 2);
-    apb_send(t);
-    apb_expect(t.rdata[0] == {32'h0, 32'h1234_5678}, "SCRATCH beside an undefined word");
-    // Slot 6 (NAND0 registers, phase 3) has no peripheral yet.
-    t = mk_apb(1'b1, 32'h4000_6000, 0, 2);
-    t.data.push_back(64'h1);
-    t.strb.push_back(8'hFF);
-    apb_send(t);
-    // Two-beat burst over the timer: MTIMECMP still holds its reset value.
-    t = mk_apb(1'b0, 32'h4000_3000, 1, 0);
-    apb_send(t);
-    apb_expect(t.rdata.size() == 2 && t.rdata[1] == '1 && t.rdata[0] != 0,
-               "two-beat timer read");
-    $display("[SOC] apb check: 64-bit read, strobed write, SLVERR beside a valid word, empty slot, 2-beat burst: %0d errors",
-             apb_errors + mst.errors);
+    byteq_t   b;
+    bit [2:0] st;
+    // Window on SYS and PMU.
+    force dut.u_pwr.u_host_if.u_tl.bar0_win = 19'h2_0000;   // 0x4000_0000
+    // ID (0x000) and VERSION (0x004) in one QW read.
+    host.mem_rd(BAR0, 8, b, st);
+    apb_expect(st == SC && qw(b, 0) == {32'h0002_0001, 32'h5353_4F43}, "QW read of ID and VERSION");
+    // SCRATCH through a DW write, read back.
+    host.mem_wr(BAR0 + 64'h8, le_bytes(64'h1234_5678, 4));
+    host.mem_rd(BAR0 + 64'h8, 4, b, st);
+    apb_expect(st == SC && qw(b, 0) == 64'h1234_5678, "DW write and read of SCRATCH");
+    // SCRATCH and the undefined 0x00C in one QW read: PSLVERR inside the beat,
+    // so a Completer Abort.
+    host.mem_rd(BAR0 + 64'h8, 8, b, st);
+    apb_expect(st == CA, "QW read beside an undefined word gets CA");
+    // PMU AON_SCRATCH (0x1018) through the APB crossing into clk_aon.
+    host.mem_wr(BAR0 + 64'h1018, le_bytes(64'hCAFE_0001, 4));
+    host.mem_rd(BAR0 + 64'h1018, 4, b, st);
+    apb_expect(st == SC && qw(b, 0) == 64'hCAFE_0001, "DW write and read of AON_SCRATCH");
+    // Window on INTC and TIMER: a 16-byte read is a 2-beat burst over the
+    // timer; MTIMECMP still holds its reset value.
+    force dut.u_pwr.u_host_if.u_tl.bar0_win = 19'h2_0001;   // 0x4000_2000
+    host.mem_rd(BAR0 + 64'h1000, 16, b, st);
+    apb_expect(st == SC && qw(b, 8) == '1 && qw(b, 0) != 0, "2-beat burst over the timer");
+    release dut.u_pwr.u_host_if.u_tl.bar0_win;
+    $display("[SOC] apb check through BAR0: QW read, DW write and read, CA beside an undefined word, AON register, 2-beat burst: %0d errors",
+             apb_errors);
+  endtask
+
+  // ---------------------------------------------------------------------------
+  // What the host test's firmware wrote into host memory (fw/tests/host.c)
+  // ---------------------------------------------------------------------------
+  function automatic bit [7:0] pat(bit [63:0] a);
+    return a[7:0] ^ a[15:8] ^ a[23:16] ^ 8'h3C;
+  endfunction
+
+  task automatic host_check();
+    int bad = 0, nmsi = 0;
+    for (int i = 0; i < 8192; i++) begin
+      bit [63:0] a = 64'h0000_0002_0000_0000 + 64'(i);
+      if (!host.hmem.exists(a) || host.hmem[a] !== (pat(64'(i)) ^ 8'hA5)) bad++;
+    end
+    for (int i = 0; i < 1000; i++) begin
+      bit [63:0] a = 64'h0000_0000_3000_200C + 64'(i);
+      if (!host.hmem.exists(a) || host.hmem[a] !== pat(64'h3000_0004 + 64'(i))) bad++;
+    end
+    foreach (host.msis[i]) if (host.msis[i].addr == MSI + 64'h20 && host.msis[i].data == 32'h1002) nmsi++;
+    if (bad != 0) herr($sformatf("%0d bytes of host memory wrong after the SoC-to-host transfers", bad));
+    if (nmsi != 1) herr($sformatf("%0d MSI-X messages for vector 2, expected 1", nmsi));
+    $display("[SOC] host memory: 9192 bytes from the SoC checked, %0d wrong; MSI-X vector 2 messages %0d; device MRd %0d, MWr %0d, completions from the host %0d",
+             bad, nmsi, host.n_dev_mrd, host.n_dev_mwr, host.n_cpl_sent);
   endtask
 
   // ---------------------------------------------------------------------------
@@ -351,37 +422,44 @@ module tb_soc;
   // ---------------------------------------------------------------------------
   bit    bg;
   int    errs;
-  int    bg_m3;
   string mode;
 
   initial begin
     void'($value$plusargs("test=%s", test));
     void'($value$plusargs("max_cycles=%d", max_cycles));
     bg = $test$plusargs("bg");
-    #1;
-    mst.run();
+    host = new(hif);
+    host.clk_period = 16;
+    host.lat_min = 10;
+    host.lat_max = 40;
+    // The host starts once power-on reset is released: before the first clk_aon
+    // edge the asynchronous resets have not acted yet in simulation, and
+    // PD_HOST's isolation is not in place.
     #2000;
     por_n = 1'b1;
+    host.run();
     wait (rst_n === 1'b1);
     @(negedge clk);
-    if (bg) begin
-      fork
-        gen_bg();
-      join_none
-    end
+    fork
+      begin
+        enumerate();
+        if (bg) gen_bg();
+      end
+    join_none
 
     wait (fw_done);
     stop_bg = 1'b1;
-    while (mst.pending() != 0) @(negedge clk);
-    repeat (4) @(negedge clk);
-    bg_m3 = mst.n_done;
+    // Let posted writes and the last completions reach the host.
+    repeat (200) @(negedge clk);
+    if (test != "reset") while (!host.idle()) @(negedge clk);
+    if (test == "host") host_check();
     if ($test$plusargs("apb_check")) apb_check();
 
-    errs = mst.errors + apb_errors;
+    errs = host.errors + host_errors + apb_errors;
     mode = "";
     if (bg) mode = " with background traffic";
-    $display("[SOC] %s%s: exit code %0d after %0d cycles; background bursts %0d (M3), errors %0d",
-             test, mode, fw_code, exit_cycle, bg_m3, errs);
+    $display("[SOC] %s%s: exit code %0d after %0d cycles; host requests %0d (%0d bytes), errors %0d",
+             test, mode, fw_code, exit_cycle, bg_ops, bg_bytes, errs);
     if (fw_code != 0 || errs != 0) $fatal(1, "[SOC] %s: FAIL", test);
     $display("[SOC] %s: PASS", test);
     $finish;

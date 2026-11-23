@@ -49,8 +49,20 @@ module tb_power;
   wire  [31:0] prdata_pmu, prdata_host;
   wire         pready_pmu, pready_host, pslverr_pmu, pslverr_host;
   wire         rst_sys_n, rst_nand_n, sys_rst_req_n, irq_pmu, host_pwr_en;
+  wire         irq_host_err, irq_host_bm;
   logic        host_pwr_ack = 1'b0;
   logic        host_wake    = 1'b0;
+
+  // The host link is quiet here (tb_tl and tb_soc drive TLPs); the AXI port
+  // M3 must stay idle, and its slave side always accepts.
+  wire         host_rx_ready, host_tx_valid, host_tx_sop, host_tx_eop, host_tx_ehalf;
+  wire  [63:0] host_tx_data;
+  wire  [1:0]  m_awid, m_awburst, m_arid, m_arburst;
+  wire  [31:0] m_awaddr, m_araddr;
+  wire  [7:0]  m_awlen, m_arlen, m_wstrb;
+  wire  [2:0]  m_awsize, m_arsize;
+  wire  [63:0] m_wdata;
+  wire         m_awvalid, m_wlast, m_wvalid, m_bready, m_arvalid, m_rready;
 
   soc_pwr #(.SYS_DELAY(4), .AUTO_UP(1'b1)) dut (
     .clk_sys       (clk_sys),
@@ -75,10 +87,28 @@ module tb_power;
     .pready_host   (pready_host),
     .pslverr_host  (pslverr_host),
     .irq_pmu       (irq_pmu),
+    .irq_host_err  (irq_host_err),
+    .irq_host_bm   (irq_host_bm),
     .host_pwr_en   (host_pwr_en),
     .host_pwr_ack  (host_pwr_ack),
-    .host_wake     (host_wake)
+    .host_wake     (host_wake),
+    .host_rx_valid (1'b0),          .host_rx_ready (host_rx_ready), .host_rx_data (64'd0),
+    .host_rx_sop   (1'b0),          .host_rx_eop   (1'b0),          .host_rx_ehalf (1'b0),
+    .host_tx_valid (host_tx_valid), .host_tx_ready (1'b1),          .host_tx_data (host_tx_data),
+    .host_tx_sop   (host_tx_sop),   .host_tx_eop   (host_tx_eop),   .host_tx_ehalf (host_tx_ehalf),
+    .m_awid (m_awid), .m_awaddr (m_awaddr), .m_awlen (m_awlen), .m_awsize (m_awsize),
+    .m_awburst (m_awburst), .m_awvalid (m_awvalid), .m_awready (1'b1),
+    .m_wdata (m_wdata), .m_wstrb (m_wstrb), .m_wlast (m_wlast), .m_wvalid (m_wvalid), .m_wready (1'b1),
+    .m_bid (2'd0), .m_bresp (2'd0), .m_bvalid (1'b0), .m_bready (m_bready),
+    .m_arid (m_arid), .m_araddr (m_araddr), .m_arlen (m_arlen), .m_arsize (m_arsize),
+    .m_arburst (m_arburst), .m_arvalid (m_arvalid), .m_arready (1'b1),
+    .m_rid (2'd0), .m_rdata (64'd0), .m_rresp (2'd0), .m_rlast (1'b0), .m_rvalid (1'b0),
+    .m_rready (m_rready)
   );
+
+  always @(posedge clk_sys)
+    if (rst_sys_n === 1'b1 && (m_awvalid !== 1'b0 || m_arvalid !== 1'b0 || m_wvalid !== 1'b0))
+      err("AXI traffic on M3 with a quiet host link");
 
   int errors = 0;
 
@@ -152,7 +182,9 @@ module tb_power;
     if (dut.rst_aon_n === 1'b1) begin
       if (dut.iso_en === 1'b1) begin
         n_iso_checks++;
-        if ({dut.cmd_pop, dut.rsp_push, dut.rsp_data, dut.prst_n} !== '0)
+        if ({dut.cmd_pop, dut.rsp_push, dut.rsp_data, dut.prst_n, dut.rxf_push, dut.rxf_data,
+             dut.txf_pop, dut.hold_ack, host_rx_ready, host_tx_valid, host_tx_data, host_tx_sop,
+             host_tx_eop, host_tx_ehalf} !== '0)
           err("PD_HOST output not clamped to 0 while isolated");
       end
       // Unpowered, the reset output would be 0 without the off-state model
@@ -166,7 +198,10 @@ module tb_power;
     if (rst_sys_n === 1'b1) begin
       if ($isunknown({dut.u_host_if.tx_full, dut.u_host_if.rx_empty, dut.u_host_if.host_idle,
                       dut.u_host_if.pending, dut.u_host_if.qrst_n, irq_pmu,
-                      dut.cmd_pop, dut.rsp_push, dut.prst_n}))
+                      dut.cmd_pop, dut.rsp_push, dut.prst_n,
+                      dut.u_host_if.trx_empty, dut.u_host_if.ttx_full, dut.u_host_if.rxp_valid,
+                      dut.u_host_if.hold_ack_s, dut.u_host_if.txf_empty_s, dut.u_host_if.link_idle,
+                      dut.u_host_if.tl_idle, irq_host_err, irq_host_bm}))
         err("X on the core side of PD_HOST");
     end
   end
@@ -177,7 +212,8 @@ module tb_power;
   // ---------------------------------------------------------------------------
   localparam logic [11:0] P_CTRL = 12'h000, P_STATUS = 12'h004, P_IRQ = 12'h008, P_TMO = 12'h00C,
                           P_CHIP = 12'h010, P_CAUSE  = 12'h014, P_SCR = 12'h018, P_CYC = 12'h01C;
-  localparam logic [11:0] H_TX = 12'h000, H_RX = 12'h004, H_STATUS = 12'h008;
+  localparam logic [11:0] H_TX = 12'h000, H_RX = 12'h004, H_STATUS = 12'h008, H_LINK = 12'h010,
+                          H_LSTAT = 12'h014;
   localparam logic [3:0]  S_OFF = 4'd0, S_ON = 4'd5, S_FAIL = 4'd11;
 
   int n_apb = 0;
@@ -276,9 +312,26 @@ module tb_power;
   realtime t0;
   int      i_seq = 0;
 
+  // Hold the host link and wait until the host path is idle (LINK_STATUS bits
+  // HOLD_ACK and IDLE), as firmware does before a power-down.
+  task automatic hold_link();
+    logic [31:0] ls;
+    int n = 0;
+    host_wr(H_LINK, 32'h1);
+    do begin
+      host_rd(H_LSTAT, ls);
+      n++;
+      if (n > 100) begin
+        err($sformatf("host path not idle after HOLD: LINK_STATUS %h", ls));
+        break;
+      end
+    end while (ls[1:0] != 2'b11);
+  endtask
+
   task automatic power_down(string what, bit wake_en = 1'b1);
     logic [31:0] st;
     t0 = $realtime;
+    hold_link();
     pmu_wr(P_CTRL, {23'd0, wake_en, 8'h02});
     wait_state(S_OFF, what);
     pmu_rd(P_STATUS, st);
@@ -291,6 +344,7 @@ module tb_power;
     pmu_wr(P_CTRL, 32'h101);
     wait_state(S_ON, what);
     expect_irq(what, 2'b01);
+    host_wr(H_LINK, 32'h0);
   endtask
 
   // ---------------------------------------------------------------------------
@@ -323,7 +377,17 @@ module tb_power;
     expect_rsp("STATE", 32'h2000_0000, 32'hABCD_0033);
     $display("[PWR] host commands: CFG, 3 ECHO, STATE: %s", verdict(errors));
 
-    // A power-down while a response is unread is refused.
+    // A power-down without HOLD is refused: the host could still be sending.
+    pmu_wr(P_CTRL, 32'h102);
+    wait_aon(4);
+    pmu_rd(P_STATUS, st);
+    expect_eq("state after a power-down without HOLD", {28'd0, st[3:0]}, {28'd0, S_ON});
+    expect_eq("result after a power-down without HOLD", {30'd0, st[17:16]}, 32'd2);
+    expect_irq("power-down without HOLD", 2'b10);
+    $display("[PWR] power-down refused without HOLD: %s", verdict(errors));
+
+    // A power-down while a response is unread is refused, HOLD or not.
+    hold_link();
     host_wr(H_TX, 32'h0000_0044);
     repeat (20) @(posedge clk_sys);
     host_rd(H_STATUS, st);
@@ -382,6 +446,7 @@ module tb_power;
 
     // Switch stuck on during a power-down: timeout, FAIL, then recovery.
     pmu_wr(P_TMO, 32'd8);
+    hold_link();
     sw_stuck = 1'b1;
     pmu_wr(P_CTRL, 32'h102);
     wait_state(S_FAIL, "switch stuck");
@@ -423,7 +488,9 @@ module tb_power;
     $display("[PWR] chip reset: core held %0.1f us, order core, NAND, host; AON_SCRATCH and PWR_CYCLES kept, host state reset: %s",
              (t_sys - t0) / 1000.0, verdict(errors));
 
-    // APB crossing: random accesses to PMU and HOST registers.
+    // APB crossing: random accesses to PMU and HOST registers, with the link
+    // held so that STATUS.IDLE is set.
+    hold_link();
     for (int i = 0; i < 200; i++) begin
       logic [31:0] d = $urandom;
       case ($urandom_range(3))

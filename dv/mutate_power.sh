@@ -23,7 +23,7 @@ mutants=(
   "cdc_ack@pmu/apb_cdc.sv@s/wire s_start = (s_state == S_IDLE) \&\& s_psel \&\& !ack_s;/wire s_start = (s_state == S_IDLE) \&\& s_psel;/@APB crossing starts before ack has dropped"
   "tx_when_off@host/host_if.sv@s/assign tx_push = tx_wr \&\& on_s \&\& qrst_n \&\& !tx_full;/assign tx_push = tx_wr \&\& !tx_full;/@TX accepted while PD_HOST is off"
   "no_lock_wait@pmu/pmu.sv@s/if (lock_s)         p_next = P_UP_RST;/if (1'b1)         p_next = P_UP_RST;/@power-up does not wait for the PLL"
-  "no_pa_model@host/pd_host.sv@s/= pwr_ack ? {raw_pop, raw_push, raw_rst_n, raw_data} : junk;/= {raw_pop, raw_push, raw_rst_n, raw_data};/@off-state model removed (testbench self-check)"
+  "no_pa_model@host/pd_host.sv@s/assign pa = pwr_ack ? raw : junk;/assign pa = raw;/@off-state model removed (testbench self-check)"
 )
 
 caught=0

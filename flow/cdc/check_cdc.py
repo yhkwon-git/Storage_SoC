@@ -37,6 +37,11 @@ NETLIST = ROOT / "build/syn/soc_top_generic.json"
 
 CLOCK_PORTS = {"clk_sys": "clk_sys", "clk_aon": "clk_aon", "clk_nand": "clk_nand", "pclk_in": "pclk"}
 ASYNC_PORTS = {"por_n", "host_pwr_ack", "host_wake"}
+# Input ports synchronous to a clock other than clk_sys: the host link's
+# packed TLP pins (step 2-1) are timed against pclk. Every other port is
+# constrained against clk_sys.
+PORT_DOMAIN = {p: "pclk" for p in ("host_rx_valid", "host_rx_data", "host_rx_sop", "host_rx_eop",
+                                     "host_rx_ehalf", "host_tx_ready")}
 IDX = r"(\[\d+\])*$"
 SYNC_STAGE1 = re.compile(r"\.stage1" + IDX)
 HANDSHAKE = re.compile(r"\.u_cdc\.(q_addr|q_write|q_wdata|q_strb|d_rdata|d_slverr)" + IDX)
@@ -161,7 +166,7 @@ def main():
                 return "async"
             if p in CLOCK_PORTS:
                 return None
-            return "clk_sys"   # chip ports are constrained against clk_sys
+            return PORT_DOMAIN.get(p, "clk_sys")
         return None
 
     def src_bit(s):

@@ -20,7 +20,7 @@ extern "C" {
 #define SYS_REGS__VERSION__VALUE_bm 0xffffffff
 #define SYS_REGS__VERSION__VALUE_bp 0
 #define SYS_REGS__VERSION__VALUE_bw 32
-#define SYS_REGS__VERSION__VALUE_reset 0x10007
+#define SYS_REGS__VERSION__VALUE_reset 0x20001
 
 // reg - sys_regs::SCRATCH
 #define SYS_REGS__SCRATCH__VALUE_bm 0xffffffff
@@ -328,11 +328,198 @@ typedef struct __attribute__ ((__packed__)) {
 #define HOST_REGS__STATUS__TX_DROP_bw 1
 #define HOST_REGS__STATUS__TX_DROP_reset 0x0
 
+// reg - host_regs::LINK_CTRL
+#define HOST_REGS__LINK_CTRL__HOLD_bm 0x1
+#define HOST_REGS__LINK_CTRL__HOLD_bp 0
+#define HOST_REGS__LINK_CTRL__HOLD_bw 1
+#define HOST_REGS__LINK_CTRL__HOLD_reset 0x0
+
+// reg - host_regs::LINK_STATUS
+#define HOST_REGS__LINK_STATUS__HOLD_ACK_bm 0x1
+#define HOST_REGS__LINK_STATUS__HOLD_ACK_bp 0
+#define HOST_REGS__LINK_STATUS__HOLD_ACK_bw 1
+#define HOST_REGS__LINK_STATUS__IDLE_bm 0x2
+#define HOST_REGS__LINK_STATUS__IDLE_bp 1
+#define HOST_REGS__LINK_STATUS__IDLE_bw 1
+#define HOST_REGS__LINK_STATUS__MSE_bm 0x4
+#define HOST_REGS__LINK_STATUS__MSE_bp 2
+#define HOST_REGS__LINK_STATUS__MSE_bw 1
+#define HOST_REGS__LINK_STATUS__BME_bm 0x8
+#define HOST_REGS__LINK_STATUS__BME_bp 3
+#define HOST_REGS__LINK_STATUS__BME_bw 1
+#define HOST_REGS__LINK_STATUS__MSIX_EN_bm 0x10
+#define HOST_REGS__LINK_STATUS__MSIX_EN_bp 4
+#define HOST_REGS__LINK_STATUS__MSIX_EN_bw 1
+#define HOST_REGS__LINK_STATUS__MSIX_FMASK_bm 0x20
+#define HOST_REGS__LINK_STATUS__MSIX_FMASK_bp 5
+#define HOST_REGS__LINK_STATUS__MSIX_FMASK_bw 1
+#define HOST_REGS__LINK_STATUS__MPS256_bm 0x40
+#define HOST_REGS__LINK_STATUS__MPS256_bp 6
+#define HOST_REGS__LINK_STATUS__MPS256_bw 1
+#define HOST_REGS__LINK_STATUS__MRRS_bm 0x700
+#define HOST_REGS__LINK_STATUS__MRRS_bp 8
+#define HOST_REGS__LINK_STATUS__MRRS_bw 3
+#define HOST_REGS__LINK_STATUS__ID_bm 0xffff0000
+#define HOST_REGS__LINK_STATUS__ID_bp 16
+#define HOST_REGS__LINK_STATUS__ID_bw 16
+
+// reg - host_regs::BAR0_WIN
+#define HOST_REGS__BAR0_WIN__BASE_bm 0xffffe000
+#define HOST_REGS__BAR0_WIN__BASE_bp 13
+#define HOST_REGS__BAR0_WIN__BASE_bw 19
+#define HOST_REGS__BAR0_WIN__BASE_reset 0x20004
+
+// reg - host_regs::BAR2_WIN
+#define HOST_REGS__BAR2_WIN__BASE_bm 0xffff8000
+#define HOST_REGS__BAR2_WIN__BASE_bp 15
+#define HOST_REGS__BAR2_WIN__BASE_bw 17
+#define HOST_REGS__BAR2_WIN__BASE_reset 0x2001
+
+// reg - host_regs::BM_HADDR_LO
+#define HOST_REGS__BM_HADDR_LO__ADDR_bm 0xfffffffc
+#define HOST_REGS__BM_HADDR_LO__ADDR_bp 2
+#define HOST_REGS__BM_HADDR_LO__ADDR_bw 30
+#define HOST_REGS__BM_HADDR_LO__ADDR_reset 0x0
+
+// reg - host_regs::BM_HADDR_HI
+#define HOST_REGS__BM_HADDR_HI__ADDR_bm 0xffffffff
+#define HOST_REGS__BM_HADDR_HI__ADDR_bp 0
+#define HOST_REGS__BM_HADDR_HI__ADDR_bw 32
+#define HOST_REGS__BM_HADDR_HI__ADDR_reset 0x0
+
+// reg - host_regs::BM_LADDR
+#define HOST_REGS__BM_LADDR__ADDR_bm 0xfffffffc
+#define HOST_REGS__BM_LADDR__ADDR_bp 2
+#define HOST_REGS__BM_LADDR__ADDR_bw 30
+#define HOST_REGS__BM_LADDR__ADDR_reset 0x0
+
+// reg - host_regs::BM_LEN
+#define HOST_REGS__BM_LEN__BYTES_bm 0xffffc
+#define HOST_REGS__BM_LEN__BYTES_bp 2
+#define HOST_REGS__BM_LEN__BYTES_bw 18
+#define HOST_REGS__BM_LEN__BYTES_reset 0x0
+
+// reg - host_regs::BM_CTRL
+#define HOST_REGS__BM_CTRL__START_bm 0x1
+#define HOST_REGS__BM_CTRL__START_bp 0
+#define HOST_REGS__BM_CTRL__START_bw 1
+#define HOST_REGS__BM_CTRL__START_reset 0x0
+#define HOST_REGS__BM_CTRL__D2H_bm 0x2
+#define HOST_REGS__BM_CTRL__D2H_bp 1
+#define HOST_REGS__BM_CTRL__D2H_bw 1
+#define HOST_REGS__BM_CTRL__D2H_reset 0x0
+
+// reg - host_regs::BM_STATUS
+#define HOST_REGS__BM_STATUS__BUSY_bm 0x1
+#define HOST_REGS__BM_STATUS__BUSY_bp 0
+#define HOST_REGS__BM_STATUS__BUSY_bw 1
+#define HOST_REGS__BM_STATUS__DONE_bm 0x2
+#define HOST_REGS__BM_STATUS__DONE_bp 1
+#define HOST_REGS__BM_STATUS__DONE_bw 1
+#define HOST_REGS__BM_STATUS__DONE_reset 0x0
+#define HOST_REGS__BM_STATUS__ERR_bm 0x4
+#define HOST_REGS__BM_STATUS__ERR_bp 2
+#define HOST_REGS__BM_STATUS__ERR_bw 1
+#define HOST_REGS__BM_STATUS__ERR_reset 0x0
+#define HOST_REGS__BM_STATUS__CAUSE_bm 0x70
+#define HOST_REGS__BM_STATUS__CAUSE_bp 4
+#define HOST_REGS__BM_STATUS__CAUSE_bw 3
+#define HOST_REGS__BM_STATUS__CAUSE_reset 0x0
+
+// reg - host_regs::BM_CYCLES
+#define HOST_REGS__BM_CYCLES__COUNT_bm 0xffffffff
+#define HOST_REGS__BM_CYCLES__COUNT_bp 0
+#define HOST_REGS__BM_CYCLES__COUNT_bw 32
+
+// reg - host_regs::MSIX_REQ
+#define HOST_REGS__MSIX_REQ__VECTOR_bm 0x7
+#define HOST_REGS__MSIX_REQ__VECTOR_bp 0
+#define HOST_REGS__MSIX_REQ__VECTOR_bw 3
+#define HOST_REGS__MSIX_REQ__VECTOR_reset 0x0
+
+// reg - host_regs::MSIX_PEND
+#define HOST_REGS__MSIX_PEND__PENDING_bm 0xff
+#define HOST_REGS__MSIX_PEND__PENDING_bp 0
+#define HOST_REGS__MSIX_PEND__PENDING_bw 8
+
+// reg - host_regs::CPL_TIMEOUT
+#define HOST_REGS__CPL_TIMEOUT__TICKS_bm 0xff
+#define HOST_REGS__CPL_TIMEOUT__TICKS_bp 0
+#define HOST_REGS__CPL_TIMEOUT__TICKS_bw 8
+#define HOST_REGS__CPL_TIMEOUT__TICKS_reset 0x40
+
+// reg - host_regs::ERR_STATUS
+#define HOST_REGS__ERR_STATUS__UR_bm 0x1
+#define HOST_REGS__ERR_STATUS__UR_bp 0
+#define HOST_REGS__ERR_STATUS__UR_bw 1
+#define HOST_REGS__ERR_STATUS__UR_reset 0x0
+#define HOST_REGS__ERR_STATUS__MALFORMED_bm 0x2
+#define HOST_REGS__ERR_STATUS__MALFORMED_bp 1
+#define HOST_REGS__ERR_STATUS__MALFORMED_bw 1
+#define HOST_REGS__ERR_STATUS__MALFORMED_reset 0x0
+#define HOST_REGS__ERR_STATUS__POISONED_bm 0x4
+#define HOST_REGS__ERR_STATUS__POISONED_bp 2
+#define HOST_REGS__ERR_STATUS__POISONED_bw 1
+#define HOST_REGS__ERR_STATUS__POISONED_reset 0x0
+#define HOST_REGS__ERR_STATUS__UNEXP_CPL_bm 0x8
+#define HOST_REGS__ERR_STATUS__UNEXP_CPL_bp 3
+#define HOST_REGS__ERR_STATUS__UNEXP_CPL_bw 1
+#define HOST_REGS__ERR_STATUS__UNEXP_CPL_reset 0x0
+#define HOST_REGS__ERR_STATUS__CPL_TIMEOUT_bm 0x10
+#define HOST_REGS__ERR_STATUS__CPL_TIMEOUT_bp 4
+#define HOST_REGS__ERR_STATUS__CPL_TIMEOUT_bw 1
+#define HOST_REGS__ERR_STATUS__CPL_TIMEOUT_reset 0x0
+#define HOST_REGS__ERR_STATUS__CPL_ERR_bm 0x20
+#define HOST_REGS__ERR_STATUS__CPL_ERR_bp 5
+#define HOST_REGS__ERR_STATUS__CPL_ERR_bw 1
+#define HOST_REGS__ERR_STATUS__CPL_ERR_reset 0x0
+#define HOST_REGS__ERR_STATUS__AXI_ERR_bm 0x40
+#define HOST_REGS__ERR_STATUS__AXI_ERR_bp 6
+#define HOST_REGS__ERR_STATUS__AXI_ERR_bw 1
+#define HOST_REGS__ERR_STATUS__AXI_ERR_reset 0x0
+#define HOST_REGS__ERR_STATUS__DISCARD_bm 0x80
+#define HOST_REGS__ERR_STATUS__DISCARD_bp 7
+#define HOST_REGS__ERR_STATUS__DISCARD_bw 1
+#define HOST_REGS__ERR_STATUS__DISCARD_reset 0x0
+#define HOST_REGS__ERR_STATUS__MSIX_DROP_bm 0x100
+#define HOST_REGS__ERR_STATUS__MSIX_DROP_bp 8
+#define HOST_REGS__ERR_STATUS__MSIX_DROP_bw 1
+#define HOST_REGS__ERR_STATUS__MSIX_DROP_reset 0x0
+
+// reg - host_regs::RX_TLPS
+#define HOST_REGS__RX_TLPS__COUNT_bm 0xffffffff
+#define HOST_REGS__RX_TLPS__COUNT_bp 0
+#define HOST_REGS__RX_TLPS__COUNT_bw 32
+
+// reg - host_regs::TX_TLPS
+#define HOST_REGS__TX_TLPS__COUNT_bm 0xffffffff
+#define HOST_REGS__TX_TLPS__COUNT_bp 0
+#define HOST_REGS__TX_TLPS__COUNT_bw 32
+
 // addrmap - host_regs
 typedef struct __attribute__ ((__packed__)) {
     uint32_t TX;
     uint32_t RX;
     uint32_t STATUS;
+    uint8_t RESERVED_c_f[0x4];
+    uint32_t LINK_CTRL;
+    uint32_t LINK_STATUS;
+    uint32_t BAR0_WIN;
+    uint32_t BAR2_WIN;
+    uint32_t BM_HADDR_LO;
+    uint32_t BM_HADDR_HI;
+    uint32_t BM_LADDR;
+    uint32_t BM_LEN;
+    uint32_t BM_CTRL;
+    uint32_t BM_STATUS;
+    uint32_t BM_CYCLES;
+    uint32_t MSIX_REQ;
+    uint32_t MSIX_PEND;
+    uint32_t CPL_TIMEOUT;
+    uint32_t ERR_STATUS;
+    uint8_t RESERVED_4c_4f[0x4];
+    uint32_t RX_TLPS;
+    uint32_t TX_TLPS;
 } host_regs_t;
 
 // addrmap - soc_apb
@@ -354,7 +541,7 @@ typedef struct __attribute__ ((__packed__)) {
 #define soc_apb (*(volatile soc_apb_t *)0x40000000UL)
 
 
-static_assert(sizeof(soc_apb_t) == 0x500c, "Packing error");
+static_assert(sizeof(soc_apb_t) == 0x5058, "Packing error");
 
 #ifdef __cplusplus
 }

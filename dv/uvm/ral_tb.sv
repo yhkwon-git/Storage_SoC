@@ -99,6 +99,7 @@ module ral_tb;
   // PMU and HOST, with the core reset.
   logic pwr_en, pwr_ack = 1'b0;
   logic rst_nand_n, sys_rst_req_n;
+  logic host_err_irq, host_bm_irq;
 
   soc_pwr #(.SYS_DELAY(4), .AUTO_UP(1'b0)) u_pwr (
     .clk_sys       (clk),
@@ -123,9 +124,23 @@ module ral_tb;
     .pready_host   (rdy_host),
     .pslverr_host  (err_host),
     .irq_pmu       (pmu_irq),
+    .irq_host_err  (host_err_irq),
+    .irq_host_bm   (host_bm_irq),
     .host_pwr_en   (pwr_en),
     .host_pwr_ack  (pwr_ack),
-    .host_wake     (1'b0)
+    .host_wake     (1'b0),
+    // No host link and no AXI traffic here: the register tests reach the
+    // HOST block through APB only.
+    .host_rx_valid (1'b0), .host_rx_ready (), .host_rx_data (64'd0), .host_rx_sop (1'b0),
+    .host_rx_eop (1'b0), .host_rx_ehalf (1'b0),
+    .host_tx_valid (), .host_tx_ready (1'b1), .host_tx_data (), .host_tx_sop (), .host_tx_eop (),
+    .host_tx_ehalf (),
+    .m_awid (), .m_awaddr (), .m_awlen (), .m_awsize (), .m_awburst (), .m_awvalid (),
+    .m_awready (1'b1), .m_wdata (), .m_wstrb (), .m_wlast (), .m_wvalid (), .m_wready (1'b1),
+    .m_bid (2'd0), .m_bresp (2'd0), .m_bvalid (1'b0), .m_bready (),
+    .m_arid (), .m_araddr (), .m_arlen (), .m_arsize (), .m_arburst (), .m_arvalid (),
+    .m_arready (1'b1), .m_rid (2'd0), .m_rdata (64'd0), .m_rresp (2'd0), .m_rlast (1'b0),
+    .m_rvalid (1'b0), .m_rready ()
   );
 
   logic [1:0] sw_pipe = 2'b00;

@@ -2,11 +2,13 @@
  * PD_HOST power from firmware (docs/07_clock_reset_power.md):
  *   1. after reset PD_HOST powers up by itself; commands to the placeholder
  *      logic in PD_HOST and their responses (CFG, three ECHO, STATE)
- *   2. a power-down while a response is unread is refused: PMU interrupt
- *      with ERR, result 2, PD_HOST stays on
+ *   2. the host link is held (HOST LINK_CTRL.HOLD, step 2-1; the PMU refuses
+ *      a power-down without it); a power-down while a response is unread is
+ *      still refused: PMU interrupt with ERR, result 2, PD_HOST stays on
  *   3. power-down and power-up, each waited for in WFI and ended by the PMU
  *      interrupt (INTC source 10); a command sent while PD_HOST is off is
- *      dropped; after power-up the retained CFG and SEQ are back and LAST is 0
+ *      dropped; after power-up the retained CFG and SEQ are back and LAST is
+ *      0, and the hold is released
  *   4. clocks per sequence, and how many of them the CPU's clock gate removed
  */
 #include "lib.h"
@@ -58,6 +60,14 @@ static uint32_t pmu_seq(uint32_t ctrl, uint32_t *slept)
   return TIMER_MTIME_LO - t0;
 }
 
+/* Hold the host link and wait until the host path is idle. */
+static void host_hold(void)
+{
+  HOST_LINK_CTRL = HOST_HOLD;
+  while ((HOST_LINK_STATUS & (HOST_HOLD_ACK | HOST_LINK_IDLE)) != (HOST_HOLD_ACK | HOST_LINK_IDLE)) {
+  }
+}
+
 static void put_line(const char *what, uint32_t clocks, uint32_t slept)
 {
   sys_puts(what);
@@ -91,7 +101,8 @@ int main(void)
   set_csr(mie, 1u << 11);
   set_csr(mstatus, 1u << 3);
 
-  /* 2. Refused while a response is unread. */
+  /* 2. Link held; refused while a response is unread. */
+  host_hold();
   HOST_TX = 0x44u;
   while (!(HOST_STATUS & HOST_RX_VALID)) {
   }
@@ -129,6 +140,7 @@ int main(void)
   sys_putc('\n');
   if (r != 0xABCD0000u || seq != 4u || PMU_PWR_CYCLES != 1u) err |= 8;
   if (host_cmd(0x55u) != 0x00040055u) err |= 8;
+  HOST_LINK_CTRL = 0;
 
   return err;
 }

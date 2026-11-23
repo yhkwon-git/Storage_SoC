@@ -44,17 +44,14 @@ foreach a $clocks {
 # switch's acknowledge, the wake pin.
 set_false_path -from [get_ports {por_n host_pwr_ack host_wake}]
 
-# The M3 AXI port is a chip port until phase 2 puts the transaction layer
-# behind it: 30% of the clk_sys period on each side.
-set ext_in  [get_ports {ext_awid* ext_awaddr* ext_awlen* ext_awsize* ext_awburst* ext_awprot*
-                        ext_awcache* ext_awqos* ext_awvalid ext_wdata* ext_wstrb* ext_wlast
-                        ext_wvalid ext_bready ext_arid* ext_araddr* ext_arlen* ext_arsize*
-                        ext_arburst* ext_arprot* ext_arcache* ext_arqos* ext_arvalid ext_rready}]
-set ext_out [get_ports {ext_awready ext_wready ext_bid* ext_bresp* ext_bvalid ext_arready
-                        ext_rid* ext_rdata* ext_rresp* ext_rlast ext_rvalid}]
-set_input_delay  6.0 -clock clk_sys $ext_in
-set_output_delay 6.0 -clock clk_sys $ext_out
-set_driving_cell -lib_cell sky130_fd_sc_hd__buf_2 -pin X $ext_in
+# The host link's packed TLP pins (step 2-1; the link layer and PHY replace
+# them from step 2-6) are synchronous to pclk: 30% of its period on each
+# side. Until step 1-9 M3 was a chip port here; it is internal now.
+set host_in  [get_ports {host_rx_valid host_rx_data* host_rx_sop host_rx_eop host_rx_ehalf host_tx_ready}]
+set host_out [get_ports {host_rx_ready host_tx_valid host_tx_data* host_tx_sop host_tx_eop host_tx_ehalf}]
+set_input_delay  4.8 -clock pclk $host_in
+set_output_delay 4.8 -clock pclk $host_out
+set_driving_cell -lib_cell sky130_fd_sc_hd__buf_2 -pin X $host_in
 
 # Simulation console and exit, the lock-up flag and the power switch control
 # are not timed against a clock.

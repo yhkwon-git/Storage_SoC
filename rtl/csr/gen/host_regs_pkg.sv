@@ -5,7 +5,7 @@ package host_regs_pkg;
 
     localparam HOST_REGS_DATA_WIDTH = 32;
     localparam HOST_REGS_MIN_ADDR_WIDTH = 12;
-    localparam HOST_REGS_SIZE = 'hc;
+    localparam HOST_REGS_SIZE = 'h58;
 
     typedef struct {
         logic [31:0] next;
@@ -44,8 +44,169 @@ package host_regs_pkg;
     } host_regs__STATUS__in_t;
 
     typedef struct {
+        logic next;
+    } host_regs__LINK_STATUS__hold_ack__in_t;
+
+    typedef struct {
+        logic next;
+    } host_regs__LINK_STATUS__idle__in_t;
+
+    typedef struct {
+        logic next;
+    } host_regs__LINK_STATUS__mse__in_t;
+
+    typedef struct {
+        logic next;
+    } host_regs__LINK_STATUS__bme__in_t;
+
+    typedef struct {
+        logic next;
+    } host_regs__LINK_STATUS__msix_en__in_t;
+
+    typedef struct {
+        logic next;
+    } host_regs__LINK_STATUS__msix_fmask__in_t;
+
+    typedef struct {
+        logic next;
+    } host_regs__LINK_STATUS__mps256__in_t;
+
+    typedef struct {
+        logic [2:0] next;
+    } host_regs__LINK_STATUS__mrrs__in_t;
+
+    typedef struct {
+        logic [15:0] next;
+    } host_regs__LINK_STATUS__id__in_t;
+
+    typedef struct {
+        host_regs__LINK_STATUS__hold_ack__in_t hold_ack;
+        host_regs__LINK_STATUS__idle__in_t idle;
+        host_regs__LINK_STATUS__mse__in_t mse;
+        host_regs__LINK_STATUS__bme__in_t bme;
+        host_regs__LINK_STATUS__msix_en__in_t msix_en;
+        host_regs__LINK_STATUS__msix_fmask__in_t msix_fmask;
+        host_regs__LINK_STATUS__mps256__in_t mps256;
+        host_regs__LINK_STATUS__mrrs__in_t mrrs;
+        host_regs__LINK_STATUS__id__in_t id;
+    } host_regs__LINK_STATUS__in_t;
+
+    typedef struct {
+        logic next;
+    } host_regs__BM_STATUS__busy__in_t;
+
+    typedef struct {
+        logic hwclr;
+        logic hwset;
+    } host_regs__BM_STATUS__done__in_t;
+
+    typedef struct {
+        logic hwclr;
+        logic hwset;
+    } host_regs__BM_STATUS__err__in_t;
+
+    typedef struct {
+        logic [2:0] next;
+        logic we;
+    } host_regs__BM_STATUS__cause__in_t;
+
+    typedef struct {
+        host_regs__BM_STATUS__busy__in_t busy;
+        host_regs__BM_STATUS__done__in_t done;
+        host_regs__BM_STATUS__err__in_t err;
+        host_regs__BM_STATUS__cause__in_t cause;
+    } host_regs__BM_STATUS__in_t;
+
+    typedef struct {
+        logic [31:0] next;
+    } host_regs__BM_CYCLES__count__in_t;
+
+    typedef struct {
+        host_regs__BM_CYCLES__count__in_t count;
+    } host_regs__BM_CYCLES__in_t;
+
+    typedef struct {
+        logic [7:0] next;
+    } host_regs__MSIX_PEND__pending__in_t;
+
+    typedef struct {
+        host_regs__MSIX_PEND__pending__in_t pending;
+    } host_regs__MSIX_PEND__in_t;
+
+    typedef struct {
+        logic hwset;
+    } host_regs__ERR_STATUS__ur__in_t;
+
+    typedef struct {
+        logic hwset;
+    } host_regs__ERR_STATUS__malformed__in_t;
+
+    typedef struct {
+        logic hwset;
+    } host_regs__ERR_STATUS__poisoned__in_t;
+
+    typedef struct {
+        logic hwset;
+    } host_regs__ERR_STATUS__unexp_cpl__in_t;
+
+    typedef struct {
+        logic hwset;
+    } host_regs__ERR_STATUS__cpl_timeout__in_t;
+
+    typedef struct {
+        logic hwset;
+    } host_regs__ERR_STATUS__cpl_err__in_t;
+
+    typedef struct {
+        logic hwset;
+    } host_regs__ERR_STATUS__axi_err__in_t;
+
+    typedef struct {
+        logic hwset;
+    } host_regs__ERR_STATUS__discard__in_t;
+
+    typedef struct {
+        logic hwset;
+    } host_regs__ERR_STATUS__msix_drop__in_t;
+
+    typedef struct {
+        host_regs__ERR_STATUS__ur__in_t ur;
+        host_regs__ERR_STATUS__malformed__in_t malformed;
+        host_regs__ERR_STATUS__poisoned__in_t poisoned;
+        host_regs__ERR_STATUS__unexp_cpl__in_t unexp_cpl;
+        host_regs__ERR_STATUS__cpl_timeout__in_t cpl_timeout;
+        host_regs__ERR_STATUS__cpl_err__in_t cpl_err;
+        host_regs__ERR_STATUS__axi_err__in_t axi_err;
+        host_regs__ERR_STATUS__discard__in_t discard;
+        host_regs__ERR_STATUS__msix_drop__in_t msix_drop;
+    } host_regs__ERR_STATUS__in_t;
+
+    typedef struct {
+        logic [31:0] next;
+    } host_regs__RX_TLPS__count__in_t;
+
+    typedef struct {
+        host_regs__RX_TLPS__count__in_t count;
+    } host_regs__RX_TLPS__in_t;
+
+    typedef struct {
+        logic [31:0] next;
+    } host_regs__TX_TLPS__count__in_t;
+
+    typedef struct {
+        host_regs__TX_TLPS__count__in_t count;
+    } host_regs__TX_TLPS__in_t;
+
+    typedef struct {
         host_regs__RX__in_t RX;
         host_regs__STATUS__in_t STATUS;
+        host_regs__LINK_STATUS__in_t LINK_STATUS;
+        host_regs__BM_STATUS__in_t BM_STATUS;
+        host_regs__BM_CYCLES__in_t BM_CYCLES;
+        host_regs__MSIX_PEND__in_t MSIX_PEND;
+        host_regs__ERR_STATUS__in_t ERR_STATUS;
+        host_regs__RX_TLPS__in_t RX_TLPS;
+        host_regs__TX_TLPS__in_t TX_TLPS;
     } host_regs__in_t;
 
     typedef struct {
@@ -74,8 +235,167 @@ package host_regs_pkg;
     } host_regs__STATUS__out_t;
 
     typedef struct {
+        logic value;
+    } host_regs__LINK_CTRL__hold__out_t;
+
+    typedef struct {
+        host_regs__LINK_CTRL__hold__out_t hold;
+    } host_regs__LINK_CTRL__out_t;
+
+    typedef struct {
+        logic [18:0] value;
+    } host_regs__BAR0_WIN__base__out_t;
+
+    typedef struct {
+        host_regs__BAR0_WIN__base__out_t base;
+    } host_regs__BAR0_WIN__out_t;
+
+    typedef struct {
+        logic [16:0] value;
+    } host_regs__BAR2_WIN__base__out_t;
+
+    typedef struct {
+        host_regs__BAR2_WIN__base__out_t base;
+    } host_regs__BAR2_WIN__out_t;
+
+    typedef struct {
+        logic [29:0] value;
+    } host_regs__BM_HADDR_LO__addr__out_t;
+
+    typedef struct {
+        host_regs__BM_HADDR_LO__addr__out_t addr;
+    } host_regs__BM_HADDR_LO__out_t;
+
+    typedef struct {
+        logic [31:0] value;
+    } host_regs__BM_HADDR_HI__addr__out_t;
+
+    typedef struct {
+        host_regs__BM_HADDR_HI__addr__out_t addr;
+    } host_regs__BM_HADDR_HI__out_t;
+
+    typedef struct {
+        logic [29:0] value;
+    } host_regs__BM_LADDR__addr__out_t;
+
+    typedef struct {
+        host_regs__BM_LADDR__addr__out_t addr;
+    } host_regs__BM_LADDR__out_t;
+
+    typedef struct {
+        logic [17:0] value;
+    } host_regs__BM_LEN__bytes__out_t;
+
+    typedef struct {
+        host_regs__BM_LEN__bytes__out_t bytes;
+    } host_regs__BM_LEN__out_t;
+
+    typedef struct {
+        logic value;
+    } host_regs__BM_CTRL__start__out_t;
+
+    typedef struct {
+        logic value;
+    } host_regs__BM_CTRL__d2h__out_t;
+
+    typedef struct {
+        host_regs__BM_CTRL__start__out_t start;
+        host_regs__BM_CTRL__d2h__out_t d2h;
+    } host_regs__BM_CTRL__out_t;
+
+    typedef struct {
+        logic value;
+    } host_regs__BM_STATUS__done__out_t;
+
+    typedef struct {
+        logic value;
+    } host_regs__BM_STATUS__err__out_t;
+
+    typedef struct {
+        host_regs__BM_STATUS__done__out_t done;
+        host_regs__BM_STATUS__err__out_t err;
+    } host_regs__BM_STATUS__out_t;
+
+    typedef struct {
+        logic [2:0] value;
+        logic swmod;
+    } host_regs__MSIX_REQ__vector__out_t;
+
+    typedef struct {
+        host_regs__MSIX_REQ__vector__out_t vector;
+    } host_regs__MSIX_REQ__out_t;
+
+    typedef struct {
+        logic [7:0] value;
+    } host_regs__CPL_TIMEOUT__ticks__out_t;
+
+    typedef struct {
+        host_regs__CPL_TIMEOUT__ticks__out_t ticks;
+    } host_regs__CPL_TIMEOUT__out_t;
+
+    typedef struct {
+        logic value;
+    } host_regs__ERR_STATUS__ur__out_t;
+
+    typedef struct {
+        logic value;
+    } host_regs__ERR_STATUS__malformed__out_t;
+
+    typedef struct {
+        logic value;
+    } host_regs__ERR_STATUS__poisoned__out_t;
+
+    typedef struct {
+        logic value;
+    } host_regs__ERR_STATUS__unexp_cpl__out_t;
+
+    typedef struct {
+        logic value;
+    } host_regs__ERR_STATUS__cpl_timeout__out_t;
+
+    typedef struct {
+        logic value;
+    } host_regs__ERR_STATUS__cpl_err__out_t;
+
+    typedef struct {
+        logic value;
+    } host_regs__ERR_STATUS__axi_err__out_t;
+
+    typedef struct {
+        logic value;
+    } host_regs__ERR_STATUS__discard__out_t;
+
+    typedef struct {
+        logic value;
+    } host_regs__ERR_STATUS__msix_drop__out_t;
+
+    typedef struct {
+        host_regs__ERR_STATUS__ur__out_t ur;
+        host_regs__ERR_STATUS__malformed__out_t malformed;
+        host_regs__ERR_STATUS__poisoned__out_t poisoned;
+        host_regs__ERR_STATUS__unexp_cpl__out_t unexp_cpl;
+        host_regs__ERR_STATUS__cpl_timeout__out_t cpl_timeout;
+        host_regs__ERR_STATUS__cpl_err__out_t cpl_err;
+        host_regs__ERR_STATUS__axi_err__out_t axi_err;
+        host_regs__ERR_STATUS__discard__out_t discard;
+        host_regs__ERR_STATUS__msix_drop__out_t msix_drop;
+    } host_regs__ERR_STATUS__out_t;
+
+    typedef struct {
         host_regs__TX__out_t TX;
         host_regs__RX__out_t RX;
         host_regs__STATUS__out_t STATUS;
+        host_regs__LINK_CTRL__out_t LINK_CTRL;
+        host_regs__BAR0_WIN__out_t BAR0_WIN;
+        host_regs__BAR2_WIN__out_t BAR2_WIN;
+        host_regs__BM_HADDR_LO__out_t BM_HADDR_LO;
+        host_regs__BM_HADDR_HI__out_t BM_HADDR_HI;
+        host_regs__BM_LADDR__out_t BM_LADDR;
+        host_regs__BM_LEN__out_t BM_LEN;
+        host_regs__BM_CTRL__out_t BM_CTRL;
+        host_regs__BM_STATUS__out_t BM_STATUS;
+        host_regs__MSIX_REQ__out_t MSIX_REQ;
+        host_regs__CPL_TIMEOUT__out_t CPL_TIMEOUT;
+        host_regs__ERR_STATUS__out_t ERR_STATUS;
     } host_regs__out_t;
 endpackage

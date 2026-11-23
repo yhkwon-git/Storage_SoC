@@ -24,8 +24,8 @@ addrmap sys_regs {
 
   reg {
     name = "VERSION";
-    desc = "Register map version: 0x0001_0007 is the map of step 1-7 (PMU, HOST placeholder, SYS control registers added).";
-    field { sw = r; hw = na; } value[31:0] = 32'h0001_0007;
+    desc = "Register map version: 0x0002_0001 is the map of step 2-1 (HOST block with the transaction layer's registers).";
+    field { sw = r; hw = na; } value[31:0] = 32'h0002_0001;
   } VERSION @ 0x004;
 
   reg {
@@ -129,7 +129,7 @@ addrmap pmu_regs {
 
 addrmap host_regs {
   name = "HOST";
-  desc = "Core side of the PD_HOST placeholder (rtl/host/): a command FIFO into PD_HOST and a response FIFO out of it. Phase 2 replaces this block with the host interface's registers.";
+  desc = "Host interface (rtl/host/): the transaction layer's windows, bus master, MSI-X requests, link hold and error status (docs/10_transaction_layer.md), and the PD_HOST placeholder's command and response FIFOs at 0x000 to 0x008, kept for the power tests until the link layer arrives in step 2-6.";
   default regwidth = 32;
   default accesswidth = 32;
 
@@ -153,6 +153,122 @@ addrmap host_regs {
     field { sw = r; hw = w; desc = "Every command sent has had its response read: the host path is idle."; } idle[3:3];
     field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "A command was dropped."; } tx_drop[8:8] = 1'b0;
   } STATUS @ 0x008;
+
+  reg {
+    name = "LINK_CTRL";
+    field { sw = rw; hw = r; desc = "Hold: the link side stops taking new TLPs from the host at the next TLP boundary. Set it before a PD_HOST power-down (the PMU refuses one while the host path is not held and idle) and clear it after the power-up."; } hold[0:0] = 1'b0;
+  } LINK_CTRL @ 0x010;
+
+  reg {
+    name = "LINK_STATUS";
+    desc = "Transaction layer state and the configuration-space settings the host has made.";
+    field { sw = r; hw = w; desc = "Hold is in effect: no TLP from the host is in progress."; } hold_ack[0:0];
+    field { sw = r; hw = w; desc = "The host path is held and idle, as the PMU sees it."; } idle[1:1];
+    field { sw = r; hw = w; desc = "Memory Space Enable."; } mse[2:2];
+    field { sw = r; hw = w; desc = "Bus Master Enable."; } bme[3:3];
+    field { sw = r; hw = w; desc = "MSI-X Enable."; } msix_en[4:4];
+    field { sw = r; hw = w; desc = "MSI-X Function Mask."; } msix_fmask[5:5];
+    field { sw = r; hw = w; desc = "Max_Payload_Size is 256 bytes (else 128)."; } mps256[6:6];
+    field { sw = r; hw = w; desc = "Max_Read_Request_Size code: 128 << MRRS bytes."; } mrrs[10:8];
+    field { sw = r; hw = w; desc = "Bus and device number captured from configuration writes; function 0."; } id[31:16];
+  } LINK_STATUS @ 0x014;
+
+  reg {
+    name = "BAR0_WIN";
+    desc = "AXI address of BAR0 offsets 0x0000 to 0x1FFF (8 KiB aligned). BAR0 0x2000 to 0x3FFF hold the MSI-X table and PBA inside the transaction layer.";
+    field { sw = rw; hw = r; } base[31:13] = 19'h2_0004;
+  } BAR0_WIN @ 0x018;
+
+  reg {
+    name = "BAR2_WIN";
+    desc = "AXI address of BAR2 (32 KiB aligned). Reset value: the upper half of SRAM.";
+    field { sw = rw; hw = r; } base[31:15] = 17'h0_2001;
+  } BAR2_WIN @ 0x01C;
+
+  reg {
+    name = "BM_HADDR_LO";
+    desc = "Bus master: host address, bits 31:2. Host address, local address and length are DW-granular.";
+    field { sw = rw; hw = r; } addr[31:2] = 30'h0;
+  } BM_HADDR_LO @ 0x020;
+
+  reg {
+    name = "BM_HADDR_HI";
+    field { sw = rw; hw = r; desc = "Bus master: host address, bits 63:32."; } addr[31:0] = 32'h0;
+  } BM_HADDR_HI @ 0x024;
+
+  reg {
+    name = "BM_LADDR";
+    field { sw = rw; hw = r; desc = "Bus master: local (AXI) address, bits 31:2."; } addr[31:2] = 30'h0;
+  } BM_LADDR @ 0x028;
+
+  reg {
+    name = "BM_LEN";
+    field { sw = rw; hw = r; desc = "Bus master: length in bytes, a multiple of 4, 4 to 1 MiB - 4."; } bytes[19:2] = 18'h0;
+  } BM_LEN @ 0x02C;
+
+  reg {
+    name = "BM_CTRL";
+    desc = "START while BM_STATUS.BUSY is ignored.";
+    field { sw = w; hw = r; singlepulse; desc = "Start the transfer."; } start[0:0] = 1'b0;
+    field { sw = rw; hw = r; desc = "Direction: 1 SoC to host (memory writes), 0 host to SoC (memory reads)."; } d2h[1:1] = 1'b0;
+  } BM_CTRL @ 0x030;
+
+  reg {
+    name = "BM_STATUS";
+    desc = "DONE or ERR is INTC source 12. Write 1 to clear; START clears both.";
+    field { sw = r; hw = w; desc = "A transfer is running."; } busy[0:0];
+    field { sw = rw; onwrite = woclr; hw = r; hwset; hwclr; precedence = hw; desc = "The transfer ended without an error."; } done[1:1] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; hwclr; precedence = hw; desc = "The transfer ended with an error; see CAUSE."; } err[2:2] = 1'b0;
+    field { sw = r; hw = w; we; desc = "Cause of the last error: 1 Bus Master Enable clear, 2 local AXI error, 3 UR completion, 4 CA completion, 5 completion timeout, 6 bad or poisoned completion."; } cause[6:4] = 3'h0;
+  } BM_STATUS @ 0x034;
+
+  reg {
+    name = "BM_CYCLES";
+    desc = "Clocks from START to the end of the last transfer.";
+    field { sw = r; hw = w; } count[31:0];
+  } BM_CYCLES @ 0x038;
+
+  reg {
+    name = "MSIX_REQ";
+    desc = "A write requests the MSI-X vector it names. While MSI-X is disabled the request is dropped (ERR_STATUS.MSIX_DROP).";
+    field { sw = w; hw = r; swmod; } vector[2:0] = 3'h0;
+  } MSIX_REQ @ 0x03C;
+
+  reg {
+    name = "MSIX_PEND";
+    field { sw = r; hw = w; desc = "Pending Bit Array: vectors requested while masked."; } pending[7:0];
+  } MSIX_PEND @ 0x040;
+
+  reg {
+    name = "CPL_TIMEOUT";
+    field { sw = rw; hw = r; desc = "Bus master completion timeout in units of 64 clocks (reset: 4096 clocks). Device Control 2 can disable it."; } ticks[7:0] = 8'd64;
+  } CPL_TIMEOUT @ 0x044;
+
+  reg {
+    name = "ERR_STATUS";
+    desc = "Transaction layer errors, set by hardware and cleared by writing 1. Bits 0 to 6 together are INTC source 5.";
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "An unsupported request was received."; } ur[0:0] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "A malformed TLP was received and dropped."; } malformed[1:1] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "A poisoned TLP was received."; } poisoned[2:2] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "A completion matched no outstanding request."; } unexp_cpl[3:3] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "A bus master request timed out."; } cpl_timeout[4:4] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "A UR or CA completion, or one that failed the checks, was received."; } cpl_err[5:5] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "An inbound write or read got an AXI error."; } axi_err[6:6] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "The link layer discarded a TLP (from step 2-6)."; } discard[7:7] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "An MSI-X request was dropped (MSI-X disabled)."; } msix_drop[8:8] = 1'b0;
+  } ERR_STATUS @ 0x048;
+
+  reg {
+    name = "RX_TLPS";
+    desc = "TLPs received and dispatched since reset (wraps).";
+    field { sw = r; hw = w; } count[31:0];
+  } RX_TLPS @ 0x050;
+
+  reg {
+    name = "TX_TLPS";
+    desc = "TLPs sent since reset (wraps).";
+    field { sw = r; hw = w; } count[31:0];
+  } TX_TLPS @ 0x054;
 };
 
 addrmap intc_regs {

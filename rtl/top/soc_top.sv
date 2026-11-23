@@ -4,15 +4,17 @@
 // -----------------------------------------------------------------------------
 // soc_top
 //
-// The SoC as far as step 1-7 (docs/04_cpu_subsystem.md, docs/06_dma.md,
-// docs/07_clock_reset_power.md).
+// The SoC as far as step 2-1 (docs/04_cpu_subsystem.md, docs/06_dma.md,
+// docs/07_clock_reset_power.md, docs/10_transaction_layer.md).
 //
 //   M0 Ibex instruction port  -> obi2axi (read only); the core's clock is gated
 //                                while it sleeps (SYS CLK_GATE)
 //   M1 Ibex data port         -> obi2axi
 //   M2 DMA                    -> dma (registers in APB slot 4, SYS soft reset)
-//   M3                        -> port ext_* (the host interface comes in phase
-//                                2; the testbench drives traffic on it)
+//   M3 transaction layer      -> rtl/host/tl/tl_core.sv inside soc_pwr's
+//                                host_if: inbound BAR windows and the bus
+//                                master's local reads and writes; packed TLPs
+//                                on the host_rx_* and host_tx_* pins
 //   S0 boot ROM 16 KiB        -> axi_mem, read only, loaded from +rom=<file>
 //   S1 SRAM 64 KiB            -> axi_mem
 //   S2 APB window             -> axi2apb: slot 0 SYS, 1 PMU, 2 INTC, 3 TIMER,
@@ -25,8 +27,8 @@
 // power switch, and host_wake is its wake pin.
 //
 // The timer drives the core's timer interrupt and the INTC its external
-// interrupt. INTC sources: 1 DMA done, 2 DMA error, 10 PMU (docs/01, section
-// 7); the others are not wired yet.
+// interrupt. INTC sources: 1 DMA done, 2 DMA error, 5 host error, 10 PMU,
+// 12 host bus master done (docs/01, section 7); the others are not wired yet.
 // -----------------------------------------------------------------------------
 
 module soc_top (
@@ -41,42 +43,20 @@ module soc_top (
   input  wire                    host_pwr_ack,
   input  wire                    host_wake,
 
-  // AXI4 master port M3, 2-bit IDs.
-  input  wire  [1:0]             ext_awid,
-  input  wire  [31:0]            ext_awaddr,
-  input  wire  [7:0]             ext_awlen,
-  input  wire  [2:0]             ext_awsize,
-  input  wire  [1:0]             ext_awburst,
-  input  wire  [2:0]             ext_awprot,
-  input  wire  [3:0]             ext_awcache,
-  input  wire  [3:0]             ext_awqos,
-  input  wire                    ext_awvalid,
-  output logic                   ext_awready,
-  input  wire  [63:0]            ext_wdata,
-  input  wire  [7:0]             ext_wstrb,
-  input  wire                    ext_wlast,
-  input  wire                    ext_wvalid,
-  output logic                   ext_wready,
-  output logic [1:0]             ext_bid,
-  output logic [1:0]             ext_bresp,
-  output logic                   ext_bvalid,
-  input  wire                    ext_bready,
-  input  wire  [1:0]             ext_arid,
-  input  wire  [31:0]            ext_araddr,
-  input  wire  [7:0]             ext_arlen,
-  input  wire  [2:0]             ext_arsize,
-  input  wire  [1:0]             ext_arburst,
-  input  wire  [2:0]             ext_arprot,
-  input  wire  [3:0]             ext_arcache,
-  input  wire  [3:0]             ext_arqos,
-  input  wire                    ext_arvalid,
-  output logic                   ext_arready,
-  output logic [1:0]             ext_rid,
-  output logic [63:0]            ext_rdata,
-  output logic [1:0]             ext_rresp,
-  output logic                   ext_rlast,
-  output logic                   ext_rvalid,
-  input  wire                    ext_rready,
+  // Host link: packed TLPs on pclk (rtl/host/tl/tl_pkg.sv). The data link
+  // layer and PHY of steps 2-6 and 2-7 replace these with serial lanes.
+  input  wire                    host_rx_valid,
+  output logic                   host_rx_ready,
+  input  wire  [63:0]            host_rx_data,
+  input  wire                    host_rx_sop,
+  input  wire                    host_rx_eop,
+  input  wire                    host_rx_ehalf,
+  output logic                   host_tx_valid,
+  input  wire                    host_tx_ready,
+  output logic [63:0]            host_tx_data,
+  output logic                   host_tx_sop,
+  output logic                   host_tx_eop,
+  output logic                   host_tx_ehalf,
 
   // Simulation console and exit (SYS block), and a core lock-up flag.
   output logic                   console_valid,
@@ -224,9 +204,10 @@ module soc_top (
   logic [NSLOT-1:0]       pready, pslverr;
 
   // ---------------------------------------------------------------------------
-  // Clocks, resets and power (APB slots 1 PMU and 5 HOST)
+  // Clocks, resets and power (APB slots 1 PMU and 5 HOST), and the host
+  // interface with its transaction layer on M3
   // ---------------------------------------------------------------------------
-  logic irq_pmu, soft_rst_dma;
+  logic irq_pmu, irq_host_err, irq_host_bm, soft_rst_dma;
 
   soc_pwr u_pwr (
     .clk_sys       (clk_sys),
@@ -251,10 +232,37 @@ module soc_top (
     .pready_host   (pready[5]),
     .pslverr_host  (pslverr[5]),
     .irq_pmu       (irq_pmu),
+    .irq_host_err  (irq_host_err),
+    .irq_host_bm   (irq_host_bm),
     .host_pwr_en   (host_pwr_en),
     .host_pwr_ack  (host_pwr_ack),
-    .host_wake     (host_wake)
+    .host_wake     (host_wake),
+    .host_rx_valid (host_rx_valid), .host_rx_ready (host_rx_ready), .host_rx_data (host_rx_data),
+    .host_rx_sop   (host_rx_sop),   .host_rx_eop   (host_rx_eop),   .host_rx_ehalf (host_rx_ehalf),
+    .host_tx_valid (host_tx_valid), .host_tx_ready (host_tx_ready), .host_tx_data (host_tx_data),
+    .host_tx_sop   (host_tx_sop),   .host_tx_eop   (host_tx_eop),   .host_tx_ehalf (host_tx_ehalf),
+    .m_awid    (s_awid[3]),    .m_awaddr  (s_awaddr[3]),  .m_awlen   (s_awlen[3]),
+    .m_awsize  (s_awsize[3]),  .m_awburst (s_awburst[3]), .m_awvalid (s_awvalid[3]),
+    .m_awready (s_awready[3]),
+    .m_wdata   (s_wdata[3]),   .m_wstrb   (s_wstrb[3]),   .m_wlast   (s_wlast[3]),
+    .m_wvalid  (s_wvalid[3]),  .m_wready  (s_wready[3]),
+    .m_bid     (s_bid[3]),     .m_bresp   (s_bresp[3]),   .m_bvalid  (s_bvalid[3]),
+    .m_bready  (s_bready[3]),
+    .m_arid    (s_arid[3]),    .m_araddr  (s_araddr[3]),  .m_arlen   (s_arlen[3]),
+    .m_arsize  (s_arsize[3]),  .m_arburst (s_arburst[3]), .m_arvalid (s_arvalid[3]),
+    .m_arready (s_arready[3]),
+    .m_rid     (s_rid[3]),     .m_rdata   (s_rdata[3]),   .m_rresp   (s_rresp[3]),
+    .m_rlast   (s_rlast[3]),   .m_rvalid  (s_rvalid[3]),  .m_rready  (s_rready[3])
   );
+
+  // The transaction layer's port carries no protection, cache or QoS
+  // attributes.
+  assign s_awprot[3]  = 3'b000;
+  assign s_arprot[3]  = 3'b000;
+  assign s_awcache[3] = 4'b0000;
+  assign s_arcache[3] = 4'b0000;
+  assign s_awqos[3]   = 4'b0000;
+  assign s_arqos[3]   = 4'b0000;
 
   // The DMA's reset: the core reset or SYS SOFT_RESET.DMA, released in clk_sys.
   rst_sync u_rst_dma (.clk(clk_sys), .arst_n(sys_rst_req_n && !soft_rst_dma), .rst_n(rst_dma_n));
@@ -288,45 +296,6 @@ module soc_top (
     .m_rlast   (s_rlast[2]),   .m_rvalid  (s_rvalid[2]),  .m_rready (s_rready[2]),
     .irq_done  (irq_dma_done), .irq_err   (irq_dma_err)
   );
-
-  // ---------------------------------------------------------------------------
-  // External master port (M3)
-  // ---------------------------------------------------------------------------
-  assign s_awid[3]    = ext_awid;
-  assign s_awaddr[3]  = ext_awaddr;
-  assign s_awlen[3]   = ext_awlen;
-  assign s_awsize[3]  = ext_awsize;
-  assign s_awburst[3] = ext_awburst;
-  assign s_awprot[3]  = ext_awprot;
-  assign s_awcache[3] = ext_awcache;
-  assign s_awqos[3]   = ext_awqos;
-  assign s_awvalid[3] = ext_awvalid;
-  assign ext_awready  = s_awready[3];
-  assign s_wdata[3]   = ext_wdata;
-  assign s_wstrb[3]   = ext_wstrb;
-  assign s_wlast[3]   = ext_wlast;
-  assign s_wvalid[3]  = ext_wvalid;
-  assign ext_wready   = s_wready[3];
-  assign ext_bid      = s_bid[3];
-  assign ext_bresp    = s_bresp[3];
-  assign ext_bvalid   = s_bvalid[3];
-  assign s_bready[3]  = ext_bready;
-  assign s_arid[3]    = ext_arid;
-  assign s_araddr[3]  = ext_araddr;
-  assign s_arlen[3]   = ext_arlen;
-  assign s_arsize[3]  = ext_arsize;
-  assign s_arburst[3] = ext_arburst;
-  assign s_arprot[3]  = ext_arprot;
-  assign s_arcache[3] = ext_arcache;
-  assign s_arqos[3]   = ext_arqos;
-  assign s_arvalid[3] = ext_arvalid;
-  assign ext_arready  = s_arready[3];
-  assign ext_rid      = s_rid[3];
-  assign ext_rdata    = s_rdata[3];
-  assign ext_rresp    = s_rresp[3];
-  assign ext_rlast    = s_rlast[3];
-  assign ext_rvalid   = s_rvalid[3];
-  assign s_rready[3]  = ext_rready;
 
   // ---------------------------------------------------------------------------
   // Memories: S0 ROM, S1 SRAM, S3/S4 NAND page buffers
@@ -394,7 +363,8 @@ module soc_top (
     .psel (psel[2]), .penable (penable), .paddr (paddr[11:0]), .pwrite (pwrite),
     .pwdata (pwdata), .pstrb (pstrb), .prdata (prdata[2]), .pready (pready[2]),
     .pslverr (pslverr[2]),
-    .src ({21'd0, irq_pmu, 7'd0, irq_dma_err, irq_dma_done, 1'b0}), .irq (irq_external)
+    .src ({19'd0, irq_host_bm, 1'b0, irq_pmu, 4'd0, irq_host_err, 2'd0, irq_dma_err, irq_dma_done, 1'b0}),
+    .irq (irq_external)
   );
 
   apb_timer u_timer (

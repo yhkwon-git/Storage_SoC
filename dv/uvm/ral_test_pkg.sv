@@ -19,7 +19,7 @@
 //                             write-1-to-clear, ABORT while idle does nothing;
 //                             PMU and HOST: power-on reset cause, a PD_HOST
 //                             power-up with its interrupt, a command through
-//                             PD_HOST, a power-down
+//                             PD_HOST, the link held, a power-down
 //   4. decode                 PSLVERR for offsets and slots with no register
 //
 // Left out of 1 and 2, with the reason: MTIME_LO/HI count from reset
@@ -27,7 +27,9 @@
 // (checked in 3); DMA CTRL is write-only and a 1 in it starts or aborts the
 // DMA (checked in 3); PMU PWR_CTRL starts power sequences and CHIP_RESET
 // resets the testbench; PMU RST_CAUSE is set by hardware at power-on
-// (checked in 3); HOST TX and RX push and pop the host FIFOs (checked in 3).
+// (checked in 3); HOST TX and RX push and pop the host FIFOs (checked in 3);
+// HOST BM_CTRL starts a bus-master transfer and MSIX_REQ requests a vector
+// (both checked by tb_tl and the host firmware test).
 // Fields written by hardware (PENDING, CLAIM, MTIME, the DMA's and PMU's
 // status and counters) are volatile in the model, so the bit bash does not
 // compare them.
@@ -148,6 +150,10 @@ package ral_test_pkg;
       exclude(rm.PMU.RST_CAUSE,  "NO_REG_BIT_BASH_TEST");
       exclude(rm.HOST.TX,        "NO_REG_BIT_BASH_TEST");
       exclude(rm.HOST.RX,        "NO_REG_BIT_BASH_TEST");
+      // A write starts a bus-master transfer or requests an MSI-X vector,
+      // which would set BM_STATUS and ERR_STATUS bits under the test.
+      exclude(rm.HOST.BM_CTRL,   "NO_REG_BIT_BASH_TEST");
+      exclude(rm.HOST.MSIX_REQ,  "NO_REG_BIT_BASH_TEST");
 
       // 1. Reset values.
       rst_seq = uvm_reg_hw_reset_seq::type_id::create("rst_seq");
@@ -267,8 +273,11 @@ package ral_test_pkg;
       repeat (100) @(posedge vif.pclk);
       rm.INTC.PENDING.read(st, v);
       expect_ok(v == 32'h0, $sformatf("INTC PENDING %h after clearing PWR_IRQ", v));
+      // STATUS.IDLE, and a power-down, need the host link held (step 2-1).
+      rm.HOST.LINK_CTRL.write(st, 32'h1);
+      do rm.HOST.LINK_STATUS.read(st, v); while (v[1:0] != 2'b11);
       rm.HOST.STATUS.read(st, v);
-      expect_ok(v == 32'hC, $sformatf("HOST STATUS %h with PD_HOST on, expected C (ON, IDLE)", v));
+      expect_ok(v == 32'hC, $sformatf("HOST STATUS %h with PD_HOST on and the link held, expected C (ON, IDLE)", v));
       rm.HOST.TX.write(st, 32'h0000_0042);
       do rm.HOST.STATUS.read(st, v); while (!v[0]);
       rm.HOST.RX.read(st, v);
@@ -282,7 +291,7 @@ package ral_test_pkg;
       // 4. Decode: offsets and slots without a register answer PSLVERR.
       raw(16'h0000, 1'b0, 0, rd, err);
       expect_ok(!err && rd == 32'h5353_4F43, "ID read through a raw transfer");
-      bad_addr = '{16'h0018, 16'h0FFC, 16'h1020, 16'h1FFC, 16'h2010, 16'h3014, 16'h4020, 16'h5010,
+      bad_addr = '{16'h0018, 16'h0FFC, 16'h1020, 16'h1FFC, 16'h2010, 16'h3014, 16'h4020, 16'h5058,
                    16'h6000, 16'hF000};
       foreach (bad_addr[i]) begin
         raw(bad_addr[i], 1'b0, 0, rd, err);

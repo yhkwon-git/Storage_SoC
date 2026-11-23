@@ -28,7 +28,7 @@ package soc_apb_ral_pkg;
 
         virtual function void build();
             this.value = new("value");
-            this.value.configure(this, 32, 0, "RO", 0, 'h10007, 1, 1, 0);
+            this.value.configure(this, 32, 0, "RO", 0, 'h20001, 1, 1, 0);
         endfunction : build
     endclass : sys_regs__VERSION
 
@@ -814,11 +814,326 @@ package soc_apb_ral_pkg;
         endfunction : build
     endclass : host_regs__STATUS
 
+    // reg - host_regs::LINK_CTRL
+    class host_regs__LINK_CTRL extends uvm_reg;
+        rand uvm_reg_field hold;
+
+        function new(string name = "host_regs__LINK_CTRL");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.hold = new("hold");
+            this.hold.configure(this, 1, 0, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : host_regs__LINK_CTRL
+
+    // reg - host_regs::LINK_STATUS
+    class host_regs__LINK_STATUS extends uvm_reg;
+        rand uvm_reg_field hold_ack;
+        rand uvm_reg_field idle;
+        rand uvm_reg_field mse;
+        rand uvm_reg_field bme;
+        rand uvm_reg_field msix_en;
+        rand uvm_reg_field msix_fmask;
+        rand uvm_reg_field mps256;
+        rand uvm_reg_field mrrs;
+        rand uvm_reg_field id;
+
+        function new(string name = "host_regs__LINK_STATUS");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.hold_ack = new("hold_ack");
+            this.hold_ack.configure(this, 1, 0, "RO", 1, 'h0, 0, 1, 0);
+            this.idle = new("idle");
+            this.idle.configure(this, 1, 1, "RO", 1, 'h0, 0, 1, 0);
+            this.mse = new("mse");
+            this.mse.configure(this, 1, 2, "RO", 1, 'h0, 0, 1, 0);
+            this.bme = new("bme");
+            this.bme.configure(this, 1, 3, "RO", 1, 'h0, 0, 1, 0);
+            this.msix_en = new("msix_en");
+            this.msix_en.configure(this, 1, 4, "RO", 1, 'h0, 0, 1, 0);
+            this.msix_fmask = new("msix_fmask");
+            this.msix_fmask.configure(this, 1, 5, "RO", 1, 'h0, 0, 1, 0);
+            this.mps256 = new("mps256");
+            this.mps256.configure(this, 1, 6, "RO", 1, 'h0, 0, 1, 0);
+            this.mrrs = new("mrrs");
+            this.mrrs.configure(this, 3, 8, "RO", 1, 'h0, 0, 1, 0);
+            this.id = new("id");
+            this.id.configure(this, 16, 16, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : host_regs__LINK_STATUS
+
+    // reg - host_regs::BAR0_WIN
+    class host_regs__BAR0_WIN extends uvm_reg;
+        rand uvm_reg_field base;
+
+        function new(string name = "host_regs__BAR0_WIN");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.base = new("base");
+            this.base.configure(this, 19, 13, "RW", 0, 'h20004, 1, 1, 0);
+        endfunction : build
+    endclass : host_regs__BAR0_WIN
+
+    // reg - host_regs::BAR2_WIN
+    class host_regs__BAR2_WIN extends uvm_reg;
+        rand uvm_reg_field base;
+
+        function new(string name = "host_regs__BAR2_WIN");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.base = new("base");
+            this.base.configure(this, 17, 15, "RW", 0, 'h2001, 1, 1, 0);
+        endfunction : build
+    endclass : host_regs__BAR2_WIN
+
+    // reg - host_regs::BM_HADDR_LO
+    class host_regs__BM_HADDR_LO extends uvm_reg;
+        rand uvm_reg_field addr;
+
+        function new(string name = "host_regs__BM_HADDR_LO");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.addr = new("addr");
+            this.addr.configure(this, 30, 2, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : host_regs__BM_HADDR_LO
+
+    // reg - host_regs::BM_HADDR_HI
+    class host_regs__BM_HADDR_HI extends uvm_reg;
+        rand uvm_reg_field addr;
+
+        function new(string name = "host_regs__BM_HADDR_HI");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.addr = new("addr");
+            this.addr.configure(this, 32, 0, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : host_regs__BM_HADDR_HI
+
+    // reg - host_regs::BM_LADDR
+    class host_regs__BM_LADDR extends uvm_reg;
+        rand uvm_reg_field addr;
+
+        function new(string name = "host_regs__BM_LADDR");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.addr = new("addr");
+            this.addr.configure(this, 30, 2, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : host_regs__BM_LADDR
+
+    // reg - host_regs::BM_LEN
+    class host_regs__BM_LEN extends uvm_reg;
+        rand uvm_reg_field bytes;
+
+        function new(string name = "host_regs__BM_LEN");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.bytes = new("bytes");
+            this.bytes.configure(this, 18, 2, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : host_regs__BM_LEN
+
+    // reg - host_regs::BM_CTRL
+    class host_regs__BM_CTRL extends uvm_reg;
+        rand uvm_reg_field start;
+        rand uvm_reg_field d2h;
+
+        function new(string name = "host_regs__BM_CTRL");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.start = new("start");
+            this.start.configure(this, 1, 0, "WO", 1, 'h0, 1, 1, 0);
+            this.d2h = new("d2h");
+            this.d2h.configure(this, 1, 1, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : host_regs__BM_CTRL
+
+    // reg - host_regs::BM_STATUS
+    class host_regs__BM_STATUS extends uvm_reg;
+        rand uvm_reg_field busy;
+        rand uvm_reg_field done;
+        rand uvm_reg_field err;
+        rand uvm_reg_field cause;
+
+        function new(string name = "host_regs__BM_STATUS");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.busy = new("busy");
+            this.busy.configure(this, 1, 0, "RO", 1, 'h0, 0, 1, 0);
+            this.done = new("done");
+            this.done.configure(this, 1, 1, "W1C", 1, 'h0, 1, 1, 0);
+            this.err = new("err");
+            this.err.configure(this, 1, 2, "W1C", 1, 'h0, 1, 1, 0);
+            this.cause = new("cause");
+            this.cause.configure(this, 3, 4, "RO", 1, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : host_regs__BM_STATUS
+
+    // reg - host_regs::BM_CYCLES
+    class host_regs__BM_CYCLES extends uvm_reg;
+        rand uvm_reg_field count;
+
+        function new(string name = "host_regs__BM_CYCLES");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.count = new("count");
+            this.count.configure(this, 32, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : host_regs__BM_CYCLES
+
+    // reg - host_regs::MSIX_REQ
+    class host_regs__MSIX_REQ extends uvm_reg;
+        rand uvm_reg_field vector;
+
+        function new(string name = "host_regs__MSIX_REQ");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.vector = new("vector");
+            this.vector.configure(this, 3, 0, "WO", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : host_regs__MSIX_REQ
+
+    // reg - host_regs::MSIX_PEND
+    class host_regs__MSIX_PEND extends uvm_reg;
+        rand uvm_reg_field pending;
+
+        function new(string name = "host_regs__MSIX_PEND");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.pending = new("pending");
+            this.pending.configure(this, 8, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : host_regs__MSIX_PEND
+
+    // reg - host_regs::CPL_TIMEOUT
+    class host_regs__CPL_TIMEOUT extends uvm_reg;
+        rand uvm_reg_field ticks;
+
+        function new(string name = "host_regs__CPL_TIMEOUT");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.ticks = new("ticks");
+            this.ticks.configure(this, 8, 0, "RW", 0, 'h40, 1, 1, 0);
+        endfunction : build
+    endclass : host_regs__CPL_TIMEOUT
+
+    // reg - host_regs::ERR_STATUS
+    class host_regs__ERR_STATUS extends uvm_reg;
+        rand uvm_reg_field ur;
+        rand uvm_reg_field malformed;
+        rand uvm_reg_field poisoned;
+        rand uvm_reg_field unexp_cpl;
+        rand uvm_reg_field cpl_timeout;
+        rand uvm_reg_field cpl_err;
+        rand uvm_reg_field axi_err;
+        rand uvm_reg_field discard;
+        rand uvm_reg_field msix_drop;
+
+        function new(string name = "host_regs__ERR_STATUS");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.ur = new("ur");
+            this.ur.configure(this, 1, 0, "W1C", 1, 'h0, 1, 1, 0);
+            this.malformed = new("malformed");
+            this.malformed.configure(this, 1, 1, "W1C", 1, 'h0, 1, 1, 0);
+            this.poisoned = new("poisoned");
+            this.poisoned.configure(this, 1, 2, "W1C", 1, 'h0, 1, 1, 0);
+            this.unexp_cpl = new("unexp_cpl");
+            this.unexp_cpl.configure(this, 1, 3, "W1C", 1, 'h0, 1, 1, 0);
+            this.cpl_timeout = new("cpl_timeout");
+            this.cpl_timeout.configure(this, 1, 4, "W1C", 1, 'h0, 1, 1, 0);
+            this.cpl_err = new("cpl_err");
+            this.cpl_err.configure(this, 1, 5, "W1C", 1, 'h0, 1, 1, 0);
+            this.axi_err = new("axi_err");
+            this.axi_err.configure(this, 1, 6, "W1C", 1, 'h0, 1, 1, 0);
+            this.discard = new("discard");
+            this.discard.configure(this, 1, 7, "W1C", 1, 'h0, 1, 1, 0);
+            this.msix_drop = new("msix_drop");
+            this.msix_drop.configure(this, 1, 8, "W1C", 1, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : host_regs__ERR_STATUS
+
+    // reg - host_regs::RX_TLPS
+    class host_regs__RX_TLPS extends uvm_reg;
+        rand uvm_reg_field count;
+
+        function new(string name = "host_regs__RX_TLPS");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.count = new("count");
+            this.count.configure(this, 32, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : host_regs__RX_TLPS
+
+    // reg - host_regs::TX_TLPS
+    class host_regs__TX_TLPS extends uvm_reg;
+        rand uvm_reg_field count;
+
+        function new(string name = "host_regs__TX_TLPS");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.count = new("count");
+            this.count.configure(this, 32, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : host_regs__TX_TLPS
+
     // addrmap - host_regs
     class host_regs extends uvm_reg_block;
         rand host_regs__TX TX;
         rand host_regs__RX RX;
         rand host_regs__STATUS STATUS;
+        rand host_regs__LINK_CTRL LINK_CTRL;
+        rand host_regs__LINK_STATUS LINK_STATUS;
+        rand host_regs__BAR0_WIN BAR0_WIN;
+        rand host_regs__BAR2_WIN BAR2_WIN;
+        rand host_regs__BM_HADDR_LO BM_HADDR_LO;
+        rand host_regs__BM_HADDR_HI BM_HADDR_HI;
+        rand host_regs__BM_LADDR BM_LADDR;
+        rand host_regs__BM_LEN BM_LEN;
+        rand host_regs__BM_CTRL BM_CTRL;
+        rand host_regs__BM_STATUS BM_STATUS;
+        rand host_regs__BM_CYCLES BM_CYCLES;
+        rand host_regs__MSIX_REQ MSIX_REQ;
+        rand host_regs__MSIX_PEND MSIX_PEND;
+        rand host_regs__CPL_TIMEOUT CPL_TIMEOUT;
+        rand host_regs__ERR_STATUS ERR_STATUS;
+        rand host_regs__RX_TLPS RX_TLPS;
+        rand host_regs__TX_TLPS TX_TLPS;
 
         function new(string name = "host_regs");
             super.new(name);
@@ -841,6 +1156,91 @@ package soc_apb_ral_pkg;
 
             this.STATUS.build();
             this.default_map.add_reg(this.STATUS, 'h8);
+            this.LINK_CTRL = new("LINK_CTRL");
+            this.LINK_CTRL.configure(this);
+
+            this.LINK_CTRL.build();
+            this.default_map.add_reg(this.LINK_CTRL, 'h10);
+            this.LINK_STATUS = new("LINK_STATUS");
+            this.LINK_STATUS.configure(this);
+
+            this.LINK_STATUS.build();
+            this.default_map.add_reg(this.LINK_STATUS, 'h14);
+            this.BAR0_WIN = new("BAR0_WIN");
+            this.BAR0_WIN.configure(this);
+
+            this.BAR0_WIN.build();
+            this.default_map.add_reg(this.BAR0_WIN, 'h18);
+            this.BAR2_WIN = new("BAR2_WIN");
+            this.BAR2_WIN.configure(this);
+
+            this.BAR2_WIN.build();
+            this.default_map.add_reg(this.BAR2_WIN, 'h1c);
+            this.BM_HADDR_LO = new("BM_HADDR_LO");
+            this.BM_HADDR_LO.configure(this);
+
+            this.BM_HADDR_LO.build();
+            this.default_map.add_reg(this.BM_HADDR_LO, 'h20);
+            this.BM_HADDR_HI = new("BM_HADDR_HI");
+            this.BM_HADDR_HI.configure(this);
+
+            this.BM_HADDR_HI.build();
+            this.default_map.add_reg(this.BM_HADDR_HI, 'h24);
+            this.BM_LADDR = new("BM_LADDR");
+            this.BM_LADDR.configure(this);
+
+            this.BM_LADDR.build();
+            this.default_map.add_reg(this.BM_LADDR, 'h28);
+            this.BM_LEN = new("BM_LEN");
+            this.BM_LEN.configure(this);
+
+            this.BM_LEN.build();
+            this.default_map.add_reg(this.BM_LEN, 'h2c);
+            this.BM_CTRL = new("BM_CTRL");
+            this.BM_CTRL.configure(this);
+
+            this.BM_CTRL.build();
+            this.default_map.add_reg(this.BM_CTRL, 'h30);
+            this.BM_STATUS = new("BM_STATUS");
+            this.BM_STATUS.configure(this);
+
+            this.BM_STATUS.build();
+            this.default_map.add_reg(this.BM_STATUS, 'h34);
+            this.BM_CYCLES = new("BM_CYCLES");
+            this.BM_CYCLES.configure(this);
+
+            this.BM_CYCLES.build();
+            this.default_map.add_reg(this.BM_CYCLES, 'h38);
+            this.MSIX_REQ = new("MSIX_REQ");
+            this.MSIX_REQ.configure(this);
+
+            this.MSIX_REQ.build();
+            this.default_map.add_reg(this.MSIX_REQ, 'h3c);
+            this.MSIX_PEND = new("MSIX_PEND");
+            this.MSIX_PEND.configure(this);
+
+            this.MSIX_PEND.build();
+            this.default_map.add_reg(this.MSIX_PEND, 'h40);
+            this.CPL_TIMEOUT = new("CPL_TIMEOUT");
+            this.CPL_TIMEOUT.configure(this);
+
+            this.CPL_TIMEOUT.build();
+            this.default_map.add_reg(this.CPL_TIMEOUT, 'h44);
+            this.ERR_STATUS = new("ERR_STATUS");
+            this.ERR_STATUS.configure(this);
+
+            this.ERR_STATUS.build();
+            this.default_map.add_reg(this.ERR_STATUS, 'h48);
+            this.RX_TLPS = new("RX_TLPS");
+            this.RX_TLPS.configure(this);
+
+            this.RX_TLPS.build();
+            this.default_map.add_reg(this.RX_TLPS, 'h50);
+            this.TX_TLPS = new("TX_TLPS");
+            this.TX_TLPS.configure(this);
+
+            this.TX_TLPS.build();
+            this.default_map.add_reg(this.TX_TLPS, 'h54);
         endfunction : build
     endclass : host_regs
 

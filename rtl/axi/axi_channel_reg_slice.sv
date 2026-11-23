@@ -16,10 +16,12 @@
 // latency. A downstream stall of k clocks blocks the upstream for k clocks.
 //
 // aresetn is asserted asynchronously and released synchronously. Only the
-// valid flops are reset; payload flops are not.
+// valid flops are reset; payload flops are not, and since step 2-1 they are
+// in a process without reset (below).
 //
 // Origin: AXI_PCIe_Subsystem commit b64e36a, rtl/axi_register_slice.sv, module
-// axi_channel_reg_slice. Logic and monitors unchanged; this header rewritten.
+// axi_channel_reg_slice. Logic and monitors unchanged, payload registers moved
+// to their own process in step 2-1; this header rewritten.
 // -----------------------------------------------------------------------------
 
 module axi_channel_reg_slice #(
@@ -74,17 +76,26 @@ module axi_channel_reg_slice #(
     end else begin
       if (m_load_en) begin
         m_valid_q <= skid_valid_q | (s_valid & s_ready);
-        if (skid_valid_q | (s_valid & s_ready)) begin
-          m_data_q <= m_data_next;
-        end
       end
 
       if (skid_load_en) begin
         skid_valid_q <= 1'b1;
-        skid_data_q  <= s_data;
       end else if (skid_clear) begin
         skid_valid_q <= 1'b0;
       end
+    end
+  end
+
+  // The data registers have no reset, so they sit in a process of their own.
+  // In the reset process above, synthesis would hold them during reset by
+  // gating their enables with aresetn, which turns the reset net into a data
+  // input (found in step 2-1, docs/10_transaction_layer.md).
+  always_ff @(posedge aclk) begin
+    if (m_load_en && (skid_valid_q | (s_valid & s_ready))) begin
+      m_data_q <= m_data_next;
+    end
+    if (skid_load_en) begin
+      skid_data_q <= s_data;
     end
   end
 

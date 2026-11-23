@@ -101,8 +101,10 @@ def main():
     decls = []
 
     def esc(n):
-        # An escaped identifier ends at white space.
-        return n + " " if n.startswith("\\") and not n.endswith("]") else n
+        # An escaped identifier ends at white space. "\base [3]" (a bit of an
+        # escaped vector) already has its space; "\name[3]" (an escaped name
+        # with brackets in it, from an unpacked array) does not.
+        return n + " " if n.startswith("\\") and " " not in n else n
 
     def new_net():
         nonlocal seq

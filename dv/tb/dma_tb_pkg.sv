@@ -13,10 +13,13 @@
 //     write burst touching a wr_err range answers its response and writes
 //     none of its beats there.
 //   * Every AR and AW is checked: INCR, 64-bit beats, 8-byte aligned, at most
-//     16 beats; WLAST is checked against AWLEN.
+//     16 beats; WLAST is checked against AWLEN. With narrow_ok (the
+//     transaction layer's testbench) a single 32-bit beat at a 4-byte aligned
+//     address is accepted too; its data is on the byte lanes of its address.
 //
-// Drivers change signals after the falling edge, and everything is sampled on
-// the rising edge, as in axi_tb_pkg.
+// Also used by tb_tl.sv on the transaction layer's AXI port. Drivers change
+// signals after the falling edge, and everything is sampled on the rising
+// edge, as in axi_tb_pkg.
 
 `timescale 1ns/1ps
 
@@ -58,6 +61,7 @@ package dma_tb_pkg;
     int r_lat_max   = 6;
     int b_lat_min   = 0;
     int b_lat_max   = 4;
+    bit narrow_ok   = 1'b0;
 
     logic [7:0] mem [logic [31:0]];
     range_t     rd_err[$];
@@ -122,9 +126,14 @@ package dma_tb_pkg;
 
     function void check_req(string ch, logic [31:0] addr, logic [7:0] len, logic [2:0] size,
                             logic [1:0] burst);
-      if (size != 3'd3)        err($sformatf("%s size %0d, expected 3", ch, size));
+      if (narrow_ok && size == 3'd2) begin
+        if (len != 8'd0)       err($sformatf("%s narrow burst of %0d beats", ch, len + 1));
+        if (addr[1:0] != 2'd0) err($sformatf("%s narrow address %h not 4-byte aligned", ch, addr));
+      end else begin
+        if (size != 3'd3)      err($sformatf("%s size %0d, expected 3", ch, size));
+        if (addr[2:0] != 3'd0) err($sformatf("%s address %h not 8-byte aligned", ch, addr));
+      end
       if (burst != 2'b01)      err($sformatf("%s burst type %0d, expected INCR", ch, burst));
-      if (addr[2:0] != 3'd0)   err($sformatf("%s address %h not 8-byte aligned", ch, addr));
       if (len > 8'd15)         err($sformatf("%s of %0d beats", ch, len + 1));
     endfunction
 
@@ -176,7 +185,7 @@ package dma_tb_pkg;
           if (aw_q.size() == 0) begin
             err("W beat accepted with no AW");
           end else begin
-            w = aw_q[0].addr + 32'(aw_q[0].beat * 8);
+            w = {aw_q[0].addr[31:3], 3'b000} + 32'(aw_q[0].beat * 8);
             if (aw_q[0].resp == OKAY) begin
               for (int i = 0; i < 8; i++) if (vif.wstrb[i]) mem[w + 32'(i)] = vif.wdata[i*8 +: 8];
             end
@@ -252,7 +261,7 @@ package dma_tb_pkg;
             end
           end
           if (r_busy && !($urandom_range(99) < r_gap_pct)) begin
-            a          = cur_r.addr + 32'(cur_r.beat * 8);
+            a          = {cur_r.addr[31:3], 3'b000} + 32'(cur_r.beat * 8);
             vif.rid    = cur_r.id;
             vif.rdata  = read_word(a);
             vif.rresp  = resp_at(rd_err, a, a + 32'd8);
