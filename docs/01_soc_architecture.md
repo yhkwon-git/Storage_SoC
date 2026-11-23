@@ -2,7 +2,7 @@
 
 This document fixes the decisions that every later step builds on: clocks, resets, power domains, the interconnect, the address and interrupt maps, boot, timing targets and the phase-1 verification plan. A step that changes one of these decisions changes this document in the same commit.
 
-Status: written in step 1-1; numbers are targets until a measurement replaces them with a commit. Sections 2 to 4 (clocks, resets, power domains) are implemented as of step 1-7 (`ca320d4`, [07_clock_reset_power.md](07_clock_reset_power.md)), with two differences listed there: the host FIFOs sit whole in PD_CORE, and the PHY PLL is outside PD_HOST on its own supply. PD_HOST holds a placeholder for its phase-2 logic.
+Status: written in step 1-1; numbers are targets until a measurement replaces them with a commit. Sections 2 to 4 (clocks, resets, power domains) are implemented as of step 1-7 (`ca320d4`, [07_clock_reset_power.md](07_clock_reset_power.md)), with two differences listed there: the host FIFOs sit whole in PD_CORE, and the PHY PLL is outside PD_HOST on its own supply. PD_HOST holds a placeholder for its phase-2 logic. Step 2-1 adds the transaction layer (`4a8e515`, [10_transaction_layer.md](10_transaction_layer.md)); sections 1, 5, 6 and 7 below note where it differs from this plan.
 
 ## 1. Top level
 
@@ -44,6 +44,8 @@ flowchart LR
 ```
 
 The host link reaches the CPU's memory through four layers: PHY, MAC, data link layer and transaction bridge. The bridge is split at the clock boundary: its packet half runs on `pclk` inside PD_HOST, and its AXI half runs on `clk_sys` inside PD_CORE, joined by async FIFOs. This lets PD_HOST power off while the AXI side of the bridge stays reachable and idle.
+
+As built in step 2-1 ([10_transaction_layer.md](10_transaction_layer.md)), the `pclk` half is thin: `tl_port` in PD_HOST joins the link side to the FIFOs and holds the link before a power-down. Everything that decodes and builds TLPs, including configuration space and the MSI-X table, is the transaction layer `tl_core` on `clk_sys` in PD_CORE, so the host's configuration survives a PD_HOST power cycle without retention.
 
 ## 2. Clock domains
 
@@ -123,7 +125,7 @@ The PMU runs both sequences in `clk_aon`. Each wait has a CSR-set timeout, and a
 
 | Step | Power-down (firmware request) | Power-up (wake or firmware request) |
 | --- | --- | --- |
-| 1 | Check that the host path is idle: no outstanding AXI transactions, bridge FIFOs empty. Otherwise refuse with status `REFUSED` | `pwr_en = 1`, wait for `pwr_ack = 1` |
+| 1 | Check that the host path is idle: no outstanding AXI transactions, bridge FIFOs empty; from step 2-1 also the link held by firmware (HOST LINK_CTRL.HOLD). Otherwise refuse with status `REFUSED` | `pwr_en = 1`, wait for `pwr_ack = 1` |
 | 2 | `iso_en = 1` | Enable `pclk`, wait for PLL lock |
 | 3 | `save` pulse | Release `rst_host_n` |
 | 4 | Gate `pclk`, PHY PLL off | `restore` pulse |
@@ -154,7 +156,7 @@ In both, retained state must come back after power-up, and non-retained state mu
 | M0 | CPU instruction | Ibex OBI-style, 32 bit | AXI4 read-only, upsized to 64 bit |
 | M1 | CPU data | Ibex OBI-style, 32 bit | AXI4, upsized to 64 bit |
 | M2 | DMA | AXI4, 64 bit | AXI4 |
-| M3 | TLP bridge | AXI4, 64 bit | AXI4 |
+| M3 | Transaction layer (step 2-1): inbound BAR windows and the bus master's local reads and writes | AXI4, 64 bit | AXI4 |
 | S0 | Boot ROM | | Read-only, writes get SLVERR |
 | S1 | SRAM | | |
 | S2 | AXI to APB bridge | APB4, 32 bit | Downsized; one APB transfer per 32-bit word |
@@ -206,17 +208,19 @@ The ID-ordering rule is the usual deadlock-free choice for a crossbar without re
 | INTC | `0x4000_2000` | Pending, enable, claim (no side effect; sources are levels), software set |
 | TIMER | `0x4000_3000` | `mtime`, `mtimecmp` |
 | DMA | `0x4000_4000` | Channel control, descriptor pointer, status |
-| HOST | `0x4000_5000` | Link control and status, inbound window base, doorbell, error counters |
+| HOST | `0x4000_5000` | Link hold and status, BAR window bases, bus master, MSI-X requests, error status, TLP counts |
 | NAND0 | `0x4000_6000` | Channel timing, command queue, status, ECC counters |
 | NAND1 | `0x4000_7000` | Same as NAND0 |
 
-A slot without a peripheral, and an undefined offset inside one, answer SLVERR (PSLVERR on the APB side). As of step 1-7, SYS, PMU, INTC, TIMER, DMA and HOST exist ([06_dma.md](06_dma.md) for the DMA, [07_clock_reset_power.md](07_clock_reset_power.md) for PMU and HOST; HOST holds the PD_HOST placeholder's registers until phase 2). The PMU is in PD_AON and is reached through an APB clock-domain crossing. Their register files are generated from one SystemRDL source, `rtl/csr/rdl/soc_apb.rdl` ([05_csr.md](05_csr.md)), and every register and field is listed in [regs/soc_apb.md](regs/soc_apb.md). Blocks added later put their registers in the same source.
+A slot without a peripheral, and an undefined offset inside one, answer SLVERR (PSLVERR on the APB side). As of step 2-1, SYS, PMU, INTC, TIMER, DMA and HOST exist ([06_dma.md](06_dma.md) for the DMA, [07_clock_reset_power.md](07_clock_reset_power.md) for the PMU, [10_transaction_layer.md](10_transaction_layer.md) for HOST, which still holds the PD_HOST placeholder's command registers too). The PMU is in PD_AON and is reached through an APB clock-domain crossing. Their register files are generated from one SystemRDL source, `rtl/csr/rdl/soc_apb.rdl` ([05_csr.md](05_csr.md)), and every register and field is listed in [regs/soc_apb.md](regs/soc_apb.md). Blocks added later put their registers in the same source.
 
-The host sees one 64 KiB inbound window. The HOST block's window base register translates it to an AXI address, SRAM by default. The host's doorbell writes land in the HOST block.
+The host sees two memory BARs (step 2-1; the plan of one 64 KiB window was split for NVMe):
+- **BAR0**, 16 KiB, 64-bit: offsets `0x0000`–`0x1FFF` go to AXI at HOST BAR0_WIN (`0x4000_8000` at reset, the APB slots the NVMe registers take in step 2-2); `0x2000` holds the MSI-X table and `0x3000` its Pending Bit Array, both inside the transaction layer.
+- **BAR2**, 32 KiB, 64-bit prefetchable: goes to AXI at HOST BAR2_WIN, the upper half of SRAM (`0x1000_8000`) at reset.
 
 ## 7. Interrupts
 
-Ibex has dedicated timer and external interrupt inputs. The timer drives `irq_timer`, and everything else goes through the INTC to `irq_external`. Sources are levels: a source in another clock domain sets a sticky status bit in its CSR block, and the INTC sees status AND enable. As of step 1-7, sources 1 and 2 (the DMA's STATUS.DONE and STATUS.ERR) and 10 (the PMU's PWR_IRQ) are wired; the others follow with their blocks.
+Ibex has dedicated timer and external interrupt inputs. The timer drives `irq_timer`, and everything else goes through the INTC to `irq_external`. Sources are levels: a source in another clock domain sets a sticky status bit in its CSR block, and the INTC sees status AND enable. As of step 2-1, sources 1 and 2 (the DMA's STATUS.DONE and STATUS.ERR), 5 (HOST ERR_STATUS), 10 (the PMU's PWR_IRQ) and 12 (HOST BM_STATUS.DONE or ERR) are wired; the others follow with their blocks.
 
 | ID | Source |
 | --- | --- |
@@ -224,13 +228,14 @@ Ibex has dedicated timer and external interrupt inputs. The timer drives `irq_ti
 | 2 | DMA error |
 | 3 | Host doorbell |
 | 4 | Host link state change |
-| 5 | Host error (LCRC, sequence, malformed packet) |
+| 5 | Host error: unsupported request, malformed or poisoned TLP, completion error or timeout, AXI error (LCRC and sequence errors from step 2-6) |
 | 6 | NAND0 ready |
 | 7 | NAND0 error (status fail, uncorrectable ECC) |
 | 8 | NAND1 ready |
 | 9 | NAND1 error |
 | 10 | PMU sequence done or failed, wake |
 | 11 | Bus error captured (address and master of the last DECERR or SLVERR) |
+| 12 | Host bus master done or failed (step 2-1) |
 
 ## 8. Boot and firmware
 

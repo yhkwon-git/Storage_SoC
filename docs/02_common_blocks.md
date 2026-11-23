@@ -7,7 +7,7 @@ Step 1-2 brings in the blocks this SoC shares with the earlier AXI_PCIe_Subsyste
 | Block | File here | Origin in AXI_PCIe_Subsystem `b64e36a` | Change |
 | --- | --- | --- | --- |
 | `cdc_sync_2ff` | `rtl/common/cdc_sync_2ff.sv` | `rtl/cdc_async_fifo.sv` | None. The module body is byte-identical; only the file header is new |
-| `axi_channel_reg_slice` | `rtl/axi/axi_channel_reg_slice.sv` | `rtl/axi_register_slice.sv` | None. The module body, monitors included, is byte-identical; only the file header is new |
+| `axi_channel_reg_slice` | `rtl/axi/axi_channel_reg_slice.sv` | `rtl/axi_register_slice.sv` | None at `8ce1fac`: the module body, monitors included, is byte-identical; only the file header is new. In step 2-1 the payload registers moved out of the reset process, because synthesis made the reset net a data input there ([10_transaction_layer.md](10_transaction_layer.md)) |
 | `cdc_async_fifo` | `rtl/common/cdc_async_fifo.sv` | `rtl/cdc_async_fifo.sv` | Rewritten with the same name and ports |
 
 Not taken in this step:

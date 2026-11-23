@@ -97,6 +97,16 @@ At `7a0d727`: 9,842 flops, 32 latches and 4 SRAM macros checked, every crossing 
 
 **What the check found.** `host_if`'s idle flag was a combinational decode of its 5-bit command counter (`pending == 0`), feeding the PMU's synchronizer. While the counter changes several bits at once, the decode can glitch high. The synchronizer can capture the glitch, and the PMU would then accept a power-down with commands outstanding. Simulation cannot show this, because it has no gate delays. The flag is now a flop, set from the counter's next value, so it changes on the same clock as before. Every SoC firmware test still gives the same clock counts.
 
+## Since step 1-9
+
+The numbers above are those of `7a0d727`. Step 2-1 (`4a8e515`, [10_transaction_layer.md](10_transaction_layer.md)) changed the flow:
+- **Constraints.** M3 is internal (the transaction layer); the host link's TLP pins have 4.8 ns (30% of `pclk`) input and output delay against `pclk`.
+- **CDC check.** `PORT_DOMAIN` puts those pins in the `pclk` domain; every other port stays in `clk_sys`.
+- **Fanout buffering.** `buffer_fanout.py` writes an escaped name with brackets in it (from an unpacked array) with its terminating space.
+- **Register slice.** Its data registers moved out of its reset process; in it, synthesis turned the reset net into a data input.
+
+The results after step 2-1 are in docs/10.
+
 ## Limits
 
 - **Pre-layout only.**
