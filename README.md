@@ -12,8 +12,8 @@ A RISC-V CPU, an AXI4 interconnect, DMA, SystemRDL-generated CSRs and always-on 
 
 | Item | Value |
 | --- | --- |
-| Current phase | Phase 2, host interface and NVMe front-end: steps 2-1 (transaction layer) and 2-2 (NVMe registers and queues) done. Next: 2-3 (PRP data, completions, MSI-X per completion queue). Phase 1 is done; setup at the ss corner is not met (docs/09 to docs/11) |
-| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 5 AXI4 crossbar, with SRAM, a descriptor-based DMA, and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; an always-on PMU that orders the resets and switches the PD_HOST domain with isolation and retention (UPF); a CPU clock gate; a PCIe-style transaction layer on the host link (inbound BARs, bus master, configuration space, MSI-X); NVMe-style controller registers, doorbells and round-robin command fetch into SRAM for firmware; dual-clock FIFO, 2-flop synchronizer, channel register slice |
+| Current phase | Phase 2, host interface and NVMe front-end: steps 2-1 (transaction layer), 2-2 (NVMe registers and queues) and 2-3 (PRP data and completions) done. Next: 2-4 (firmware command handling on an SRAM namespace). Phase 1 is done; setup at the ss corner is not met (docs/09 to docs/12) |
+| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 6 AXI4 crossbar, with SRAM, a descriptor-based DMA, and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; an always-on PMU that orders the resets and switches the PD_HOST domain with isolation and retention (UPF); a CPU clock gate; a PCIe-style transaction layer on the host link (inbound BARs, bus master, configuration space, MSI-X); an NVMe-style controller (registers, doorbells, round-robin command fetch into SRAM, PRP data transfers with lists, completion queue entries with phase tags and MSI-X per queue) driven by firmware; dual-clock FIFO, 2-flop synchronizer, channel register slice |
 | Verification tools | Vivado simulator 2019.2 (UVM 1.2), Verilator 5.052 |
 | Register generation | PeakRDL 1.5.0: register RTL, C header, UVM register model and register document from one source |
 | Implementation tools | sv2v 0.0.13, Yosys 0.52, OpenSTA 3.1.0, Sky130 HD from lambdapdk v0.2.9 (ss/tt/ff corners) |
@@ -72,7 +72,7 @@ flowchart LR
 | --- | --- | --- |
 | 0 | Toolchain checks, repository layout, CI, RISC-V GCC | Done |
 | 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | Done: 1-1 to 1-9; setup at ss not met (docs/09) |
-| 2 | Host interface: transaction layer and NVMe front-end (steps 2-1 to 2-5), then data link layer, PHY with a PIPE-style boundary and link training (steps 2-6 to 2-9) | In progress: 2-1 and 2-2 done |
+| 2 | Host interface: transaction layer and NVMe front-end (steps 2-1 to 2-5), then data link layer, PHY with a PIPE-style boundary and link training (steps 2-6 to 2-9) | In progress: 2-1 to 2-3 done |
 | 3 | Storage datapath: NAND channel controllers, NAND model, BCH, NVMe reads and writes through to NAND | Planned |
 | 4 | SoC-level UVM, verification plan, coverage closure | Planned |
 | 5 | Full-chip synthesis and multi-corner STA, documentation | Planned |
@@ -209,6 +209,14 @@ NVMe registers and queues (commits 883242d and d3a786e, details in [docs/11_nvme
 - **Synthesis and timing.** The controller is 3.6% of the standard-cell area; tt meets every clock; CDC check PASS with no new crossings.
 - **Found on the way.** A 16-slot APB bridge whose range check truncated 16 to 0, caught by lint; and the power mutation check, which had been counting build failures as catches since step 2-1.
 
+NVMe data transfers and completions (commit 569ad05, details in [docs/12_nvme_data.md](docs/12_nvme_data.md)):
+
+- **Design.** A PRP engine moves a command's data between host memory and SRAM for firmware: PRP1 with an offset, PRP2 as the second page or a list pointer, list entries fetched 8 at a time and followed across list pages. A completion poster takes entries from firmware, waits for room in the queue, fills in the SQ head and the phase tag, writes the entry and then raises the queue's MSI-X vector. List entries and entries being posted pass through a 128-byte controller buffer on a new crossbar slave port.
+- **Block testbench.** The host model builds PRP layouts in host memory and takes completion entries by phase, checking every field and every byte read; the testbench as firmware moves the data and posts the entries. Three new directed tests and a random I/O test: over 10 seeds, 2,281 completions checked and 25 MB moved, 0 errors, 95 of 95 covergroup bins (all hit by the directed tests alone). Mutation check: 27 of 27.
+- **Throughput.** 6.6 bytes per clock from SRAM to the host and 5.6 the other way, one bus-master transfer per page; a completion entry is in host memory 17 clocks after firmware posts it.
+- **SoC.** The firmware test now completes every command: two admin commands, then Writes and Reads with PRP lists against a 16-block namespace in SRAM, read back and checked by the host, and error statuses where due.
+- **Found on the way.** A tail update a clock late that would have let the next entry overwrite an unread one (caught in review); a testbench check that could not tell queue laps apart; and a testbench build that grew to 15 minutes because Verilator copies module tasks into every caller (now 4).
+
 ## How to run
 
 ```bash
@@ -227,7 +235,7 @@ make -C dv                                                           # [LINT] [I
 make -C dv xbar-mut                                                  # [MUT] 7 of 7 mutants caught
 make -C dv dma-mut                                                   # [MUT] 10 of 10 mutants caught
 make -C dv tl-mut                                                    # [MUT] 16 of 16 mutants caught
-make -C dv nvme-mut                                                  # [MUT] 14 of 14 mutants caught
+make -C dv nvme-mut                                                  # [MUT] 27 of 27 mutants caught
 make -C dv power-mut                                                 # [MUT] 11 of 11 mutants caught
 make -C dv power-x                                                   # [PWR] X run PASS: power testbench on xsim (WSL calls Windows)
 make -C fw images                                                    # rebuild fw/images (needs riscv-none-elf-gcc on PATH)
@@ -262,7 +270,7 @@ rtl/csr/             SystemRDL source (rdl/) and the register blocks generated f
 rtl/dma/             descriptor-based DMA
 rtl/host/            PD_HOST boundary, its placeholder logic, core side (HOST registers, FIFOs), PLL model
 rtl/host/tl/         transaction layer: receive buffer, pack and unpack, dispatcher, configuration space, MSI-X, completer, bus master, link-side port
-rtl/host/nvme/       NVMe controller: host registers and doorbells, queue pointers, round-robin fetch, command slots and FIFO
+rtl/host/nvme/       NVMe controller: host registers and doorbells, queue pointers, round-robin fetch, command slots and FIFO, PRP engine, completion poster, controller buffer
 rtl/mem/             AXI4 ROM and SRAM
 rtl/periph/          APB SYS, interrupt controller, timer around the generated registers
 rtl/pmu/             PMU, APB clock-domain crossing, isolation cell, retention register
@@ -287,6 +295,7 @@ rtl/vendor/ibex/     Ibex v2.1.0, unchanged (VENDOR.md)
 | [docs/09_timing.md](docs/09_timing.md) | Synthesis flow, SRAM macro models, constraints, area by block, timing at three corners and the critical paths, the CDC check and what it found |
 | [docs/10_transaction_layer.md](docs/10_transaction_layer.md) | Transaction layer: what the host and the SoC see (configuration space, BARs, request handling, HOST registers, link hold), design decisions, host model and tests, throughput, mutation check, SoC tests, area, timing and CDC, findings |
 | [docs/11_nvme_queues.md](docs/11_nvme_queues.md) | NVMe registers and queues: what the host and the firmware see, enable, reset and shutdown, doorbells, round-robin fetch, design decisions, block tests, throughput, mutation check, SoC firmware test, area, timing and CDC, findings |
+| [docs/12_nvme_data.md](docs/12_nvme_data.md) | NVMe data and completions: PRP transfers and lists, completion queue entries, phase and MSI-X order, the controller buffer on the crossbar, design decisions, block tests, throughput, mutation check, SoC test, area, timing and CDC, findings |
 | [docs/regs/soc_apb.md](docs/regs/soc_apb.md) | Generated register reference: every register and field with offset, access and reset value |
 
 ## Limitations
@@ -308,7 +317,7 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
 - **Storage path.** NAND channel controller 2개와 BCH ECC, NVMe Read·Write를 SRAM을 거쳐 NAND까지 처리하는 firmware입니다.
 - **진행 순서.** Phase 1 → 2-1~2-5(transaction 수준 host 모델로 NVMe) → Phase 3 → 2-6~2-9(link · PHY) → Phase 4, 5. NVMe 명령이 NAND까지 가는 경로를 serial link보다 먼저 완성합니다.
 - **검증과 구현.** IP별 TB를 먼저 만들고, SoC 전체는 UVM(Vivado simulator 2019.2)으로 sign-off합니다. lint, 빠른 regression, coverage는 Verilator 5.052, 합성과 multi-corner STA는 Yosys, OpenSTA, Sky130으로 합니다.
-- **현재 상태.** Phase 0(도구 확인, repo 구조, CI, RISC-V GCC)과 Phase 1(SoC platform, 1-1~1-9)이 끝났고, ss corner의 setup 미충족은 docs/09에 기록했습니다. Phase 2는 2-1(transaction layer)과 2-2(NVMe register와 queue)를 마쳤고, 다음은 2-3(PRP 데이터, completion, completion queue별 MSI-X)입니다.
+- **현재 상태.** Phase 0(도구 확인, repo 구조, CI, RISC-V GCC)과 Phase 1(SoC platform, 1-1~1-9)이 끝났고, ss corner의 setup 미충족은 docs/09에 기록했습니다. Phase 2는 2-1(transaction layer), 2-2(NVMe register와 queue), 2-3(PRP 데이터와 completion)을 마쳤고, 다음은 2-4(SRAM namespace에서 firmware 명령 처리)입니다.
   - 1-1 아키텍처 사양([docs/01_soc_architecture.md](docs/01_soc_architecture.md)): clock 5개와 crossing 규칙, reset 해제 순서, PD_HOST의 isolation·retention·power sequence, AXI4 규칙, address·interrupt map, 목표 주파수를 정했습니다.
   - 1-2 공통 블록([docs/02_common_blocks.md](docs/02_common_blocks.md)): 이전 프로젝트의 2-FF synchronizer와 register slice는 로직을 그대로 가져왔습니다. dual-clock FIFO는 같은 TB로 측정한 결과 처리량이 상한의 12.5~24.8%(4:1 비율만 50~68%)에 그쳐서 새로 설계했고, 새 FIFO는 12개 run 모두 데이터 오류 0, 상한의 97.9~101.0%를 냈습니다(commit 8ce1fac).
   - 1-3 AXI4 crossbar([docs/03_axi_crossbar.md](docs/03_axi_crossbar.md)): 4×5 sparse 구조이고, 같은 ID가 outstanding인 동안 다른 slave로 넘어가지 않게 해서 reorder buffer 없이 응답 순서를 지킵니다. master마다 DECERR slave를 두고, W는 master와 slave 양쪽의 AW 순서를 따르게 했습니다(commit 76fd272).
@@ -370,5 +379,11 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
     - **성능.** 빠른 host에서 명령 하나 fetch에 40 clock이고 한 번에 하나씩 처리하므로, 50 MHz에서 초당 125만 개입니다.
     - **SoC 테스트.** 새 firmware test가 host의 Create I/O Completion Queue·Create I/O Submission Queue를 받아 queue 쌍을 만들고, 그 queue로 Read 명령 12개를 받습니다. 배경 host 트래픽이 있을 때도 통과합니다. APB bridge는 slot 16개가 되었습니다.
     - **찾은 문제.** slot 수 16을 4 bit로 잘라 0과 비교하던 APB bridge의 범위 검사를 lint가 잡았고, 2-1부터 build 실패를 검출로 세던 power mutation 검사를 고쳤습니다(commit 883242d, d3a786e).
+  - 2-3 NVMe 데이터 전송과 completion([docs/12_nvme_data.md](docs/12_nvme_data.md)):
+    - **구조.** PRP engine이 firmware 대신 명령 데이터를 host memory와 SRAM 사이로 옮깁니다. PRP1의 offset, 두 번째 page 또는 list pointer인 PRP2, 8개씩 가져오는 list entry와 list page 사이의 연결을 처리합니다. completion poster는 firmware가 넘긴 entry를 queue에 자리가 날 때까지 기다렸다가 SQ head와 phase tag를 채워 쓰고, 그 뒤에 queue의 MSI-X vector를 올립니다. list entry와 보낼 entry는 crossbar의 새 slave port에 붙은 128 byte controller buffer를 거칩니다.
+    - **검증.** host 모델이 host memory에 PRP layout을 만들고 completion entry를 phase로 받아 모든 field와 읽은 byte를 확인하며, TB가 firmware 역할로 데이터를 옮기고 entry를 보냅니다. directed 3종과 random I/O 10 seed에서 completion 2,281개를 확인하고 25 MB를 옮겨 오류 0, covergroup 95/95(directed만으로 모두 hit), mutation 27 of 27입니다.
+    - **성능.** SRAM → host 6.6 B/clock, host → SRAM 5.6 B/clock(page마다 bus master 전송 하나)이고, firmware가 보낸 completion entry는 17 clock 뒤 host memory에 있습니다.
+    - **SoC 테스트.** firmware test가 이제 모든 명령을 completion까지 처리합니다. admin 명령 2개 뒤 PRP list를 쓰는 Write·Read를 SRAM의 16 block namespace로 처리하고, host가 읽은 데이터와 오류 status를 확인합니다.
+    - **찾은 문제.** 한 clock 늦은 tail 갱신으로 다음 entry가 읽지 않은 entry를 덮어쓸 수 있던 문제(설계 검토에서 발견), queue 바퀴를 구분하지 못하던 TB 검사, Verilator가 module task를 호출한 곳마다 복사해 15분까지 늘어난 TB build(지금 4분)를 고쳤습니다(commit 569ad05).
 - **범위.** 공개 자료만으로 구성하며 PCIe, NVMe, M-PHY, UniPro 규격 준수를 주장하지 않습니다. NVMe는 공개된 Base Specification의 register · queue · PRP 구조 일부만 따릅니다.
 - **LLM 사용.** 코드, 테스트, 문서 초안에 LLM(Claude)을 쓰고, repo 안의 regression과 검사를 통과한 결과만 반영합니다.

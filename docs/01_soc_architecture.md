@@ -20,7 +20,7 @@ flowchart LR
     TLC["TLP bridge (clk_sys half)"]
     CPU["Ibex RV32IMC"]
     DMA["DMA"]
-    XBAR["AXI4 crossbar 4 x 5, 64 bit"]
+    XBAR["AXI4 crossbar 4 x 6, 64 bit"]
     ROM["Boot ROM 16 KiB"]
     SRAM["SRAM 64 KiB"]
     APB["AXI to APB bridge"]
@@ -156,21 +156,22 @@ In both, retained state must come back after power-up, and non-retained state mu
 | M0 | CPU instruction | Ibex OBI-style, 32 bit | AXI4 read-only, upsized to 64 bit |
 | M1 | CPU data | Ibex OBI-style, 32 bit | AXI4, upsized to 64 bit |
 | M2 | DMA | AXI4, 64 bit | AXI4 |
-| M3 | Transaction layer (step 2-1): inbound BAR2 window and the bus master's local reads and writes, which also carry the NVMe controller's command fetches (step 2-2) | AXI4, 64 bit | AXI4 |
+| M3 | Transaction layer (step 2-1): inbound BAR2 window and the bus master's local reads and writes, which also carry the NVMe controller's command fetches (step 2-2), PRP data, PRP list entries and completion queue entries (step 2-3) | AXI4, 64 bit | AXI4 |
 | S0 | Boot ROM | | Read-only, writes get SLVERR |
 | S1 | SRAM | | |
 | S2 | AXI to APB bridge | APB4, 32 bit | Downsized; one APB transfer per 32-bit word |
 | S3 | NAND0 data port | | Page buffer window |
 | S4 | NAND1 data port | | Page buffer window |
+| S5 | NVMe controller buffer (step 2-3) | | 128 bytes in flops, repeated over a 4 KiB window: PRP list entries and completion queue entries on their way |
 
 The crossbar is sparse: only the paths below exist, and an address that maps to a slave the master cannot reach gets DECERR from the crossbar's default slave.
 
-| Master | ROM | SRAM | APB | NAND0 | NAND1 |
-| --- | --- | --- | --- | --- | --- |
-| M0 CPU I | ● | ● | | | |
-| M1 CPU D | ● | ● | ● | ● | ● |
-| M2 DMA | | ● | | ● | ● |
-| M3 Host | | ● | ● | | |
+| Master | ROM | SRAM | APB | NAND0 | NAND1 | NVMe buffer |
+| --- | --- | --- | --- | --- | --- | --- |
+| M0 CPU I | ● | ● | | | | |
+| M1 CPU D | ● | ● | ● | ● | ● | |
+| M2 DMA | | ● | | ● | ● | |
+| M3 Host | | ● | ● | | | ● |
 
 ### AXI4 rules
 
@@ -199,6 +200,7 @@ The ID-ordering rule is the usual deadlock-free choice for a crossbar without re
 | `0x3000_0000` – `0x3000_0FFF` | 4 KiB | NAND0 page buffer |
 | `0x3001_0000` – `0x3001_0FFF` | 4 KiB | NAND1 page buffer |
 | `0x4000_0000` – `0x4000_FFFF` | 64 KiB | APB, 4 KiB per block (16 slots), below |
+| `0x5000_0000` – `0x5000_0FFF` | 4 KiB | NVMe controller buffer (128 bytes, repeated), host port only |
 | Everything else | | DECERR |
 
 | APB block | Base | Contents |

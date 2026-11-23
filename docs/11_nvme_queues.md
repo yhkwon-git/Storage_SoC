@@ -4,6 +4,8 @@ Step 2-2 builds the NVMe-style controller's register interface and its submissio
 
 The registers and queues follow the NVM Express Base Specification's layout as far as this document says. Compliance is not claimed.
 
+> **Changed in step 2-3** ([12_nvme_data.md](12_nvme_data.md)): the fetch engine shares the controller's bus-master port with a PRP engine and a completion entry poster, round robin; the completion queue registers, CQ head doorbells and CQ_PTR tails and phases are in use; a controller reset or shutdown also waits for a data transfer or an entry write in flight; the crossbar has a sixth slave for the controller's buffer; SYS VERSION is `0x0002_0003`. The rest of this document describes step 2-2 as measured at `d3a786e`.
+
 ## Blocks
 
 | Block | File | Role |
