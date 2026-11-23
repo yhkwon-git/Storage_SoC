@@ -12,7 +12,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 out="${BUILD_DIR:-$root/build/dv}/soc"
-tests=(hello memtest irq buserr perf dma power reset host nvme soc_app)
+tests=(hello memtest irq buserr perf dma power reset host nvme soc_app nvme_app)
 mkdir -p "$out"
 
 if command -v riscv-none-elf-gcc > /dev/null; then

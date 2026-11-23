@@ -11,6 +11,7 @@
  *   pmu    PD_HOST power-down and power-up by interrupt, chip reset
  *   host   one command to the PD_HOST placeholder and its response
  *   crc32  table-driven CRC-32 (reflected, polynomial 0xEDB88320)
+ *   nvme   NVMe admin and I/O commands on an SRAM namespace (step 2-4)
  */
 #ifndef DRV_H
 #define DRV_H
@@ -65,5 +66,21 @@ void     host_release(void);
 
 /* crc32 */
 uint32_t crc32(const void *p, uint32_t len);
+
+/* nvme: command handling (step 2-4, docs/13_nvme_firmware.md). Call
+ * irq_init() first. nvme_service() sleeps until the NVMe interrupt, takes
+ * every waiting command, and returns 1 once the host has asked for a
+ * shutdown. */
+typedef struct {
+  uint32_t cmds, admin, reads, writes, flushes, errors, resets;
+  uint32_t fw_clocks;     /* clocks in the command loop, spinning on transfers left out */
+  uint32_t spin_clocks;   /* clocks spinning on a transfer's end */
+  uint32_t xfer_clocks;   /* summed XF_CYCLES of the PRP transfers */
+  uint32_t bytes;
+} nvme_stats_t;
+extern nvme_stats_t nvme_stats;
+void     nvme_init(void);
+int      nvme_service(void);
+uint32_t nvme_events(void);
 
 #endif

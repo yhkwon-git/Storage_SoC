@@ -602,6 +602,278 @@ module tb_soc;
              nv_cycles_admin, nv_cycles_io, nv_msi(0), nv_msi1);
   endtask
 
+
+  // ---------------------------------------------------------------------------
+  // NVMe host for fw/app/nvme_app.c (+test=nvme_app, step 2-4): bring-up as a
+  // host driver does it (Identify controller, namespace and active list, Set
+  // and Get Features Number of Queues, four I/O queue pairs), then
+  // workloads: the namespace written, reads at queue depth 1 for latency,
+  // reads at queue depths 1, 4 and 16 over the four queues for IOPS, error
+  // commands, queue deletion, shutdown. Every completion and every byte read
+  // is checked. Times are clk_sys clocks, from the doorbell write to the
+  // entry seen in host memory.
+  // ---------------------------------------------------------------------------
+  localparam bit [63:0] AQ_S  = 64'h0000_0001_7000_0000;
+  localparam bit [63:0] AQ_C  = 64'h0000_0001_7001_0000;
+  localparam bit [63:0] IQ_S  = 64'h0000_0001_7100_0000;   // + q x 64 KiB
+  localparam bit [63:0] IQ_C  = 64'h0000_0001_7200_0000;
+  localparam bit [63:0] HBUF  = 64'h0000_0001_7400_0000;   // one 8 KiB-spaced page per command tag
+  localparam int        QS    = 16;
+  int        na_tail [5], na_head [5];
+  bit        na_ph [5];
+  bit [15:0] na_cid;
+  int        na_errs;
+
+  function automatic bit [7:0] na_pat(int b);
+    return 8'(b) ^ 8'(b >> 8) ^ 8'h5A;
+  endfunction
+
+  function automatic bit [63:0] na_sq(int q); return (q == 0) ? AQ_S : IQ_S + 64'(q) * 64'h1_0000; endfunction
+  function automatic bit [63:0] na_cq(int q); return (q == 0) ? AQ_C : IQ_C + 64'(q) * 64'h1_0000; endfunction
+  function automatic bit [63:0] na_buf(bit [15:0] cid); return HBUF + 64'(cid % 64) * 64'h2000; endfunction
+
+  // Put a command into SQ q (not rung).
+  function automatic bit [15:0] na_put(int q, bit [7:0] opc, bit [31:0] nsid, bit [63:0] prp1,
+                                       bit [31:0] c10, bit [31:0] c11, bit [31:0] c12);
+    bit [15:0] cid = na_cid;
+    na_cid++;
+    nv_sqe(na_sq(q) + 64'(64 * na_tail[q]), opc, cid, nsid, prp1, 64'd0, c10, c11, c12);
+    na_tail[q] = (na_tail[q] + 1) % QS;
+    return cid;
+  endfunction
+
+  // The next entry of CQ q, if there: CID, status, DW0.
+  task automatic na_take(int q, output bit got, output bit [15:0] cid, output bit [14:0] st,
+                         output bit [31:0] dw0);
+    bit [63:0] a = na_cq(q) + 64'(16 * na_head[q]);
+    bit [31:0] d2, d3;
+    d3  = host.hget_dw(a + 64'd12);
+    got = (d3[16] == na_ph[q]);
+    if (!got) return;
+    dw0 = host.hget_dw(a);
+    d2  = host.hget_dw(a + 64'd8);
+    cid = d3[15:0];
+    st  = d3[31:17];
+    if (int'(d2[31:16]) != q) herr($sformatf("CQ%0d entry for CID %h with SQID %0d", q, cid, d2[31:16]));
+    na_head[q] = (na_head[q] + 1) % QS;
+    if (na_head[q] == 0) na_ph[q] = !na_ph[q];
+  endtask
+
+  // An admin command, waited for: returns its status and DW0.
+  task automatic na_admin(bit [7:0] opc, bit [31:0] nsid, bit [63:0] prp1, bit [31:0] c10, bit [31:0] c11,
+                          bit [14:0] want, output bit [31:0] dw0);
+    bit        got;
+    bit [15:0] cid, c;
+    bit [14:0] st;
+    int        n = 0;
+    cid = na_put(0, opc, nsid, prp1, c10, c11, 32'd0);
+    nv_wr(32'h1000, 32'(na_tail[0]));
+    do begin
+      @(negedge clk);
+      na_take(0, got, c, st, dw0);
+      if (++n > 400000) begin herr($sformatf("admin opcode %h never completed", opc)); return; end
+    end while (!got);
+    nv_wr(32'h1004, 32'(na_head[0]));
+    if (c != cid || st != want) begin
+      herr($sformatf("admin opcode %h: CID %h status %h, expected CID %h status %h", opc, c, st, cid, want));
+      na_errs++;
+    end
+  endtask
+
+  // n I/O commands of len bytes (opcode opc), at most qd outstanding, spread
+  // round robin over SQ1..nq. Reads are checked against the namespace's
+  // pattern. Returns the clocks from the first doorbell to the last entry,
+  // and the sum and the largest of the per-command latencies.
+  typedef struct { longint t0; int lba; int len; bit [7:0] opc; int q; } na_rec_t;
+  task automatic na_run(int nq, int qd, int n, int len, bit [7:0] opc, output longint total,
+                        output longint lat_sum, output longint lat_max);
+    na_rec_t   out [bit [15:0]];
+    int        oq [5] = '{0, 0, 0, 0, 0};             // outstanding per queue: below its 15 entries
+    int        issued = 0, k = 0;
+    longint    t_first = 0, t_last = 0;
+    lat_sum = 0;
+    lat_max = 0;
+    while (issued < n || out.size() > 0) begin
+      if (issued < n && out.size() < qd && oq[1 + issued % nq] < QS - 2) begin
+        int        q   = 1 + issued % nq;
+        int        nb  = len / 512;
+        int        lba = (nb == 8) ? 8 * (issued % 3) : (issued * 7) % 24;
+        bit [15:0] cid = na_cid;
+        na_rec_t   r;
+        if (opc == 8'h01)
+          for (int i = 0; i < len; i++) host.hmem[na_buf(cid) + 64'(i)] = na_pat(512 * lba + i);
+        void'(na_put(q, opc, 32'd1, na_buf(cid), 32'(lba), 32'd0, 32'(nb - 1)));
+        nv_wr(32'h1000 + 8 * q, 32'(na_tail[q]));
+        r.t0 = $time; r.lba = lba; r.len = len; r.opc = opc; r.q = q;
+        if (issued == 0) t_first = $time;
+        out[cid] = r;
+        oq[q]++;
+        issued++;
+      end
+      @(negedge clk);
+      for (int q = 1; q <= nq; q++) begin
+        bit        got;
+        bit [15:0] cid;
+        bit [14:0] st;
+        bit [31:0] dw0;
+        int        took = 0;
+        do begin
+          na_take(q, got, cid, st, dw0);
+          if (got) begin
+            took++;
+            if (!out.exists(cid)) begin
+              herr($sformatf("CQ%0d: CID %h of no outstanding command", q, cid));
+            end else begin
+              longint lat = ($time - out[cid].t0) / 20;
+              if (st != 15'h0) herr($sformatf("CID %h: status %h", cid, st));
+              if (out[cid].q != q) herr($sformatf("CID %h on CQ%0d, submitted to SQ%0d", cid, q, out[cid].q));
+              if (out[cid].opc == 8'h02)
+                for (int i = 0; i < out[cid].len; i++)
+                  if (host.hget(na_buf(cid) + 64'(i)) !== na_pat(512 * out[cid].lba + i)) begin
+                    herr($sformatf("CID %h: read byte %0d wrong", cid, i));
+                    break;
+                  end
+              lat_sum += lat;
+              if (lat > lat_max) lat_max = lat;
+              oq[out[cid].q]--;
+              out.delete(cid);
+              t_last = $time;
+            end
+          end
+        end while (got);
+        if (took > 0) nv_wr(32'h1004 + 8 * q, 32'(na_head[q]));
+      end
+      if (++k > 2000000) begin herr("I/O workload stuck"); break; end
+    end
+    total = (t_last - t_first) / 20;
+  endtask
+
+  task automatic nvme_app_host();
+    bit [31:0] v, dw0;
+    int        n = 0;
+    longint    tot, ls, lm;
+    longint    lat4, lat4max, lat512, iops [4], lat4o, iopso [5];
+    for (int q = 0; q < 5; q++) begin
+      na_tail[q] = 0; na_head[q] = 0; na_ph[q] = 1'b1;
+      for (int i = 0; i < 16 * QS; i++) host.hmem[na_cq(q) + 64'(i)] = 8'h00;
+    end
+    na_cid = 16'h0010;
+    nv_wr(32'h24, {4'd0, 12'(QS - 1), 4'd0, 12'(QS - 1)});
+    host.mem_wr(BAR0 + 64'h28, le_bytes(AQ_S, 8));
+    host.mem_wr(BAR0 + 64'h30, le_bytes(AQ_C, 8));
+    nv_wr(32'h14, 32'h0046_0001);
+    do begin
+      nv_rd(32'h1C, v);
+      if (++n > 1000) begin herr("CSTS.RDY never set"); return; end
+    end while (!v[0]);
+    // Identify controller, namespace 1, active namespace list; an unknown CNS.
+    na_admin(8'h06, 32'd0, HBUF, 32'h1, 32'd0, 15'h0, dw0);
+    if (host.hget(HBUF + 64'd77) != 8'd5 || host.hget(HBUF + 64'd512) != 8'h66 ||
+        host.hget(HBUF + 64'd513) != 8'h44 || host.hget_dw(HBUF + 64'd516) != 32'd1 ||
+        host.hget_dw(HBUF + 64'd80) != 32'h0001_0400)
+      herr("Identify Controller: MDTS, SQES, CQES, NN or VER");
+    na_admin(8'h06, 32'd1, HBUF, 32'h0, 32'd0, 15'h0, dw0);
+    if (host.hget_dw(HBUF) != 32'd24 || host.hget_dw(HBUF + 64'd128) != 32'h0009_0000)
+      herr("Identify Namespace: NSZE or LBAF0");
+    na_admin(8'h06, 32'd0, HBUF, 32'h2, 32'd0, 15'h0, dw0);
+    if (host.hget_dw(HBUF) != 32'd1) herr("Identify active namespace list");
+    na_admin(8'h06, 32'd0, HBUF, 32'h10, 32'd0, 15'h4002, dw0);       // Invalid Field
+    na_admin(8'h06, 32'd2, HBUF, 32'h0, 32'd0, 15'h400B, dw0);        // Invalid Namespace
+    // Number of Queues: 8 asked, 4 granted.
+    na_admin(8'h09, 32'd0, 64'd0, 32'h7, 32'h0007_0007, 15'h0, dw0);
+    if (dw0 != 32'h0003_0003) herr($sformatf("Set Features Number of Queues: DW0 %h", dw0));
+    na_admin(8'h0A, 32'd0, 64'd0, 32'h7, 32'd0, 15'h0, dw0);
+    if (dw0 != 32'h0003_0003) herr($sformatf("Get Features Number of Queues: DW0 %h", dw0));
+    na_admin(8'h0A, 32'd0, 64'd0, 32'h6, 32'd0, 15'h4002, dw0);       // not a feature here
+    // Four I/O queue pairs, vectors 1 to 4; and the queue errors.
+    for (int q = 1; q <= 4; q++)
+      na_admin(8'h05, 32'd0, na_cq(q), {16'(QS - 1), 16'(q)}, {16'(q), 14'd0, 2'b11}, 15'h0, dw0);
+    for (int q = 1; q <= 4; q++)
+      na_admin(8'h01, 32'd0, na_sq(q), {16'(QS - 1), 16'(q)}, {16'(q), 15'd0, 1'b1}, 15'h0, dw0);
+    na_admin(8'h05, 32'd0, na_cq(1), {16'(QS - 1), 16'd5}, 32'h3, 15'h4101, dw0);   // Invalid Queue Identifier
+    na_admin(8'h04, 32'd0, 64'd0, 32'd1, 32'd0, 15'h410C, dw0);                      // Invalid Queue Deletion
+    // Workloads
+    na_run(1, 1, 3, 4096, 8'h01, tot, ls, lm);              // the namespace written, 3 x 4 KiB
+    na_run(1, 1, 32, 4096, 8'h02, tot, ls, lm);
+    lat4 = ls / 32; lat4max = lm;
+    iops[0] = 64'd32 * 64'd50_000_000 / tot;
+    na_run(1, 1, 32, 512, 8'h02, tot, ls, lm);
+    lat512 = ls / 32;
+    na_run(4, 4, 48, 4096, 8'h02, tot, ls, lm);
+    iops[1] = 64'd48 * 64'd50_000_000 / tot;
+    na_run(4, 16, 64, 4096, 8'h02, tot, ls, lm);
+    iops[2] = 64'd64 * 64'd50_000_000 / tot;
+    na_run(4, 16, 64, 512, 8'h02, tot, ls, lm);
+    iops[3] = 64'd64 * 64'd50_000_000 / tot;
+    // The same throughput runs with the firmware's transfer overlap on
+    // (vendor-specific feature 0xC0).
+    na_admin(8'h09, 32'd0, 64'd0, 32'hC0, 32'd1, 15'h0, dw0);
+    na_admin(8'h0A, 32'd0, 64'd0, 32'hC0, 32'd0, 15'h0, dw0);
+    if (dw0 != 32'd1) herr($sformatf("Get Features 0xC0: DW0 %h", dw0));
+    na_run(1, 1, 32, 4096, 8'h02, tot, ls, lm);
+    lat4o = ls / 32;
+    iopso[0] = 64'd32 * 64'd50_000_000 / tot;
+    na_run(4, 4, 48, 4096, 8'h02, tot, ls, lm);
+    iopso[1] = 64'd48 * 64'd50_000_000 / tot;
+    na_run(4, 16, 64, 4096, 8'h02, tot, ls, lm);
+    iopso[2] = 64'd64 * 64'd50_000_000 / tot;
+    na_run(4, 16, 64, 512, 8'h02, tot, ls, lm);
+    iopso[3] = 64'd64 * 64'd50_000_000 / tot;
+    na_run(4, 16, 48, 4096, 8'h01, tot, ls, lm);          // writes overlapped, then read back below
+    iopso[4] = 64'd48 * 64'd50_000_000 / tot;
+    na_run(4, 16, 24, 4096, 8'h02, tot, ls, lm);
+    // A Flush, then errors on an I/O queue: past the end, another namespace,
+    // an unknown opcode.
+    begin
+      bit got; bit [15:0] c; bit [14:0] st; bit [15:0] cid [4];
+      bit [14:0] want [4] = '{15'h0, 15'h4080, 15'h400B, 15'h4001};
+      cid[0] = na_put(1, 8'h00, 32'd1, 64'd0, 32'd0, 32'd0, 32'd0);
+      cid[1] = na_put(1, 8'h02, 32'd1, na_buf(16'd0), 32'd23, 32'd0, 32'd1);
+      cid[2] = na_put(1, 8'h02, 32'd2, na_buf(16'd0), 32'd0, 32'd0, 32'd0);
+      cid[3] = na_put(1, 8'h99, 32'd1, na_buf(16'd0), 32'd0, 32'd0, 32'd0);
+      nv_wr(32'h1008, 32'(na_tail[1]));
+      for (int k = 0; k < 4; k++) begin
+        n = 0;
+        do begin @(negedge clk); na_take(1, got, c, st, dw0); n++; end while (!got && n < 400000);
+        if (c != cid[k] || st != want[k]) herr($sformatf("I/O error command %0d: CID %h status %h", k, c, st));
+      end
+      nv_wr(32'h100C, 32'(na_head[1]));
+    end
+    // Delete the queues: submission queues first.
+    for (int q = 1; q <= 4; q++) na_admin(8'h00, 32'd0, 64'd0, 32'(q), 32'd0, 15'h0, dw0);
+    for (int q = 1; q <= 4; q++) na_admin(8'h04, 32'd0, 64'd0, 32'(q), 32'd0, 15'h0, dw0);
+    // A controller reset, then the admin queue again: the firmware keeps
+    // serving.
+    nv_wr(32'h14, 32'h0046_0000);
+    n = 0;
+    do begin
+      nv_rd(32'h1C, v);
+      if (++n > 1000) begin herr("CSTS.RDY never cleared"); return; end
+    end while (v[0]);
+    na_tail[0] = 0; na_head[0] = 0; na_ph[0] = 1'b1;
+    for (int i = 0; i < 16 * QS; i++) host.hmem[AQ_C + 64'(i)] = 8'h00;
+    nv_wr(32'h14, 32'h0046_0001);
+    n = 0;
+    do begin
+      nv_rd(32'h1C, v);
+      if (++n > 1000) begin herr("CSTS.RDY never set again"); return; end
+    end while (!v[0]);
+    na_admin(8'h06, 32'd0, HBUF, 32'h1, 32'd0, 15'h0, dw0);
+    if (host.hget(HBUF + 64'd77) != 8'd5) herr("Identify Controller after the reset");
+    na_admin(8'h0A, 32'd0, 64'd0, 32'hC0, 32'd0, 15'h0, dw0);        // back to its default
+    if (dw0 != 32'd0) herr($sformatf("Get Features 0xC0 after the reset: DW0 %h", dw0));
+    nv_wr(32'h14, 32'h0046_4001);
+    n = 0;
+    do begin
+      nv_rd(32'h1C, v);
+      if (++n > 1000) begin herr("CSTS.SHST never complete"); return; end
+    end while (v[3:2] != 2'b10);
+    $display("[SOC] nvme_app host: QD1 read latency 4 KiB %0d clocks (worst %0d), 512 B %0d clocks; IOPS at 50 MHz, 4 KiB reads: QD1 %0d, QD4 %0d, QD16 %0d; 512 B reads QD16 %0d",
+             lat4, lat4max, lat512, iops[0], iops[1], iops[2], iops[3]);
+    $display("[SOC] nvme_app host, transfer overlap on: QD1 read latency 4 KiB %0d clocks; IOPS 4 KiB reads: QD1 %0d, QD4 %0d, QD16 %0d; 512 B reads QD16 %0d; 4 KiB writes QD16 %0d; MSI-X messages %0d",
+             lat4o, iopso[0], iopso[1], iopso[2], iopso[3], iopso[4], host.msis.size());
+  endtask
+
   // ---------------------------------------------------------------------------
   // Main
   // ---------------------------------------------------------------------------
@@ -631,6 +903,7 @@ module tb_soc;
         fork
           if (bg) gen_bg();
           if (test == "nvme") nvme_host();
+          if (test == "nvme_app") nvme_app_host();
         join
       end
     join_none
