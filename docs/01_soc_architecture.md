@@ -223,6 +223,15 @@ The host sees two memory BARs (step 2-1; the plan of one 64 KiB window was split
 
 The NVMe controller fetches submission queue entries with the transaction layer's bus master into a command buffer of 16 slots of 64 bytes in SRAM, `0x1000_BC00`–`0x1000_BFFF` at reset (NVME CMDBUF).
 
+SRAM use in the NVMe firmware (`nvme_app`, step 2-4, [13_nvme_firmware.md](13_nvme_firmware.md)):
+
+| Range | Use |
+| --- | --- |
+| `0x1000_0000`–`0x1000_7FFF` | Firmware data, BSS and stack |
+| `0x1000_8000`–`0x1000_AFFF` | Namespace 1: 24 blocks of 512 bytes |
+| `0x1000_BC00`–`0x1000_BFFF` | Command buffer (CMDBUF) |
+| `0x1000_C000`–`0x1000_FFFF` | Left to the SoC tests' background traffic from the host |
+
 ## 7. Interrupts
 
 Ibex has dedicated timer and external interrupt inputs. The timer drives `irq_timer`, and everything else goes through the INTC to `irq_external`. Sources are levels: a source in another clock domain sets a sticky status bit in its CSR block, and the INTC sees status AND enable. As of step 2-2, sources 1 and 2 (the DMA's STATUS.DONE and STATUS.ERR), 3 (NVME: a command waiting, or a controller event), 5 (HOST ERR_STATUS), 10 (the PMU's PWR_IRQ) and 12 (HOST BM_STATUS.DONE or ERR) are wired; the others follow with their blocks.
