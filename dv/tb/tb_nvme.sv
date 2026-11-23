@@ -488,6 +488,24 @@ module tb_nvme;
     end
     fw_drain();
     if (outstanding() != 0) fail($sformatf("%0d admin commands never fetched", outstanding()));
+    // The same through the four I/O queues, 3 entries each, so their heads
+    // wrap too.
+    for (int q = 1; q < NQ; q++) fw_ioq(q, 3);
+    sent = 0;
+    while (sent < 32) begin
+      refresh_heads();
+      for (int q = 1; q < NQ; q++) begin
+        if (sq_room(q) > 0) begin
+          put_sqe(q);
+          ring_sq(q);
+          sent++;
+        end
+      end
+      repeat ($urandom_range(40, 5)) @(negedge clk);
+      if (irq) fw_take(got);
+    end
+    fw_drain();
+    if (outstanding() != 0) fail($sformatf("%0d I/O commands never fetched", outstanding()));
     fw_wr(R_CTRL, 32'h0);
   endtask
 
@@ -578,12 +596,15 @@ module tb_nvme;
     fw_wr(R_EVENT, 32'h1F);
   endtask
 
-  // Shutdown right behind a doorbell, so a fetch is in flight: SHST reads
-  // "complete" only once it is done, and nothing is fetched after that.
+  // Shutdown right behind a doorbell, with the host slow to answer, so a
+  // fetch is in flight: SHST reads "complete" only once it is done, and
+  // nothing is fetched after that.
   task automatic t_shutdown();
     bit [31:0] v, f0;
     int n = 0;
     host_enable(8);
+    host.lat_min = 300;
+    host.lat_max = 300;
     repeat (7) put_sqe(0);
     ring_sq(0);
     hw32(32'h14, 32'h0046_4001);               // SHN = 01
@@ -592,7 +613,9 @@ module tb_nvme;
       if (++n > 100) begin fail("SHST never reached complete"); break; end
     end while (v[3:2] != 2'b10);
     fw_rd(R_FETCH, f0);
-    repeat (300) @(negedge clk);
+    repeat (600) @(negedge clk);
+    host.lat_min = 4;
+    host.lat_max = 60;
     expect_reg(R_FETCH, 32'hFFFF_FFFF, f0, "fetches after SHST complete");
     expect_reg(R_EVENT, 32'h4, 32'h4, "EVENT.SHUTDOWN");
     fw_drain(200);
@@ -620,13 +643,28 @@ module tb_nvme;
       fw_rd(R_STATUS, v);
       if (++n > 3000) begin fail("16 commands never fetched"); break; end
     end while (v[20:16] != 0);
-    // Two slots back: two more fetches start; reset right behind them.
+    // Two slots back: two more fetches start; reset right behind them. The
+    // host is slow to answer, so the reset waits for the fetch in flight,
+    // and firmware takes a command and frees its slot while it waits.
+    host.lat_min = 300;
+    host.lat_max = 300;
     fw_take(got);
     fw_take(got);
     n = 0;
     while (!u_nv.f_busy && n < 300) begin @(negedge clk); n++; end
     if (!u_nv.f_busy) fail("no fetch after two slots were freed");
-    host_disable();
+    fork
+      host_disable();
+      begin
+        n = 0;
+        while (u_nv.c_st != u_nv.C_RESET && n < 2000) begin @(negedge clk); n++; end
+        if (u_nv.c_st != u_nv.C_RESET) fail("controller never waiting in reset");
+        else fw_take(got);
+        if (u_nv.c_st != u_nv.C_RESET) fail("reset did not wait for the fetch in flight");
+      end
+    join
+    host.lat_min = 4;
+    host.lat_max = 60;
     expect_reg(R_STATUS, 32'h001F_1F07, 32'h0010_0000, "STATUS after the reset: no command, 16 free slots");
     expect_reg(R_CMD, 32'h8000_0000, 32'h0, "CMD after the reset");
     for (int q = 0; q < NQ; q++) begin
