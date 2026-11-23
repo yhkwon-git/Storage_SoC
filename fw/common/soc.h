@@ -73,7 +73,6 @@
 /* HOST: the transaction layer (docs/10_transaction_layer.md). */
 #define HOST_LINK_CTRL    APB_REG(HOST.LINK_CTRL)
 #define HOST_LINK_STATUS  APB_REG(HOST.LINK_STATUS)
-#define HOST_BAR0_WIN     APB_REG(HOST.BAR0_WIN)
 #define HOST_BAR2_WIN     APB_REG(HOST.BAR2_WIN)
 #define HOST_BM_HADDR_LO  APB_REG(HOST.BM_HADDR_LO)
 #define HOST_BM_HADDR_HI  APB_REG(HOST.BM_HADDR_HI)
@@ -100,6 +99,47 @@
 #define HOST_BM_DONE      HOST_REGS__BM_STATUS__DONE_bm
 #define HOST_BM_ERR       HOST_REGS__BM_STATUS__ERR_bm
 #define HOST_BM_CAUSE(s)  (((s) & HOST_REGS__BM_STATUS__CAUSE_bm) >> HOST_REGS__BM_STATUS__CAUSE_bp)
+
+/* NVME: the controller's registers and queues, firmware side
+ * (docs/11_nvme_queues.md). I/O queue pairs are q = 1..4; SQ_PTR and CQ_PTR
+ * take q = 0..4 (0 is the admin queue pair). */
+#define NVME_BASE       (APB_BASE + (uint32_t)offsetof(soc_apb_t, NVME))
+#define NVME_CTRL       APB_REG(NVME.CTRL)
+#define NVME_STATUS     APB_REG(NVME.STATUS)
+#define NVME_EVENT      APB_REG(NVME.EVENT)
+#define NVME_EVENT_EN   APB_REG(NVME.EVENT_EN)
+#define NVME_CC         APB_REG(NVME.CC)
+#define NVME_CMDBUF     APB_REG(NVME.CMDBUF)
+#define NVME_CMD        APB_REG(NVME.CMD)
+#define NVME_SLOT_FREE  APB_REG(NVME.SLOT_FREE)
+#define NVME_DB_ERR     APB_REG(NVME.DB_ERR)
+#define NVME_FETCHES    APB_REG(NVME.FETCHES)
+#define NVME_AQA        APB_REG(NVME.AQA)
+#define NVME_ASQ_LO     APB_REG(NVME.ASQ_LO)
+#define NVME_ASQ_HI     APB_REG(NVME.ASQ_HI)
+#define NVME_ACQ_LO     APB_REG(NVME.ACQ_LO)
+#define NVME_ACQ_HI     APB_REG(NVME.ACQ_HI)
+#define NVME_IOQ(q, f)  REG32(NVME_BASE + (uint32_t)offsetof(nvme_regs_t, IOQ) + \
+                              0x20u * ((uint32_t)(q) - 1u) + \
+                              (uint32_t)offsetof(nvme_regs__IOQ__stride20_t, f))
+#define NVME_SQ_PTR(q)  REG32(NVME_BASE + (uint32_t)offsetof(nvme_regs_t, SQ_PTR) + 4u * (uint32_t)(q))
+#define NVME_CQ_PTR(q)  REG32(NVME_BASE + (uint32_t)offsetof(nvme_regs_t, CQ_PTR) + 4u * (uint32_t)(q))
+
+#define NVME_IEN_CMD       NVME_REGS__CTRL__IEN_CMD_bm
+#define NVME_ST_RDY        NVME_REGS__STATUS__RDY_bm
+#define NVME_ST_CFS        NVME_REGS__STATUS__CFS_bm
+#define NVME_ST_CMDS(s)    (((s) & NVME_REGS__STATUS__CMDS_bm) >> NVME_REGS__STATUS__CMDS_bp)
+#define NVME_ST_FREE(s)    (((s) & NVME_REGS__STATUS__FREE_bm) >> NVME_REGS__STATUS__FREE_bp)
+#define NVME_EV_ENABLE     NVME_REGS__EVENT__ENABLE_bm
+#define NVME_EV_RESET      NVME_REGS__EVENT__RESET_bm
+#define NVME_EV_SHUTDOWN   NVME_REGS__EVENT__SHUTDOWN_bm
+#define NVME_EV_DB_ERR     NVME_REGS__EVENT__DB_ERR_bm
+#define NVME_EV_FETCH_ERR  NVME_REGS__EVENT__FETCH_ERR_bm
+#define NVME_CMD_VALID     NVME_REGS__CMD__VALID_bm
+#define NVME_CMD_SLOT(c)   ((c) & NVME_REGS__CMD__SLOT_bm)
+#define NVME_CMD_SQID(c)   (((c) & NVME_REGS__CMD__SQID_bm) >> NVME_REGS__CMD__SQID_bp)
+#define NVME_Q_EN          (1u << 31)   /* SQ_CFG.EN, CQ_CFG.EN */
+#define NVME_CQ_IEN        (1u << 24)
 
 #define INTC_PENDING   APB_REG(INTC.PENDING)
 #define INTC_ENABLE    APB_REG(INTC.ENABLE)
@@ -141,6 +181,7 @@ typedef struct __attribute__((aligned(16))) {
 /* INTC source IDs (docs/01, section 7). */
 #define IRQ_DMA_DONE 1u
 #define IRQ_DMA_ERR  2u
+#define IRQ_NVME     3u
 #define IRQ_HOST_ERR 5u
 #define IRQ_PMU      10u
 #define IRQ_HOST_BM  12u

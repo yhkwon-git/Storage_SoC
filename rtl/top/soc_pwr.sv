@@ -7,12 +7,14 @@
 // Clocks, resets and power for soc_top (docs/07_clock_reset_power.md): the PMU
 // in PD_AON behind its APB crossing, the core and NAND reset synchronizers,
 // the PHY PLL model, the PD_HOST boundary and the core side of the host
-// interface (host_if: HOST registers, transaction layer, FIFOs). soc_top and
+// interface (host_if: HOST registers, transaction layer, NVMe controller,
+// FIFOs). soc_top and
 // the power testbench (dv/tb/tb_power.sv) both use this module, so they see
 // the same wiring.
 //
 //   APB slot 1  PMU   (clk_sys -> apb_cdc -> clk_aon)
 //   APB slot 5  HOST  (clk_sys)
+//   APB slot 8  NVME  (clk_sys)
 //   AXI M3      transaction layer (clk_sys)
 //   host_rx_*, host_tx_*  packed TLPs to and from the host, on pclk
 //               (pclk_in while the PHY PLL runs)
@@ -35,6 +37,7 @@ module soc_pwr #(
   // APB, clk_sys: shared bus, one select per slot
   input  wire          psel_pmu,
   input  wire          psel_host,
+  input  wire          psel_nvme,
   input  wire          penable,
   input  wire  [11:0]  paddr,
   input  wire          pwrite,
@@ -46,10 +49,14 @@ module soc_pwr #(
   output logic [31:0]  prdata_host,
   output logic         pready_host,
   output logic         pslverr_host,
+  output logic [31:0]  prdata_nvme,
+  output logic         pready_nvme,
+  output logic         pslverr_nvme,
 
   output logic         irq_pmu,         // clk_sys level (INTC source 10)
   output logic         irq_host_err,    // INTC source 5
   output logic         irq_host_bm,     // INTC source 12
+  output logic         irq_nvme,        // INTC source 3
 
   output logic         host_pwr_en,
   input  wire          host_pwr_ack,
@@ -222,10 +229,15 @@ module soc_pwr #(
     .prdata          (prdata_host),
     .pready          (pready_host),
     .pslverr         (pslverr_host),
+    .psel_nvme       (psel_nvme),
+    .prdata_nvme     (prdata_nvme),
+    .pready_nvme     (pready_nvme),
+    .pslverr_nvme    (pslverr_nvme),
     .host_on         (host_on),
     .host_idle       (host_idle),
     .irq_err         (irq_host_err),
     .irq_bm          (irq_host_bm),
+    .irq_nvme        (irq_nvme),
     .m_awid          (m_awid),
     .m_awaddr        (m_awaddr),
     .m_awlen         (m_awlen),

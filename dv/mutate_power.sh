@@ -2,7 +2,8 @@
 # Mutation check for the power testbench. Each mutant copies the power RTL into
 # the build directory, plants one bug with sed and runs dv/run_power.sh on the
 # copy (directed test and PLL-stuck test). The testbench must fail on every
-# mutant. The repository's RTL is never modified.
+# mutant; a mutant that does not build stops the script, so that a build
+# failure is never counted as a catch. The repository's RTL is never modified.
 #
 #   BUILD_DIR  build root (default: build/dv in the repository)
 set -euo pipefail
@@ -32,10 +33,11 @@ for entry in "${mutants[@]}"; do
   IFS='@' read -r name file expr what <<< "$entry"
   total=$((total + 1))
   dir="$base/$name"
+  rm -rf "$dir/rtl"
   mkdir -p "$dir/rtl"
-  for d in common pmu host top; do
-    mkdir -p "$dir/rtl/$d"
-    cp "$root/rtl/$d/"*.sv "$dir/rtl/$d/"
+  # Every directory run_power.sh takes from PWR_RTL (host with tl/ and nvme/).
+  for d in common pmu host top axi; do
+    cp -r "$root/rtl/$d" "$dir/rtl/"
   done
   sed -i "$expr" "$dir/rtl/$file"
   if cmp -s "$root/rtl/$file" "$dir/rtl/$file"; then
@@ -44,6 +46,10 @@ for entry in "${mutants[@]}"; do
   fi
   if PWR_RTL="$dir/rtl" BUILD_DIR="$base" bash "$here/run_power.sh" > "$dir/run.log" 2>&1; then
     echo "[MUT] $name ($what): NOT caught"
+  elif ! grep -q '^\[PWR\]\|: \[PWR\]' "$dir/run.log"; then
+    echo "[MUT] $name: build failed, no simulation ran"
+    head -20 "$dir/run.log"
+    exit 1
   else
     caught=$((caught + 1))
     first=$( (grep -m1 -E 'ERROR|%Error|Assertion' "$dir/run.log" || grep -m1 'FAIL' "$dir/run.log" || true) | cut -c1-160)

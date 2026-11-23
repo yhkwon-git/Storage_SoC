@@ -129,7 +129,14 @@ module axi2apb #(
   // Current APB transfer.
   wire [15:0]    xfer_addr = base_q + {13'd0, word_q, 2'b00};
   wire [SW-1:0]  xfer_slot = xfer_addr[12 +: SW];
-  wire           slot_ok   = (xfer_addr[15:12] < 4'(NSLOT)) && SLOT_EN[xfer_slot];
+  // With 16 slots every slot number is in range (4'(16) would be 0).
+  logic          in_range;
+  if (NSLOT >= 16) begin : g_all_slots
+    assign in_range = 1'b1;
+  end else begin : g_some_slots
+    assign in_range = (xfer_addr[15:12] < 4'(NSLOT));
+  end
+  wire           slot_ok   = in_range && SLOT_EN[xfer_slot];
   wire           xfer_ok   = (st == XFER) && todo_q[word_q];
 
   always_comb begin

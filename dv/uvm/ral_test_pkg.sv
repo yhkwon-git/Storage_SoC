@@ -3,7 +3,7 @@
 // UVM register tests for the APB blocks, run on Vivado's simulator (xsim)
 // with UVM 1.2. The register model is the generated soc_apb
 // (dv/ral/soc_apb_ral_pkg.sv); the DUT is apb_sys, apb_intc, apb_timer, dma
-// and soc_pwr (PMU behind its clock-domain crossing, HOST), so the generated
+// and soc_pwr (PMU behind its clock-domain crossing, HOST, NVME), so the generated
 // register RTL is tested together with the logic around it.
 //
 //   1. uvm_reg_hw_reset_seq   every register's reset value
@@ -19,7 +19,10 @@
 //                             write-1-to-clear, ABORT while idle does nothing;
 //                             PMU and HOST: power-on reset cause, a PD_HOST
 //                             power-up with its interrupt, a command through
-//                             PD_HOST, the link held, a power-down
+//                             PD_HOST, the link held, a power-down;
+//                             NVME with no host: controller off, no command,
+//                             16 free slots, no interrupt with every source
+//                             enabled
 //   4. decode                 PSLVERR for offsets and slots with no register
 //
 // Left out of 1 and 2, with the reason: MTIME_LO/HI count from reset
@@ -29,7 +32,8 @@
 // resets the testbench; PMU RST_CAUSE is set by hardware at power-on
 // (checked in 3); HOST TX and RX push and pop the host FIFOs (checked in 3);
 // HOST BM_CTRL starts a bus-master transfer and MSIX_REQ requests a vector
-// (both checked by tb_tl and the host firmware test).
+// (both checked by tb_tl and the host firmware test); NVME SLOT_FREE is
+// write-only and returns a command-buffer slot (checked by tb_nvme).
 // Fields written by hardware (PENDING, CLAIM, MTIME, the DMA's and PMU's
 // status and counters) are volatile in the model, so the bit bash does not
 // compare them.
@@ -154,6 +158,7 @@ package ral_test_pkg;
       // which would set BM_STATUS and ERR_STATUS bits under the test.
       exclude(rm.HOST.BM_CTRL,   "NO_REG_BIT_BASH_TEST");
       exclude(rm.HOST.MSIX_REQ,  "NO_REG_BIT_BASH_TEST");
+      exclude(rm.NVME.SLOT_FREE, "NO_REG_BIT_BASH_TEST");
 
       // 1. Reset values.
       rst_seq = uvm_reg_hw_reset_seq::type_id::create("rst_seq");
@@ -288,11 +293,27 @@ package ral_test_pkg;
       expect_ok(v[3:0] == 4'd0 && v2 == 32'd1, $sformatf("PMU PWR_STATUS %h PWR_CYCLES %0d after DOWN", v, v2));
       rm.PMU.PWR_IRQ.write(st, 32'h3);
 
+      // 3f. NVME without a host: controller off, no command waiting, 16 free
+      // command-buffer slots; with every interrupt source enabled, none
+      // fires (no event, no command).
+      rm.NVME.STATUS.read(st, v);
+      expect_ok(v == 32'h0010_0000, $sformatf("NVME STATUS %h, expected 00100000 (16 free slots)", v));
+      rm.NVME.CMD.read(st, v);
+      expect_ok(v == 32'h0, $sformatf("NVME CMD %h with no command, expected 0", v));
+      rm.NVME.EVENT.write(st, 32'h1F);
+      rm.NVME.EVENT_EN.write(st, 32'h1F);
+      rm.NVME.CTRL.write(st, 32'h1);
+      repeat (20) @(posedge vif.pclk);
+      rm.INTC.PENDING.read(st, v);
+      expect_ok(v[3] == 1'b0, $sformatf("INTC PENDING %h with NVME sources enabled and idle: source 3 set", v));
+      rm.NVME.EVENT_EN.write(st, 32'h0);
+      rm.NVME.CTRL.write(st, 32'h0);
+
       // 4. Decode: offsets and slots without a register answer PSLVERR.
       raw(16'h0000, 1'b0, 0, rd, err);
       expect_ok(!err && rd == 32'h5353_4F43, "ID read through a raw transfer");
       bad_addr = '{16'h0018, 16'h0FFC, 16'h1020, 16'h1FFC, 16'h2010, 16'h3014, 16'h4020, 16'h5058,
-                   16'h6000, 16'hF000};
+                   16'h6000, 16'h7000, 16'h8028, 16'h8FFC, 16'h9000, 16'hF000};
       foreach (bad_addr[i]) begin
         raw(bad_addr[i], 1'b0, 0, rd, err);
         expect_ok(err, $sformatf("read of %h answered without PSLVERR", bad_addr[i]));

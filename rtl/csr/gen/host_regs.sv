@@ -92,7 +92,6 @@ module host_regs (
         logic STATUS;
         logic LINK_CTRL;
         logic LINK_STATUS;
-        logic BAR0_WIN;
         logic BAR2_WIN;
         logic BM_HADDR_LO;
         logic BM_HADDR_HI;
@@ -131,8 +130,6 @@ module host_regs (
         is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h10);
         decoded_reg_strb.LINK_STATUS = cpuif_req_masked & (cpuif_addr == 12'h14) & !cpuif_req_is_wr;
         is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h14);
-        decoded_reg_strb.BAR0_WIN = cpuif_req_masked & (cpuif_addr == 12'h18);
-        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h18);
         decoded_reg_strb.BAR2_WIN = cpuif_req_masked & (cpuif_addr == 12'h1c);
         is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h1c);
         decoded_reg_strb.BM_HADDR_LO = cpuif_req_masked & (cpuif_addr == 12'h20);
@@ -193,12 +190,6 @@ module host_regs (
                 logic load_next;
             } hold;
         } LINK_CTRL;
-        struct {
-            struct {
-                logic [18:0] next;
-                logic load_next;
-            } base;
-        } BAR0_WIN;
         struct {
             struct {
                 logic [16:0] next;
@@ -322,11 +313,6 @@ module host_regs (
                 logic value;
             } hold;
         } LINK_CTRL;
-        struct {
-            struct {
-                logic [18:0] value;
-            } base;
-        } BAR0_WIN;
         struct {
             struct {
                 logic [16:0] value;
@@ -487,29 +473,6 @@ module host_regs (
         end
     end
     assign hwif_out.LINK_CTRL.hold.value = field_storage.LINK_CTRL.hold.value;
-    // Field: host_regs.BAR0_WIN.base
-    always_comb begin
-        automatic logic [18:0] next_c;
-        automatic logic load_next_c;
-        next_c = field_storage.BAR0_WIN.base.value;
-        load_next_c = '0;
-        if(decoded_reg_strb.BAR0_WIN && decoded_req_is_wr) begin // SW write
-            next_c = (field_storage.BAR0_WIN.base.value & ~decoded_wr_biten[31:13]) | (decoded_wr_data[31:13] & decoded_wr_biten[31:13]);
-            load_next_c = '1;
-        end
-        field_combo.BAR0_WIN.base.next = next_c;
-        field_combo.BAR0_WIN.base.load_next = load_next_c;
-    end
-    always_ff @(posedge clk or negedge arst_n) begin
-        if(~arst_n) begin
-            field_storage.BAR0_WIN.base.value <= 19'h20004;
-        end else begin
-            if(field_combo.BAR0_WIN.base.load_next) begin
-                field_storage.BAR0_WIN.base.value <= field_combo.BAR0_WIN.base.next;
-            end
-        end
-    end
-    assign hwif_out.BAR0_WIN.base.value = field_storage.BAR0_WIN.base.value;
     // Field: host_regs.BAR2_WIN.base
     always_comb begin
         automatic logic [16:0] next_c;
@@ -1079,9 +1042,6 @@ module host_regs (
             readback_data_var[6] = hwif_in.LINK_STATUS.mps256.next;
             readback_data_var[10:8] = hwif_in.LINK_STATUS.mrrs.next;
             readback_data_var[31:16] = hwif_in.LINK_STATUS.id.next;
-        end
-        if(rd_mux_addr == 12'h18) begin
-            readback_data_var[31:13] = field_storage.BAR0_WIN.base.value;
         end
         if(rd_mux_addr == 12'h1c) begin
             readback_data_var[31:15] = field_storage.BAR2_WIN.base.value;

@@ -11,10 +11,13 @@
 //   receive     tl_rx_buf (store and forward, malformed TLPs removed whole)
 //               -> tl_rx_unpack -> register slice -> dispatcher
 //   dispatcher  one TLP at a time, in arrival order:
-//                 MWr   BAR0 0x0000-0x1FFF or BAR2: tl_wr (AXI, owner 0)
+//                 MWr   BAR2: tl_wr (AXI, owner 0)
+//                       BAR0 0x0000-0x1FFF: the register port (rp_*), one DW
+//                       per clock (step 2-2: the NVMe controller's registers)
 //                       BAR0 0x2000-0x3FFF: MSI-X table and PBA (tl_msix)
-//                 MRd   BAR0 window or BAR2: completion job MEM (tl_rd)
-//                       MSI-X: completion job DATA
+//                 MRd   BAR2: completion job MEM (tl_rd)
+//                       BAR0: completion job DATA from the register port or
+//                       the MSI-X table; at most 2 DWs (CA beyond)
 //                 CfgRd0/CfgWr0 to function 0: tl_cfg, completion job
 //                 Cpl/CplD: tl_bm checks it; good data goes to tl_wr (owner 1)
 //                 Msg: dropped
@@ -34,6 +37,10 @@
 //   AXI         AW/W/B from tl_wr (ID 0); AR from tl_rd (ID 0) and tl_bm
 //               (ID 1), R routed back by ID; RREADY is always high. AW, W
 //               and AR leave through register slices.
+//   bus master  two requesters: the HOST registers (bm_start; a START while
+//               the bus master is taken waits) and the NVMe controller
+//               (nv_*), served alternately when both wait; done goes back to
+//               the one that asked.
 // -----------------------------------------------------------------------------
 
 module tl_core #(
@@ -91,8 +98,25 @@ module tl_core #(
   input  wire           m_rvalid,
   output logic          m_rready,
 
+  // Register port: BAR0 0x0000-0x1FFF (the NVMe controller's registers)
+  output logic          rp_we,
+  output logic [10:0]   rp_dw,
+  output logic [3:0]    rp_be,
+  output logic [31:0]   rp_wdata,
+  input  wire  [31:0]   rp_rd0,       // DW rp_dw
+  input  wire  [31:0]   rp_rd1,       // DW rp_dw + 1
+
+  // Bus-master requests of the NVMe controller
+  input  wire           nv_valid,
+  output logic          nv_ready,
+  input  wire           nv_d2h,
+  input  wire  [63:2]   nv_haddr,
+  input  wire  [31:2]   nv_laddr,
+  input  wire  [17:0]   nv_len,
+  output logic          nv_done,      // pulse
+  output logic [2:0]    nv_cause,
+
   // HOST registers
-  input  wire  [31:13]  bar0_win,     // AXI base of BAR0 0x0000-0x1FFF
   input  wire  [31:15]  bar2_win,     // AXI base of BAR2
   input  wire  [7:0]    cto_ticks,
   input  wire           bm_start,
@@ -102,7 +126,7 @@ module tl_core #(
   input  wire  [17:0]   bm_len,
   output logic          bm_done,      // pulse
   output logic [2:0]    bm_cause,
-  output logic          bm_busy,
+  output logic          bm_busy,      // a HOST-register transfer waits or runs
   input  wire           msix_req,     // pulse
   input  wire  [2:0]    msix_vec,
 
@@ -210,8 +234,8 @@ module tl_core #(
   wire bar0_hit = mse && (addr[63:14] == bar0[63:14]);
   wire bar2_hit = mse && (addr[63:15] == bar2[63:15]);
   wire hit      = bar0_hit || bar2_hit;
-  wire in_msix  = bar0_hit && addr[13];
-  wire [31:0] axi_addr = bar0_hit ? {bar0_win, addr[12:0]} : {bar2_win, addr[14:0]};
+  wire in_msix  = bar0_hit && addr[13];          // else BAR0 is the register port
+  wire [31:0] axi_addr = {bar2_win, addr[14:0]};
 
   wire be_bad  = (len == 11'd1) ? (lbe != 4'd0) : ((fbe == 4'd0) || (lbe == 4'd0));
   wire [10:0] end_dw = {1'b0, addr[11:2]} + len - 11'd1;
@@ -253,7 +277,7 @@ module tl_core #(
     .ev_sig_ta (ev_sig_ta), .ev_rcv_ta (ev_rcv_ta), .ev_rcv_ma (ev_rcv_ma),
     .ev_par (ev_par_c || ev_par_r), .ev_ur (ev_ur_d),
     .ev_nonfatal (ev_ur_d || ev_par_c || ev_par_r || ev_timeout || ev_unexp || ev_sig_ta),
-    .ev_fatal (ev_mal_d || buf_malformed), .tx_pending (bm_busy)
+    .ev_fatal (ev_mal_d || buf_malformed), .tx_pending (!bm_req_ready)
   );
 
   // MSI-X
@@ -353,11 +377,51 @@ module tl_core #(
   logic [1:0]   bt_dwv;
   logic         bm_idle, bm_req_ready;
 
+  // Requesters: a HOST-register START waits in csr_pend until the bus master
+  // is free; the NVMe controller holds nv_valid. When both wait they take
+  // turns. done goes to the owner of the running request.
+  logic        csr_pend, csr_run, own_nv, last_nv;
+  logic        q_done, q_busy;
+  logic [2:0]  q_cause;
+  wire  grant_nv  = bm_req_ready && nv_valid && (!csr_pend || !last_nv);
+  wire  grant_csr = bm_req_ready && csr_pend && !grant_nv;
+
+  assign nv_ready = grant_nv;
+  assign nv_done  = q_done && own_nv;
+  assign nv_cause = q_cause;
+  assign bm_done  = q_done && !own_nv;
+  assign bm_cause = q_cause;
+  assign bm_busy  = csr_pend || csr_run;
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      csr_pend <= 1'b0;
+      csr_run  <= 1'b0;
+      own_nv   <= 1'b0;
+      last_nv  <= 1'b0;
+    end else begin
+      if (bm_start && !csr_pend && !csr_run) csr_pend <= 1'b1;
+      if (grant_csr) begin
+        csr_pend <= 1'b0;
+        csr_run  <= 1'b1;
+        own_nv   <= 1'b0;
+        last_nv  <= 1'b0;
+      end else if (grant_nv) begin
+        own_nv  <= 1'b1;
+        last_nv <= 1'b1;
+      end
+      if (q_done && !own_nv) csr_run <= 1'b0;
+    end
+  end
+
   tl_bm #(.NTAG(NTAG)) u_bm (
     .clk (clk), .rst_n (rst_n),
-    .req_valid (bm_start && bm_req_ready), .req_ready (bm_req_ready), .req_d2h (bm_d2h),
-    .req_haddr (bm_haddr), .req_laddr (bm_laddr), .req_len (bm_len),
-    .done_valid (bm_done), .done_cause (bm_cause), .busy (bm_busy),
+    .req_valid (grant_nv || grant_csr), .req_ready (bm_req_ready),
+    .req_d2h   (grant_nv ? nv_d2h   : bm_d2h),
+    .req_haddr (grant_nv ? nv_haddr : bm_haddr),
+    .req_laddr (grant_nv ? nv_laddr : bm_laddr),
+    .req_len   (grant_nv ? nv_len   : bm_len),
+    .done_valid (q_done), .done_cause (q_cause), .busy (q_busy),
     .bme (bme), .mps256 (mps256), .mrrs (mrrs), .my_id (my_id), .cto_dis (cto_dis),
     .cto_ticks (cto_ticks),
     .msg_valid (msg_valid), .msg_ready (msg_ready), .msg_addr (msg_addr), .msg_data (msg_data),
@@ -377,9 +441,9 @@ module tl_core #(
   // ---------------------------------------------------------------------------
   // Dispatcher
   // ---------------------------------------------------------------------------
-  logic [9:0]  d_mxdw;     // MSI-X: DW of the next payload DW
-  logic        d_mxfirst;  // MSI-X: the next DW is the TLP's first
-  logic        d_mxhalf;   // MSI-X: lane 0 of this beat is done
+  logic [10:0] d_mxdw;     // BAR0 write: DW (BAR0 offset bits 12:2) of the next payload DW
+  logic        d_mxfirst;  // BAR0 write: the next DW is the TLP's first
+  logic        d_mxhalf;   // BAR0 write: lane 0 of this beat is done
   logic        d_cfg_ur;   // configuration write that gets UR
 
   // Action of the header at the dispatcher, decided combinationally.
@@ -395,12 +459,12 @@ module tl_core #(
       if (be_bad || x4k || too_big) act = A_MAL;
       else if (!hit)                act = A_UR_P;
       else if (ep)                  act = A_DROP;
-      else if (in_msix)             act = (len <= 11'd2) ? A_MXW : A_MXW_BAD;
+      else if (bar0_hit)            act = (len <= 11'd2) ? A_MXW : A_MXW_BAD;
       else                          act = A_WR;
     end else if (c_memrd) begin
       if (be_bad || x4k)            act = A_MAL;
       else if (!hit)                act = A_UR_NP;
-      else if (in_msix)             act = (len <= 11'd2) ? A_MXR : A_CA_NP;
+      else if (bar0_hit)            act = (len <= 11'd2) ? A_MXR : A_CA_NP;
       else                          act = A_RD;
     end else if (c_cfgrd) begin
       if (cfg_bad)                  act = A_MAL;
@@ -427,7 +491,7 @@ module tl_core #(
     cj_la     = 7'd0;
     cj_bc     = 13'd4;
     cj_len    = 11'd1;
-    cj_data   = {mx_rd1, mx_rd0};
+    cj_data   = in_msix ? {mx_rd1, mx_rd0} : {rp_rd1, rp_rd0};
     case (act)
       A_RD:    begin cj_kind = 2'd0; cj_la = mem_la; cj_bc = mem_bc; cj_len = len; end
       A_MXR:   begin cj_kind = 2'd1; cj_la = mem_la; cj_bc = mem_bc; cj_len = len; end
@@ -473,13 +537,19 @@ module tl_core #(
   assign cfg_wr    = (d_st == D_CFGW);
   assign cfg_wdata = d_cfgw_lane ? u_data[63:32] : u_data[31:0];
 
-  // MSI-X access: reads from the header's DW, writes one DW per clock.
+  // BAR0 access, to the MSI-X table (offset bit 13 set) or the register port:
+  // reads from the header's DW, writes one DW per clock.
   wire mx_lane0_v = u_dwv[0] && !d_mxhalf;
   wire [31:0] mx_dw_data = mx_lane0_v ? u_data[31:0] : u_data[63:32];
-  assign mx_we    = (d_st == D_MSIXW) && u_valid && !u_hdr;
-  assign mx_dw    = (d_st == D_MSIXW) ? d_mxdw : addr[11:2];
+  wire bar0_w     = (d_st == D_MSIXW) && u_valid && !u_hdr;
+  assign mx_we    = bar0_w && in_msix;
+  assign mx_dw    = (d_st == D_MSIXW) ? d_mxdw[9:0] : addr[11:2];
   assign mx_be    = d_mxfirst ? d_fbe : d_lbe;
   assign mx_wdata = mx_dw_data;
+  assign rp_we    = bar0_w && !in_msix;
+  assign rp_dw    = (d_st == D_MSIXW) ? d_mxdw : addr[12:2];
+  assign rp_be    = mx_be;
+  assign rp_wdata = mx_dw_data;
 
   // A beat in D_MSIXW is taken when its last valid lane has been written.
   wire mx_beat_done = !(mx_lane0_v && u_dwv[1]);
@@ -501,7 +571,7 @@ module tl_core #(
     if (!rst_n) begin
       hq          <= 128'd0;
       d_st        <= D_IDLE;
-      d_mxdw      <= 10'd0;
+      d_mxdw      <= 11'd0;
       d_mxfirst   <= 1'b0;
       d_mxhalf    <= 1'b0;
       d_cfg_ur    <= 1'b0;
@@ -520,7 +590,7 @@ module tl_core #(
               A_CPL:   d_st <= c_write ? D_PAY : D_DRAIN;
               A_MXW: begin
                 d_st      <= D_MSIXW;
-                d_mxdw    <= addr[11:2];
+                d_mxdw    <= addr[12:2];
                 d_mxfirst <= 1'b1;
                 d_mxhalf  <= 1'b0;
               end
@@ -538,7 +608,7 @@ module tl_core #(
         D_CFGW:  if (u_valid && u_ready) d_st <= u_last ? D_IDLE : D_DRAIN;
         default: begin  // D_MSIXW
           if (u_valid) begin
-            d_mxdw    <= d_mxdw + 10'd1;
+            d_mxdw    <= d_mxdw + 11'd1;
             d_mxfirst <= 1'b0;
             d_mxhalf  <= mx_lane0_v && u_dwv[1];
             if (mx_beat_done && u_last) d_st <= D_IDLE;
@@ -685,7 +755,7 @@ module tl_core #(
                 !t_busy && !txp_valid && !m_awvalid && !m_wvalid && !m_arvalid;
 
   /* verilator lint_off UNUSEDSIGNAL */
-  wire unused_ok = ^{m_bid, m_rid[1], wd_tag, b_sop, dw3[1:0], bar0[13:0], bar2[14:0], end_dw[9:0]};
+  wire unused_ok = ^{m_bid, m_rid[1], wd_tag, b_sop, dw3[1:0], bar0[13:0], bar2[14:0], end_dw[9:0], q_busy};
   /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule : tl_core

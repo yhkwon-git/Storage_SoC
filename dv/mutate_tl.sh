@@ -27,6 +27,9 @@ mutants=(
   "msix_mask@tl_msix.sv@s/ready_v = pending \& ~t_mask;/ready_v = pending;/@MSI-X vector mask ignored"
   "rx_len@tl_rx_buf.sv@s/if (in_sop || (cnt_now > dw_exp) || (in_eop \&\& (cnt_now != dw_exp))) begin/if (in_sop) begin/@TLPs not checked against their Length"
   "align_tail@tl_dw_align.sv@s/        if (left != 2'd0) begin/        if (1'b0) begin/@aligner drops the DW left over at a packet's end"
+  "arb_prio@tl_core.sv@s/wire  grant_nv  = bm_req_ready \&\& nv_valid \&\& (!csr_pend || !last_nv);/wire  grant_nv  = bm_req_ready \&\& nv_valid;/@NVMe port always wins the bus master"
+  "nv_done@tl_core.sv@s/assign nv_done  = q_done \&\& own_nv;/assign nv_done  = q_done;/@done of a HOST-register transfer also reaches the NVMe port"
+  "rp_be@tl_core.sv@s/assign rp_be    = mx_be;/assign rp_be    = 4'hF;/@byte enables of BAR0 register writes ignored"
 )
 
 caught=0

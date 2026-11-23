@@ -1,17 +1,18 @@
 // ral_tb
 //
 // The APB blocks behind one APB bus, decoded by slot like the SoC's bridge
-// does (paddr[15:12]: 0 SYS, 1 PMU, 2 INTC, 3 TIMER, 4 DMA, 5 HOST; other
-// slots answer PSLVERR), driven by the UVM register test in ral_test_pkg.
+// does (paddr[15:12]: 0 SYS, 1 PMU, 2 INTC, 3 TIMER, 4 DMA, 5 HOST, 8 NVME;
+// other slots answer PSLVERR), driven by the UVM register test in
+// ral_test_pkg.
 //
-//   * PMU and HOST come with soc_pwr, as in soc_top: the PMU is reached
+//   * PMU, HOST and NVME come with soc_pwr, as in soc_top: the PMU is reached
 //     through its APB crossing into clk_aon, and soc_pwr's core reset is this
 //     testbench's reset. PD_HOST does not power up by itself here (AUTO_UP 0);
 //     a switch model acknowledges pwr_en 2 clk_aon cycles later.
 //   * The DMA's AXI port sees a bus that never answers: the test starts it
 //     only with a misaligned DESC_PTR, which ends with an error before any
 //     bus request.
-//   * INTC sources: 1 and 2 DMA DONE and ERR, 10 PMU, as in soc_top.
+//   * INTC sources: 1 and 2 DMA DONE and ERR, 3 NVMe, 10 PMU, as in soc_top.
 
 `timescale 1ns/1ps
 
@@ -32,10 +33,10 @@ module ral_tb;
 
   wire [3:0] slot = apb.paddr[15:12];
 
-  logic [31:0] rd_sys, rd_intc, rd_tmr, rd_dma, rd_pmu, rd_host;
-  logic        rdy_sys, rdy_intc, rdy_tmr, rdy_dma, rdy_pmu, rdy_host;
-  logic        err_sys, err_intc, err_tmr, err_dma, err_pmu, err_host;
-  logic        dma_done, dma_err, pmu_irq;
+  logic [31:0] rd_sys, rd_intc, rd_tmr, rd_dma, rd_pmu, rd_host, rd_nvme;
+  logic        rdy_sys, rdy_intc, rdy_tmr, rdy_dma, rdy_pmu, rdy_host, rdy_nvme;
+  logic        err_sys, err_intc, err_tmr, err_dma, err_pmu, err_host, err_nvme;
+  logic        dma_done, dma_err, pmu_irq, nvme_irq;
   logic        console_valid, exit_valid;
   logic [7:0]  console_char;
   logic [31:0] exit_code;
@@ -56,7 +57,7 @@ module ral_tb;
     .psel (apb.psel && slot == 4'd2), .penable (apb.penable), .paddr (apb.paddr[11:0]),
     .pwrite (apb.pwrite), .pwdata (apb.pwdata), .pstrb (apb.pstrb),
     .prdata (rd_intc), .pready (rdy_intc), .pslverr (err_intc),
-    .src ({21'd0, pmu_irq, 7'd0, dma_err, dma_done, 1'b0}), .irq (apb.irq_external)
+    .src ({21'd0, pmu_irq, 6'd0, nvme_irq, dma_err, dma_done, 1'b0}), .irq (apb.irq_external)
   );
 
   apb_timer u_tmr (
@@ -112,6 +113,7 @@ module ral_tb;
     .sys_rst_req_n (sys_rst_req_n),
     .psel_pmu      (apb.psel && slot == 4'd1),
     .psel_host     (apb.psel && slot == 4'd5),
+    .psel_nvme     (apb.psel && slot == 4'd8),
     .penable       (apb.penable),
     .paddr         (apb.paddr[11:0]),
     .pwrite        (apb.pwrite),
@@ -123,14 +125,18 @@ module ral_tb;
     .prdata_host   (rd_host),
     .pready_host   (rdy_host),
     .pslverr_host  (err_host),
+    .prdata_nvme   (rd_nvme),
+    .pready_nvme   (rdy_nvme),
+    .pslverr_nvme  (err_nvme),
     .irq_pmu       (pmu_irq),
     .irq_host_err  (host_err_irq),
     .irq_host_bm   (host_bm_irq),
+    .irq_nvme      (nvme_irq),
     .host_pwr_en   (pwr_en),
     .host_pwr_ack  (pwr_ack),
     .host_wake     (1'b0),
     // No host link and no AXI traffic here: the register tests reach the
-    // HOST block through APB only.
+    // HOST and NVME blocks through APB only.
     .host_rx_valid (1'b0), .host_rx_ready (), .host_rx_data (64'd0), .host_rx_sop (1'b0),
     .host_rx_eop (1'b0), .host_rx_ehalf (1'b0),
     .host_tx_valid (), .host_tx_ready (1'b1), .host_tx_data (), .host_tx_sop (), .host_tx_eop (),
@@ -157,6 +163,7 @@ module ral_tb;
       4'd3:    begin apb.prdata = rd_tmr;  apb.pready = rdy_tmr;  apb.pslverr = err_tmr;  end
       4'd4:    begin apb.prdata = rd_dma;  apb.pready = rdy_dma;  apb.pslverr = err_dma;  end
       4'd5:    begin apb.prdata = rd_host; apb.pready = rdy_host; apb.pslverr = err_host; end
+      4'd8:    begin apb.prdata = rd_nvme; apb.pready = rdy_nvme; apb.pslverr = err_nvme; end
       default: begin apb.prdata = 32'd0;   apb.pready = 1'b1;     apb.pslverr = 1'b1;     end
     endcase
   end

@@ -18,7 +18,7 @@
 //   S0 boot ROM 16 KiB        -> axi_mem, read only, loaded from +rom=<file>
 //   S1 SRAM 64 KiB            -> axi_mem
 //   S2 APB window             -> axi2apb: slot 0 SYS, 1 PMU, 2 INTC, 3 TIMER,
-//                                4 DMA, 5 HOST
+//                                4 DMA, 5 HOST, 8 NVME
 //   S3, S4 NAND page buffers  -> axi_mem 4 KiB each until the NAND channels exist
 //
 // Clocks clk_sys, clk_aon, clk_nand and pclk_in (the PHY PLL's frequency) are
@@ -27,8 +27,9 @@
 // power switch, and host_wake is its wake pin.
 //
 // The timer drives the core's timer interrupt and the INTC its external
-// interrupt. INTC sources: 1 DMA done, 2 DMA error, 5 host error, 10 PMU,
-// 12 host bus master done (docs/01, section 7); the others are not wired yet.
+// interrupt. INTC sources: 1 DMA done, 2 DMA error, 3 NVMe, 5 host error,
+// 10 PMU, 12 host bus master done (docs/01, section 7); the others are not
+// wired yet.
 // -----------------------------------------------------------------------------
 
 module soc_top (
@@ -192,7 +193,7 @@ module soc_top (
   // ---------------------------------------------------------------------------
   // APB signals (bridge below), declared here for the DMA's register port
   // ---------------------------------------------------------------------------
-  localparam int NSLOT = 8;
+  localparam int NSLOT = 16;
 
   logic [NSLOT-1:0]       psel;
   logic                   penable, pwrite;
@@ -207,7 +208,7 @@ module soc_top (
   // Clocks, resets and power (APB slots 1 PMU and 5 HOST), and the host
   // interface with its transaction layer on M3
   // ---------------------------------------------------------------------------
-  logic irq_pmu, irq_host_err, irq_host_bm, soft_rst_dma;
+  logic irq_pmu, irq_host_err, irq_host_bm, irq_nvme, soft_rst_dma;
 
   soc_pwr u_pwr (
     .clk_sys       (clk_sys),
@@ -220,6 +221,7 @@ module soc_top (
     .sys_rst_req_n (sys_rst_req_n),
     .psel_pmu      (psel[1]),
     .psel_host     (psel[5]),
+    .psel_nvme     (psel[8]),
     .penable       (penable),
     .paddr         (paddr[11:0]),
     .pwrite        (pwrite),
@@ -231,9 +233,13 @@ module soc_top (
     .prdata_host   (prdata[5]),
     .pready_host   (pready[5]),
     .pslverr_host  (pslverr[5]),
+    .prdata_nvme   (prdata[8]),
+    .pready_nvme   (pready[8]),
+    .pslverr_nvme  (pslverr[8]),
     .irq_pmu       (irq_pmu),
     .irq_host_err  (irq_host_err),
     .irq_host_bm   (irq_host_bm),
+    .irq_nvme      (irq_nvme),
     .host_pwr_en   (host_pwr_en),
     .host_pwr_ack  (host_pwr_ack),
     .host_wake     (host_wake),
@@ -328,7 +334,7 @@ module soc_top (
   // ---------------------------------------------------------------------------
   // S2: APB window
   // ---------------------------------------------------------------------------
-  axi2apb #(.IDW(4), .NSLOT(NSLOT), .SLOT_EN(8'b0011_1111)) u_apb (
+  axi2apb #(.IDW(4), .NSLOT(NSLOT), .SLOT_EN(16'b0000_0001_0011_1111)) u_apb (
     .clk       (clk_sys),          .rst_n     (rst_sys_n),
     .s_awid    (m_awid[2]),    .s_awaddr  (m_awaddr[2]),  .s_awlen  (m_awlen[2]),
     .s_awsize  (m_awsize[2]),  .s_awprot  (m_awprot[2]),  .s_awvalid(m_awvalid[2]),
@@ -363,7 +369,8 @@ module soc_top (
     .psel (psel[2]), .penable (penable), .paddr (paddr[11:0]), .pwrite (pwrite),
     .pwdata (pwdata), .pstrb (pstrb), .prdata (prdata[2]), .pready (pready[2]),
     .pslverr (pslverr[2]),
-    .src ({19'd0, irq_host_bm, 1'b0, irq_pmu, 4'd0, irq_host_err, 2'd0, irq_dma_err, irq_dma_done, 1'b0}),
+    .src ({19'd0, irq_host_bm, 1'b0, irq_pmu, 4'd0, irq_host_err, 1'b0, irq_nvme, irq_dma_err,
+           irq_dma_done, 1'b0}),
     .irq (irq_external)
   );
 
@@ -381,7 +388,7 @@ module soc_top (
 
   // Slots without a peripheral: the bridge never selects them.
   for (genvar i = 0; i < NSLOT; i++) begin : g_empty_slot
-    if (i >= 6) begin : g_e
+    if (i >= 6 && i != 8) begin : g_e
       assign prdata[i]  = 32'd0;
       assign pready[i]  = 1'b1;
       assign pslverr[i] = 1'b1;
@@ -395,7 +402,7 @@ module soc_top (
   /* verilator lint_off UNUSEDSIGNAL */
   wire unused_ok = ^{m_awsize, m_arsize, m_awburst, m_arburst, m_awcache, m_arcache,
                      m_awqos, m_arqos, m_awprot, m_arprot, pprot, paddr[15:12],
-                     psel[NSLOT-1:6], rst_nand_n,
+                     psel[7:6], psel[NSLOT-1:9], rst_nand_n,
                      stat_aw_id_stall, stat_ar_id_stall, core_busy};
   /* verilator lint_on UNUSEDSIGNAL */
 

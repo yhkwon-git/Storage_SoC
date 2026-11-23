@@ -24,8 +24,8 @@ addrmap sys_regs {
 
   reg {
     name = "VERSION";
-    desc = "Register map version: 0x0002_0001 is the map of step 2-1 (HOST block with the transaction layer's registers).";
-    field { sw = r; hw = na; } value[31:0] = 32'h0002_0001;
+    desc = "Register map version: 0x0002_0002 is the map of step 2-2 (NVMe block; BAR0 no longer has an AXI window).";
+    field { sw = r; hw = na; } value[31:0] = 32'h0002_0002;
   } VERSION @ 0x004;
 
   reg {
@@ -172,12 +172,6 @@ addrmap host_regs {
     field { sw = r; hw = w; desc = "Max_Read_Request_Size code: 128 << MRRS bytes."; } mrrs[10:8];
     field { sw = r; hw = w; desc = "Bus and device number captured from configuration writes; function 0."; } id[31:16];
   } LINK_STATUS @ 0x014;
-
-  reg {
-    name = "BAR0_WIN";
-    desc = "AXI address of BAR0 offsets 0x0000 to 0x1FFF (8 KiB aligned). BAR0 0x2000 to 0x3FFF hold the MSI-X table and PBA inside the transaction layer.";
-    field { sw = rw; hw = r; } base[31:13] = 19'h2_0004;
-  } BAR0_WIN @ 0x018;
 
   reg {
     name = "BAR2_WIN";
@@ -398,6 +392,157 @@ addrmap dma_regs {
   } CYCLES @ 0x01C;
 };
 
+addrmap nvme_regs {
+  name = "NVME";
+  desc = "Firmware side of the NVMe controller (rtl/host/nvme/nvme_ctrl.sv, docs/11_nvme_queues.md). The host side (CAP, CC, CSTS, AQA, ASQ, ACQ, doorbells) is in BAR0 and is mirrored here read-only.";
+  default regwidth = 32;
+  default accesswidth = 32;
+
+  reg {
+    name = "CTRL";
+    field { sw = rw; hw = r; desc = "Interrupt (INTC source 3) while commands wait in CMD."; } ien_cmd[0:0] = 1'b0;
+  } CTRL @ 0x000;
+
+  reg {
+    name = "STATUS";
+    field { sw = r; hw = w; desc = "CSTS.RDY."; } rdy[0:0];
+    field { sw = r; hw = w; desc = "CSTS.CFS: a command fetch failed."; } cfs[1:1];
+    field { sw = r; hw = w; desc = "CC.EN."; } en[2:2];
+    field { sw = r; hw = w; desc = "CSTS.SHST."; } shst[5:4];
+    field { sw = r; hw = w; desc = "Commands waiting in CMD."; } cmds[12:8];
+    field { sw = r; hw = w; desc = "Free command buffer slots."; } free[20:16];
+  } STATUS @ 0x004;
+
+  reg {
+    name = "EVENT";
+    desc = "Controller events, set by hardware and cleared by writing 1. EVENT AND EVENT_EN is INTC source 3, with CTRL.IEN_CMD.";
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "The host enabled the controller (CC.EN 0 to 1); the admin queue is loaded and CSTS.RDY is 1."; } enable[0:0] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "A controller reset (CC.EN 1 to 0) finished: queues deleted, commands dropped, CSTS.RDY 0."; } reset[1:1] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "The host requested a shutdown (CC.SHN)."; } shutdown[2:2] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "A doorbell write was ignored; see DB_ERR."; } db_err[3:3] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "A command fetch failed; CSTS.CFS is set."; } fetch_err[4:4] = 1'b0;
+  } EVENT @ 0x008;
+
+  reg {
+    name = "EVENT_EN";
+    field { sw = rw; hw = r; } en[4:0] = 5'h0;
+  } EVENT_EN @ 0x00C;
+
+  reg {
+    name = "CC";
+    desc = "The host's Controller Configuration.";
+    field { sw = r; hw = w; } value[31:0];
+  } CC @ 0x010;
+
+  reg {
+    name = "CMDBUF";
+    desc = "SRAM address of the command buffer: 16 slots of 64 bytes, 1 KiB aligned.";
+    field { sw = rw; hw = r; } base[31:10] = 22'h4_002F;
+  } CMDBUF @ 0x014;
+
+  reg {
+    name = "CMD";
+    desc = "Oldest fetched command; reading it removes it. VALID 0 when none waits. The command is at CMDBUF + 64 x SLOT until SLOT_FREE returns the slot.";
+    field { sw = r; hw = w; swacc; } slot[3:0];
+    field { sw = r; hw = w; desc = "Submission queue it came from."; } sqid[18:16];
+    field { sw = r; hw = w; } valid[31:31];
+  } CMD @ 0x018;
+
+  reg {
+    name = "SLOT_FREE";
+    desc = "A write returns the slot it names to the free list.";
+    field { sw = w; hw = r; swmod; } slot[3:0] = 4'h0;
+  } SLOT_FREE @ 0x01C;
+
+  reg {
+    name = "DB_ERR";
+    desc = "The last doorbell write that was ignored: to a queue that is not enabled, or a value not below the queue size.";
+    field { sw = r; hw = w; we; desc = "Queue ID."; } qid[2:0] = 3'h0;
+    field { sw = r; hw = w; we; desc = "1: completion queue head doorbell; 0: submission queue tail doorbell."; } cq[3:3] = 1'b0;
+    field { sw = r; hw = w; we; desc = "Value written."; } value[31:16] = 16'h0;
+  } DB_ERR @ 0x020;
+
+  reg {
+    name = "FETCHES";
+    desc = "Commands fetched since reset (wraps).";
+    field { sw = r; hw = w; } count[31:0];
+  } FETCHES @ 0x024;
+
+  reg {
+    name = "AQA";
+    field { sw = r; hw = w; desc = "The host's Admin Queue Attributes."; } value[31:0];
+  } AQA @ 0x030;
+
+  reg {
+    name = "ASQ_LO";
+    field { sw = r; hw = w; desc = "Admin Submission Queue base, bits 31:0."; } value[31:0];
+  } ASQ_LO @ 0x034;
+
+  reg {
+    name = "ASQ_HI";
+    field { sw = r; hw = w; } value[31:0];
+  } ASQ_HI @ 0x038;
+
+  reg {
+    name = "ACQ_LO";
+    field { sw = r; hw = w; desc = "Admin Completion Queue base, bits 31:0."; } value[31:0];
+  } ACQ_LO @ 0x03C;
+
+  reg {
+    name = "ACQ_HI";
+    field { sw = r; hw = w; } value[31:0];
+  } ACQ_HI @ 0x040;
+
+  // I/O queue pairs 1 to 4, written by firmware when it handles the admin
+  // commands that create and delete them. A controller reset clears EN.
+  regfile {
+    reg {
+      name = "SQB_LO";
+      field { sw = rw; hw = r; desc = "Submission queue base, bits 31:12."; } base[31:12] = 20'h0;
+    } SQB_LO @ 0x00;
+    reg {
+      name = "SQB_HI";
+      field { sw = rw; hw = r; } base[31:0] = 32'h0;
+    } SQB_HI @ 0x04;
+    reg {
+      name = "SQ_CFG";
+      field { sw = rw; hw = r; desc = "Entries - 1."; } size[11:0] = 12'h0;
+      field { sw = rw; hw = r; desc = "Completion queue for this submission queue."; } cqid[18:16] = 3'h0;
+      field { sw = rw; hw = r; hwclr; desc = "Queue enabled; enabling sets its head and tail to 0."; } en[31:31] = 1'b0;
+    } SQ_CFG @ 0x08;
+    reg {
+      name = "CQB_LO";
+      field { sw = rw; hw = r; desc = "Completion queue base, bits 31:12."; } base[31:12] = 20'h0;
+    } CQB_LO @ 0x0C;
+    reg {
+      name = "CQB_HI";
+      field { sw = rw; hw = r; } base[31:0] = 32'h0;
+    } CQB_HI @ 0x10;
+    reg {
+      name = "CQ_CFG";
+      field { sw = rw; hw = r; desc = "Entries - 1."; } size[11:0] = 12'h0;
+      field { sw = rw; hw = r; desc = "MSI-X vector."; } iv[18:16] = 3'h0;
+      field { sw = rw; hw = r; desc = "Interrupts enabled."; } ien[24:24] = 1'b0;
+      field { sw = rw; hw = r; hwclr; desc = "Queue enabled; enabling sets head and tail to 0 and the phase to 1."; } en[31:31] = 1'b0;
+    } CQ_CFG @ 0x14;
+  } IOQ[4] @ 0x100 += 0x20;
+
+  reg {
+    name = "SQ_PTR";
+    desc = "Submission queue 0 to 4: head (next entry to fetch) and tail (last doorbell).";
+    field { sw = r; hw = w; } head[11:0];
+    field { sw = r; hw = w; } tail[27:16];
+  } SQ_PTR[5] @ 0x200 += 0x4;
+
+  reg {
+    name = "CQ_PTR";
+    desc = "Completion queue 0 to 4: head (last doorbell), tail (next entry to write) and phase.";
+    field { sw = r; hw = w; } head[11:0];
+    field { sw = r; hw = w; } tail[27:16];
+    field { sw = r; hw = w; } phase[31:31];
+  } CQ_PTR[5] @ 0x220 += 0x4;
+};
+
 addrmap soc_apb {
   name = "APB peripherals";
   desc = "Register blocks in the APB window at 0x4000_0000, one 4 KiB slot each.";
@@ -407,4 +552,5 @@ addrmap soc_apb {
   timer_regs TIMER @ 0x3000;
   dma_regs   DMA   @ 0x4000;
   host_regs  HOST  @ 0x5000;
+  nvme_regs  NVME  @ 0x8000;
 };

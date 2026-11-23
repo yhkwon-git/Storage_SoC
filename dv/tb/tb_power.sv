@@ -49,7 +49,9 @@ module tb_power;
   wire  [31:0] prdata_pmu, prdata_host;
   wire         pready_pmu, pready_host, pslverr_pmu, pslverr_host;
   wire         rst_sys_n, rst_nand_n, sys_rst_req_n, irq_pmu, host_pwr_en;
-  wire         irq_host_err, irq_host_bm;
+  wire         irq_host_err, irq_host_bm, irq_nvme;
+  wire  [31:0] prdata_nvme;
+  wire         pready_nvme, pslverr_nvme;
   logic        host_pwr_ack = 1'b0;
   logic        host_wake    = 1'b0;
 
@@ -75,6 +77,7 @@ module tb_power;
     .sys_rst_req_n (sys_rst_req_n),
     .psel_pmu      (psel_pmu),
     .psel_host     (psel_host),
+    .psel_nvme     (1'b0),
     .penable       (penable),
     .paddr         (paddr),
     .pwrite        (pwrite),
@@ -86,9 +89,13 @@ module tb_power;
     .prdata_host   (prdata_host),
     .pready_host   (pready_host),
     .pslverr_host  (pslverr_host),
+    .prdata_nvme   (prdata_nvme),
+    .pready_nvme   (pready_nvme),
+    .pslverr_nvme  (pslverr_nvme),
     .irq_pmu       (irq_pmu),
     .irq_host_err  (irq_host_err),
     .irq_host_bm   (irq_host_bm),
+    .irq_nvme      (irq_nvme),
     .host_pwr_en   (host_pwr_en),
     .host_pwr_ack  (host_pwr_ack),
     .host_wake     (host_wake),
@@ -201,7 +208,8 @@ module tb_power;
                       dut.cmd_pop, dut.rsp_push, dut.prst_n,
                       dut.u_host_if.trx_empty, dut.u_host_if.ttx_full, dut.u_host_if.rxp_valid,
                       dut.u_host_if.hold_ack_s, dut.u_host_if.txf_empty_s, dut.u_host_if.link_idle,
-                      dut.u_host_if.tl_idle, irq_host_err, irq_host_bm}))
+                      dut.u_host_if.tl_idle, dut.u_host_if.nv_idle, irq_host_err, irq_host_bm,
+                      irq_nvme}))
         err("X on the core side of PD_HOST");
     end
   end

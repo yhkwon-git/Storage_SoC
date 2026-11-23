@@ -28,7 +28,7 @@ package soc_apb_ral_pkg;
 
         virtual function void build();
             this.value = new("value");
-            this.value.configure(this, 32, 0, "RO", 0, 'h20001, 1, 1, 0);
+            this.value.configure(this, 32, 0, "RO", 0, 'h20002, 1, 1, 0);
         endfunction : build
     endclass : sys_regs__VERSION
 
@@ -866,20 +866,6 @@ package soc_apb_ral_pkg;
         endfunction : build
     endclass : host_regs__LINK_STATUS
 
-    // reg - host_regs::BAR0_WIN
-    class host_regs__BAR0_WIN extends uvm_reg;
-        rand uvm_reg_field base;
-
-        function new(string name = "host_regs__BAR0_WIN");
-            super.new(name, 32, UVM_NO_COVERAGE);
-        endfunction : new
-
-        virtual function void build();
-            this.base = new("base");
-            this.base.configure(this, 19, 13, "RW", 0, 'h20004, 1, 1, 0);
-        endfunction : build
-    endclass : host_regs__BAR0_WIN
-
     // reg - host_regs::BAR2_WIN
     class host_regs__BAR2_WIN extends uvm_reg;
         rand uvm_reg_field base;
@@ -1119,7 +1105,6 @@ package soc_apb_ral_pkg;
         rand host_regs__STATUS STATUS;
         rand host_regs__LINK_CTRL LINK_CTRL;
         rand host_regs__LINK_STATUS LINK_STATUS;
-        rand host_regs__BAR0_WIN BAR0_WIN;
         rand host_regs__BAR2_WIN BAR2_WIN;
         rand host_regs__BM_HADDR_LO BM_HADDR_LO;
         rand host_regs__BM_HADDR_HI BM_HADDR_HI;
@@ -1166,11 +1151,6 @@ package soc_apb_ral_pkg;
 
             this.LINK_STATUS.build();
             this.default_map.add_reg(this.LINK_STATUS, 'h14);
-            this.BAR0_WIN = new("BAR0_WIN");
-            this.BAR0_WIN.configure(this);
-
-            this.BAR0_WIN.build();
-            this.default_map.add_reg(this.BAR0_WIN, 'h18);
             this.BAR2_WIN = new("BAR2_WIN");
             this.BAR2_WIN.configure(this);
 
@@ -1244,6 +1224,564 @@ package soc_apb_ral_pkg;
         endfunction : build
     endclass : host_regs
 
+    // reg - nvme_regs::CTRL
+    class nvme_regs__CTRL extends uvm_reg;
+        rand uvm_reg_field ien_cmd;
+
+        function new(string name = "nvme_regs__CTRL");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.ien_cmd = new("ien_cmd");
+            this.ien_cmd.configure(this, 1, 0, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__CTRL
+
+    // reg - nvme_regs::STATUS
+    class nvme_regs__STATUS extends uvm_reg;
+        rand uvm_reg_field rdy;
+        rand uvm_reg_field cfs;
+        rand uvm_reg_field en;
+        rand uvm_reg_field shst;
+        rand uvm_reg_field cmds;
+        rand uvm_reg_field free;
+
+        function new(string name = "nvme_regs__STATUS");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.rdy = new("rdy");
+            this.rdy.configure(this, 1, 0, "RO", 1, 'h0, 0, 1, 0);
+            this.cfs = new("cfs");
+            this.cfs.configure(this, 1, 1, "RO", 1, 'h0, 0, 1, 0);
+            this.en = new("en");
+            this.en.configure(this, 1, 2, "RO", 1, 'h0, 0, 1, 0);
+            this.shst = new("shst");
+            this.shst.configure(this, 2, 4, "RO", 1, 'h0, 0, 1, 0);
+            this.cmds = new("cmds");
+            this.cmds.configure(this, 5, 8, "RO", 1, 'h0, 0, 1, 0);
+            this.free = new("free");
+            this.free.configure(this, 5, 16, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__STATUS
+
+    // reg - nvme_regs::EVENT
+    class nvme_regs__EVENT extends uvm_reg;
+        rand uvm_reg_field enable;
+        rand uvm_reg_field reset;
+        rand uvm_reg_field shutdown;
+        rand uvm_reg_field db_err;
+        rand uvm_reg_field fetch_err;
+
+        function new(string name = "nvme_regs__EVENT");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.enable = new("enable");
+            this.enable.configure(this, 1, 0, "W1C", 1, 'h0, 1, 1, 0);
+            this.reset = new("reset");
+            this.reset.configure(this, 1, 1, "W1C", 1, 'h0, 1, 1, 0);
+            this.shutdown = new("shutdown");
+            this.shutdown.configure(this, 1, 2, "W1C", 1, 'h0, 1, 1, 0);
+            this.db_err = new("db_err");
+            this.db_err.configure(this, 1, 3, "W1C", 1, 'h0, 1, 1, 0);
+            this.fetch_err = new("fetch_err");
+            this.fetch_err.configure(this, 1, 4, "W1C", 1, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__EVENT
+
+    // reg - nvme_regs::EVENT_EN
+    class nvme_regs__EVENT_EN extends uvm_reg;
+        rand uvm_reg_field en;
+
+        function new(string name = "nvme_regs__EVENT_EN");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.en = new("en");
+            this.en.configure(this, 5, 0, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__EVENT_EN
+
+    // reg - nvme_regs::CC
+    class nvme_regs__CC extends uvm_reg;
+        rand uvm_reg_field value;
+
+        function new(string name = "nvme_regs__CC");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.value = new("value");
+            this.value.configure(this, 32, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__CC
+
+    // reg - nvme_regs::CMDBUF
+    class nvme_regs__CMDBUF extends uvm_reg;
+        rand uvm_reg_field base;
+
+        function new(string name = "nvme_regs__CMDBUF");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.base = new("base");
+            this.base.configure(this, 22, 10, "RW", 0, 'h4002f, 1, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__CMDBUF
+
+    // reg - nvme_regs::CMD
+    class nvme_regs__CMD extends uvm_reg;
+        rand uvm_reg_field slot;
+        rand uvm_reg_field sqid;
+        rand uvm_reg_field valid;
+
+        function new(string name = "nvme_regs__CMD");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.slot = new("slot");
+            this.slot.configure(this, 4, 0, "RO", 1, 'h0, 0, 1, 0);
+            this.sqid = new("sqid");
+            this.sqid.configure(this, 3, 16, "RO", 1, 'h0, 0, 1, 0);
+            this.valid = new("valid");
+            this.valid.configure(this, 1, 31, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__CMD
+
+    // reg - nvme_regs::SLOT_FREE
+    class nvme_regs__SLOT_FREE extends uvm_reg;
+        rand uvm_reg_field slot;
+
+        function new(string name = "nvme_regs__SLOT_FREE");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.slot = new("slot");
+            this.slot.configure(this, 4, 0, "WO", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__SLOT_FREE
+
+    // reg - nvme_regs::DB_ERR
+    class nvme_regs__DB_ERR extends uvm_reg;
+        rand uvm_reg_field qid;
+        rand uvm_reg_field cq;
+        rand uvm_reg_field value;
+
+        function new(string name = "nvme_regs__DB_ERR");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.qid = new("qid");
+            this.qid.configure(this, 3, 0, "RO", 1, 'h0, 1, 1, 0);
+            this.cq = new("cq");
+            this.cq.configure(this, 1, 3, "RO", 1, 'h0, 1, 1, 0);
+            this.value = new("value");
+            this.value.configure(this, 16, 16, "RO", 1, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__DB_ERR
+
+    // reg - nvme_regs::FETCHES
+    class nvme_regs__FETCHES extends uvm_reg;
+        rand uvm_reg_field count;
+
+        function new(string name = "nvme_regs__FETCHES");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.count = new("count");
+            this.count.configure(this, 32, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__FETCHES
+
+    // reg - nvme_regs::AQA
+    class nvme_regs__AQA extends uvm_reg;
+        rand uvm_reg_field value;
+
+        function new(string name = "nvme_regs__AQA");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.value = new("value");
+            this.value.configure(this, 32, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__AQA
+
+    // reg - nvme_regs::ASQ_LO
+    class nvme_regs__ASQ_LO extends uvm_reg;
+        rand uvm_reg_field value;
+
+        function new(string name = "nvme_regs__ASQ_LO");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.value = new("value");
+            this.value.configure(this, 32, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__ASQ_LO
+
+    // reg - nvme_regs::ASQ_HI
+    class nvme_regs__ASQ_HI extends uvm_reg;
+        rand uvm_reg_field value;
+
+        function new(string name = "nvme_regs__ASQ_HI");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.value = new("value");
+            this.value.configure(this, 32, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__ASQ_HI
+
+    // reg - nvme_regs::ACQ_LO
+    class nvme_regs__ACQ_LO extends uvm_reg;
+        rand uvm_reg_field value;
+
+        function new(string name = "nvme_regs__ACQ_LO");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.value = new("value");
+            this.value.configure(this, 32, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__ACQ_LO
+
+    // reg - nvme_regs::ACQ_HI
+    class nvme_regs__ACQ_HI extends uvm_reg;
+        rand uvm_reg_field value;
+
+        function new(string name = "nvme_regs__ACQ_HI");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.value = new("value");
+            this.value.configure(this, 32, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__ACQ_HI
+
+    // reg - nvme_regs::IOQ::SQB_LO
+    class nvme_regs__IOQ__SQB_LO extends uvm_reg;
+        rand uvm_reg_field base;
+
+        function new(string name = "nvme_regs__IOQ__SQB_LO");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.base = new("base");
+            this.base.configure(this, 20, 12, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__IOQ__SQB_LO
+
+    // reg - nvme_regs::IOQ::SQB_HI
+    class nvme_regs__IOQ__SQB_HI extends uvm_reg;
+        rand uvm_reg_field base;
+
+        function new(string name = "nvme_regs__IOQ__SQB_HI");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.base = new("base");
+            this.base.configure(this, 32, 0, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__IOQ__SQB_HI
+
+    // reg - nvme_regs::IOQ::SQ_CFG
+    class nvme_regs__IOQ__SQ_CFG extends uvm_reg;
+        rand uvm_reg_field size;
+        rand uvm_reg_field cqid;
+        rand uvm_reg_field en;
+
+        function new(string name = "nvme_regs__IOQ__SQ_CFG");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.size = new("size");
+            this.size.configure(this, 12, 0, "RW", 0, 'h0, 1, 1, 0);
+            this.cqid = new("cqid");
+            this.cqid.configure(this, 3, 16, "RW", 0, 'h0, 1, 1, 0);
+            this.en = new("en");
+            this.en.configure(this, 1, 31, "RW", 1, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__IOQ__SQ_CFG
+
+    // reg - nvme_regs::IOQ::CQB_LO
+    class nvme_regs__IOQ__CQB_LO extends uvm_reg;
+        rand uvm_reg_field base;
+
+        function new(string name = "nvme_regs__IOQ__CQB_LO");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.base = new("base");
+            this.base.configure(this, 20, 12, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__IOQ__CQB_LO
+
+    // reg - nvme_regs::IOQ::CQB_HI
+    class nvme_regs__IOQ__CQB_HI extends uvm_reg;
+        rand uvm_reg_field base;
+
+        function new(string name = "nvme_regs__IOQ__CQB_HI");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.base = new("base");
+            this.base.configure(this, 32, 0, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__IOQ__CQB_HI
+
+    // reg - nvme_regs::IOQ::CQ_CFG
+    class nvme_regs__IOQ__CQ_CFG extends uvm_reg;
+        rand uvm_reg_field size;
+        rand uvm_reg_field iv;
+        rand uvm_reg_field ien;
+        rand uvm_reg_field en;
+
+        function new(string name = "nvme_regs__IOQ__CQ_CFG");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.size = new("size");
+            this.size.configure(this, 12, 0, "RW", 0, 'h0, 1, 1, 0);
+            this.iv = new("iv");
+            this.iv.configure(this, 3, 16, "RW", 0, 'h0, 1, 1, 0);
+            this.ien = new("ien");
+            this.ien.configure(this, 1, 24, "RW", 0, 'h0, 1, 1, 0);
+            this.en = new("en");
+            this.en.configure(this, 1, 31, "RW", 1, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__IOQ__CQ_CFG
+
+    // regfile - nvme_regs::IOQ
+    class nvme_regs__IOQ extends uvm_reg_block;
+        rand nvme_regs__IOQ__SQB_LO SQB_LO;
+        rand nvme_regs__IOQ__SQB_HI SQB_HI;
+        rand nvme_regs__IOQ__SQ_CFG SQ_CFG;
+        rand nvme_regs__IOQ__CQB_LO CQB_LO;
+        rand nvme_regs__IOQ__CQB_HI CQB_HI;
+        rand nvme_regs__IOQ__CQ_CFG CQ_CFG;
+
+        function new(string name = "nvme_regs__IOQ");
+            super.new(name);
+        endfunction : new
+
+        virtual function void build();
+            this.default_map = create_map("reg_map", 0, 4, UVM_NO_ENDIAN);
+            this.SQB_LO = new("SQB_LO");
+            this.SQB_LO.configure(this);
+
+            this.SQB_LO.build();
+            this.default_map.add_reg(this.SQB_LO, 'h0);
+            this.SQB_HI = new("SQB_HI");
+            this.SQB_HI.configure(this);
+
+            this.SQB_HI.build();
+            this.default_map.add_reg(this.SQB_HI, 'h4);
+            this.SQ_CFG = new("SQ_CFG");
+            this.SQ_CFG.configure(this);
+
+            this.SQ_CFG.build();
+            this.default_map.add_reg(this.SQ_CFG, 'h8);
+            this.CQB_LO = new("CQB_LO");
+            this.CQB_LO.configure(this);
+
+            this.CQB_LO.build();
+            this.default_map.add_reg(this.CQB_LO, 'hc);
+            this.CQB_HI = new("CQB_HI");
+            this.CQB_HI.configure(this);
+
+            this.CQB_HI.build();
+            this.default_map.add_reg(this.CQB_HI, 'h10);
+            this.CQ_CFG = new("CQ_CFG");
+            this.CQ_CFG.configure(this);
+
+            this.CQ_CFG.build();
+            this.default_map.add_reg(this.CQ_CFG, 'h14);
+        endfunction : build
+    endclass : nvme_regs__IOQ
+
+    // reg - nvme_regs::SQ_PTR
+    class nvme_regs__SQ_PTR extends uvm_reg;
+        rand uvm_reg_field head;
+        rand uvm_reg_field tail;
+
+        function new(string name = "nvme_regs__SQ_PTR");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.head = new("head");
+            this.head.configure(this, 12, 0, "RO", 1, 'h0, 0, 1, 0);
+            this.tail = new("tail");
+            this.tail.configure(this, 12, 16, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__SQ_PTR
+
+    // reg - nvme_regs::CQ_PTR
+    class nvme_regs__CQ_PTR extends uvm_reg;
+        rand uvm_reg_field head;
+        rand uvm_reg_field tail;
+        rand uvm_reg_field phase;
+
+        function new(string name = "nvme_regs__CQ_PTR");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.head = new("head");
+            this.head.configure(this, 12, 0, "RO", 1, 'h0, 0, 1, 0);
+            this.tail = new("tail");
+            this.tail.configure(this, 12, 16, "RO", 1, 'h0, 0, 1, 0);
+            this.phase = new("phase");
+            this.phase.configure(this, 1, 31, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__CQ_PTR
+
+    // addrmap - nvme_regs
+    class nvme_regs extends uvm_reg_block;
+        rand nvme_regs__CTRL CTRL;
+        rand nvme_regs__STATUS STATUS;
+        rand nvme_regs__EVENT EVENT;
+        rand nvme_regs__EVENT_EN EVENT_EN;
+        rand nvme_regs__CC CC;
+        rand nvme_regs__CMDBUF CMDBUF;
+        rand nvme_regs__CMD CMD;
+        rand nvme_regs__SLOT_FREE SLOT_FREE;
+        rand nvme_regs__DB_ERR DB_ERR;
+        rand nvme_regs__FETCHES FETCHES;
+        rand nvme_regs__AQA AQA;
+        rand nvme_regs__ASQ_LO ASQ_LO;
+        rand nvme_regs__ASQ_HI ASQ_HI;
+        rand nvme_regs__ACQ_LO ACQ_LO;
+        rand nvme_regs__ACQ_HI ACQ_HI;
+        rand nvme_regs__IOQ IOQ[4];
+        rand nvme_regs__SQ_PTR SQ_PTR[5];
+        rand nvme_regs__CQ_PTR CQ_PTR[5];
+
+        function new(string name = "nvme_regs");
+            super.new(name);
+        endfunction : new
+
+        virtual function void build();
+            this.default_map = create_map("reg_map", 0, 4, UVM_NO_ENDIAN);
+            this.CTRL = new("CTRL");
+            this.CTRL.configure(this);
+
+            this.CTRL.build();
+            this.default_map.add_reg(this.CTRL, 'h0);
+            this.STATUS = new("STATUS");
+            this.STATUS.configure(this);
+
+            this.STATUS.build();
+            this.default_map.add_reg(this.STATUS, 'h4);
+            this.EVENT = new("EVENT");
+            this.EVENT.configure(this);
+
+            this.EVENT.build();
+            this.default_map.add_reg(this.EVENT, 'h8);
+            this.EVENT_EN = new("EVENT_EN");
+            this.EVENT_EN.configure(this);
+
+            this.EVENT_EN.build();
+            this.default_map.add_reg(this.EVENT_EN, 'hc);
+            this.CC = new("CC");
+            this.CC.configure(this);
+
+            this.CC.build();
+            this.default_map.add_reg(this.CC, 'h10);
+            this.CMDBUF = new("CMDBUF");
+            this.CMDBUF.configure(this);
+
+            this.CMDBUF.build();
+            this.default_map.add_reg(this.CMDBUF, 'h14);
+            this.CMD = new("CMD");
+            this.CMD.configure(this);
+
+            this.CMD.build();
+            this.default_map.add_reg(this.CMD, 'h18);
+            this.SLOT_FREE = new("SLOT_FREE");
+            this.SLOT_FREE.configure(this);
+
+            this.SLOT_FREE.build();
+            this.default_map.add_reg(this.SLOT_FREE, 'h1c);
+            this.DB_ERR = new("DB_ERR");
+            this.DB_ERR.configure(this);
+
+            this.DB_ERR.build();
+            this.default_map.add_reg(this.DB_ERR, 'h20);
+            this.FETCHES = new("FETCHES");
+            this.FETCHES.configure(this);
+
+            this.FETCHES.build();
+            this.default_map.add_reg(this.FETCHES, 'h24);
+            this.AQA = new("AQA");
+            this.AQA.configure(this);
+
+            this.AQA.build();
+            this.default_map.add_reg(this.AQA, 'h30);
+            this.ASQ_LO = new("ASQ_LO");
+            this.ASQ_LO.configure(this);
+
+            this.ASQ_LO.build();
+            this.default_map.add_reg(this.ASQ_LO, 'h34);
+            this.ASQ_HI = new("ASQ_HI");
+            this.ASQ_HI.configure(this);
+
+            this.ASQ_HI.build();
+            this.default_map.add_reg(this.ASQ_HI, 'h38);
+            this.ACQ_LO = new("ACQ_LO");
+            this.ACQ_LO.configure(this);
+
+            this.ACQ_LO.build();
+            this.default_map.add_reg(this.ACQ_LO, 'h3c);
+            this.ACQ_HI = new("ACQ_HI");
+            this.ACQ_HI.configure(this);
+
+            this.ACQ_HI.build();
+            this.default_map.add_reg(this.ACQ_HI, 'h40);
+            foreach(this.IOQ[i0]) begin
+                this.IOQ[i0] = new($sformatf("IOQ[%0d]", i0));
+                this.IOQ[i0].configure(this);
+                this.IOQ[i0].build();
+                this.default_map.add_submap(this.IOQ[i0].default_map, 'h100 + i0*'h20);
+            end
+            foreach(this.SQ_PTR[i0]) begin
+                this.SQ_PTR[i0] = new($sformatf("SQ_PTR[%0d]", i0));
+                this.SQ_PTR[i0].configure(this);
+                
+                this.SQ_PTR[i0].build();
+                this.default_map.add_reg(this.SQ_PTR[i0], 'h200 + i0*'h4);
+            end
+            foreach(this.CQ_PTR[i0]) begin
+                this.CQ_PTR[i0] = new($sformatf("CQ_PTR[%0d]", i0));
+                this.CQ_PTR[i0].configure(this);
+                
+                this.CQ_PTR[i0].build();
+                this.default_map.add_reg(this.CQ_PTR[i0], 'h220 + i0*'h4);
+            end
+        endfunction : build
+    endclass : nvme_regs
+
     // addrmap - soc_apb
     class soc_apb extends uvm_reg_block;
         rand sys_regs SYS;
@@ -1252,6 +1790,7 @@ package soc_apb_ral_pkg;
         rand timer_regs TIMER;
         rand dma_regs DMA;
         rand host_regs HOST;
+        rand nvme_regs NVME;
 
         function new(string name = "soc_apb");
             super.new(name);
@@ -1283,6 +1822,10 @@ package soc_apb_ral_pkg;
             this.HOST.configure(this);
             this.HOST.build();
             this.default_map.add_submap(this.HOST.default_map, 'h5000);
+            this.NVME = new("NVME");
+            this.NVME.configure(this);
+            this.NVME.build();
+            this.default_map.add_submap(this.NVME.default_map, 'h8000);
         endfunction : build
     endclass : soc_apb
 

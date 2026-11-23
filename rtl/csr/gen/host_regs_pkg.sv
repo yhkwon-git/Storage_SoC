@@ -243,14 +243,6 @@ package host_regs_pkg;
     } host_regs__LINK_CTRL__out_t;
 
     typedef struct {
-        logic [18:0] value;
-    } host_regs__BAR0_WIN__base__out_t;
-
-    typedef struct {
-        host_regs__BAR0_WIN__base__out_t base;
-    } host_regs__BAR0_WIN__out_t;
-
-    typedef struct {
         logic [16:0] value;
     } host_regs__BAR2_WIN__base__out_t;
 
@@ -386,7 +378,6 @@ package host_regs_pkg;
         host_regs__RX__out_t RX;
         host_regs__STATUS__out_t STATUS;
         host_regs__LINK_CTRL__out_t LINK_CTRL;
-        host_regs__BAR0_WIN__out_t BAR0_WIN;
         host_regs__BAR2_WIN__out_t BAR2_WIN;
         host_regs__BM_HADDR_LO__out_t BM_HADDR_LO;
         host_regs__BM_HADDR_HI__out_t BM_HADDR_HI;

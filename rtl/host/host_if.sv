@@ -5,8 +5,11 @@
 // host_if
 //
 // Core side of the host interface, in PD_CORE: the HOST registers (host_regs,
-// APB slot 5), the transaction layer (rtl/host/tl/tl_core.sv, AXI master M3)
-// and the four dual-clock FIFOs that join clk_sys and pclk. The FIFOs sit whole
+// APB slot 5), the transaction layer (rtl/host/tl/tl_core.sv, AXI master M3),
+// the NVMe controller's registers and queues (rtl/host/nvme/nvme_ctrl.sv,
+// host side in BAR0, firmware side APB slot 8, fetches through the
+// transaction layer's bus master) and the four dual-clock FIFOs that join
+// clk_sys and pclk. The FIFOs sit whole
 // in PD_CORE; their pclk halves are clocked by the PLL's gated clock and held
 // in reset through PD_HOST's isolated reset output while PD_HOST is off, and
 // their clk_sys halves are held in reset by the PMU (hostq_rst_req_n) from the
@@ -25,7 +28,8 @@
 // idle, to the PMU: every placeholder command has had its response read, and
 // the host path is held and drained: LINK_CTRL.HOLD acknowledged by PD_HOST,
 // the receive FIFO empty, the transmit FIFO empty as its pclk side sees it,
-// and the transaction layer idle, all for 16 clocks in a row. The PMU refuses
+// and the transaction layer and the NVMe fetch engine idle, all for 16 clocks
+// in a row. The PMU refuses
 // a power-down otherwise. The 16 clocks cover the synchronizers: a beat
 // pushed just before HOLD took effect, or the last transmit beat's pop, shows
 // up within about five clk_sys clocks at the 50 and 62.5 MHz clocks.
@@ -46,11 +50,18 @@ module host_if (
   output logic         pready,
   output logic         pslverr,
 
+  // NVMe controller's firmware registers: APB slot 8 (the bus signals above)
+  input  wire          psel_nvme,
+  output logic [31:0]  prdata_nvme,
+  output logic         pready_nvme,
+  output logic         pslverr_nvme,
+
   input  wire          host_on,          // PMU, clk_aon level
   output logic         host_idle,        // to the PMU
 
   output logic         irq_err,          // INTC source 5
   output logic         irq_bm,           // INTC source 12
+  output logic         irq_nvme,         // INTC source 3
 
   // AXI4 master M3
   output logic [1:0]   m_awid,
@@ -201,6 +212,18 @@ module host_if (
   logic        ev_discard, ev_msix_drop, rx_tlp, tx_tlp, tl_idle;
   logic [1:0]  ev_malformed;
 
+  // Register port and bus-master requests between the transaction layer and
+  // the NVMe controller
+  logic        rp_we;
+  logic [10:0] rp_dw;
+  logic [3:0]  rp_be;
+  logic [31:0] rp_wdata, rp_rd0, rp_rd1;
+  logic        nv_valid, nv_ready, nv_d2h, nv_done, nv_idle;
+  logic [63:2] nv_haddr;
+  logic [31:2] nv_laddr;
+  logic [17:0] nv_len;
+  logic [2:0]  nv_cause;
+
   // MSIX_REQ, like TX, is read one clock after its write.
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) msix_wr <= 1'b0;
@@ -223,7 +246,11 @@ module host_if (
     .m_arburst (m_arburst), .m_arvalid (m_arvalid), .m_arready (m_arready),
     .m_rid (m_rid), .m_rdata (m_rdata), .m_rresp (m_rresp), .m_rlast (m_rlast),
     .m_rvalid (m_rvalid), .m_rready (m_rready),
-    .bar0_win (hwif_out.BAR0_WIN.base.value), .bar2_win (hwif_out.BAR2_WIN.base.value),
+    .rp_we (rp_we), .rp_dw (rp_dw), .rp_be (rp_be), .rp_wdata (rp_wdata),
+    .rp_rd0 (rp_rd0), .rp_rd1 (rp_rd1),
+    .nv_valid (nv_valid), .nv_ready (nv_ready), .nv_d2h (nv_d2h), .nv_haddr (nv_haddr),
+    .nv_laddr (nv_laddr), .nv_len (nv_len), .nv_done (nv_done), .nv_cause (nv_cause),
+    .bar2_win (hwif_out.BAR2_WIN.base.value),
     .cto_ticks (hwif_out.CPL_TIMEOUT.ticks.value),
     .bm_start (hwif_out.BM_CTRL.start.value), .bm_d2h (hwif_out.BM_CTRL.d2h.value),
     .bm_haddr ({hwif_out.BM_HADDR_HI.addr.value, hwif_out.BM_HADDR_LO.addr.value}),
@@ -236,6 +263,17 @@ module host_if (
     .ev_unexp_cpl (ev_unexp_cpl), .ev_cpl_timeout (ev_cpl_timeout), .ev_cpl_err (ev_cpl_err),
     .ev_axi_err (ev_axi_err), .ev_discard (ev_discard), .ev_msix_drop (ev_msix_drop),
     .rx_tlp (rx_tlp), .tx_tlp (tx_tlp), .idle (tl_idle)
+  );
+
+  nvme_ctrl u_nvme (
+    .clk (clk), .rst_n (rst_n),
+    .psel (psel_nvme), .penable (penable), .paddr (paddr), .pwrite (pwrite), .pwdata (pwdata),
+    .pstrb (pstrb), .prdata (prdata_nvme), .pready (pready_nvme), .pslverr (pslverr_nvme),
+    .reg_we (rp_we), .reg_dw (rp_dw), .reg_be (rp_be), .reg_wdata (rp_wdata),
+    .reg_rd0 (rp_rd0), .reg_rd1 (rp_rd1),
+    .bm_valid (nv_valid), .bm_ready (nv_ready), .bm_d2h (nv_d2h), .bm_haddr (nv_haddr),
+    .bm_laddr (nv_laddr), .bm_len (nv_len), .bm_done (nv_done), .bm_cause (nv_cause),
+    .irq (irq_nvme), .idle (nv_idle)
   );
 
   assign hold    = hwif_out.LINK_CTRL.hold.value;
@@ -255,7 +293,8 @@ module host_if (
   cdc_sync_2ff #(.WIDTH(1)) u_hack_sync (.clk(clk), .rst_n(rst_n), .din_async(hold_ack_p), .dout(hold_ack_s));
   cdc_sync_2ff #(.WIDTH(1)) u_txe_sync  (.clk(clk), .rst_n(rst_n), .din_async(txf_empty), .dout(txf_empty_s));
 
-  wire        path_quiet = hold && hold_ack_s && txf_empty_s && trx_empty && !ttx_push && tl_idle;
+  wire        path_quiet = hold && hold_ack_s && txf_empty_s && trx_empty && !ttx_push && tl_idle &&
+                           nv_idle;
   logic [3:0] quiet_cnt;
   logic       link_idle;
 

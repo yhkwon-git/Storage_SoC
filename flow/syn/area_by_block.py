@@ -38,6 +38,9 @@ BLOCKS = [
     ("u_pwr.u_host_if.u_tl.u_cfg", "TL configuration space"),
     ("u_pwr.u_host_if.u_tl", "TL dispatcher, arbiter, AXI slices"),
     ("u_pwr.u_host_if.u_tlp_", "TLP dual-clock FIFOs"),
+    # NVMe controller (step 2-2). Not split further: the generated register
+    # block's flops take the names of its outputs in nvme_ctrl.
+    ("u_pwr.u_host_if.u_nvme", "NVMe controller (registers, queues, fetch engine)"),
     ("u_pwr", "PMU, crossing, PD_HOST, HOST registers, placeholder FIFOs"),
     ("u_rst_dma", "DMA reset synchronizer"),
     ("_fanbuf", "Fanout buffers (flow/syn/buffer_fanout.py)"),

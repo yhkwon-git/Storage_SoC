@@ -21,13 +21,14 @@ New-Item -ItemType Directory -Force $out | Out-Null
 $src = @(
     'rtl\csr\gen\pmu_regs_pkg.sv', 'rtl\csr\gen\host_regs_pkg.sv',
     'rtl\csr\gen\pmu_regs.sv', 'rtl\csr\gen\host_regs.sv',
+    'rtl\csr\gen\nvme_regs_pkg.sv', 'rtl\csr\gen\nvme_regs.sv',
     'rtl\common\cdc_sync_2ff.sv', 'rtl\common\cdc_async_fifo.sv', 'rtl\common\rst_sync.sv',
     'rtl\common\clk_gate.sv', 'rtl\pmu\iso_clamp.sv', 'rtl\pmu\ret_reg.sv', 'rtl\pmu\apb_cdc.sv',
     'rtl\common\fifo_sync.sv', 'rtl\axi\axi_channel_reg_slice.sv',
     'rtl\host\tl\tl_pkg.sv', 'rtl\host\tl\tl_dw_align.sv', 'rtl\host\tl\tl_rx_buf.sv',
     'rtl\host\tl\tl_rx_unpack.sv', 'rtl\host\tl\tl_tx_pack.sv', 'rtl\host\tl\tl_cfg.sv',
     'rtl\host\tl\tl_msix.sv', 'rtl\host\tl\tl_wr.sv', 'rtl\host\tl\tl_rd.sv', 'rtl\host\tl\tl_bm.sv',
-    'rtl\host\tl\tl_core.sv', 'rtl\host\tl\tl_port.sv',
+    'rtl\host\tl\tl_core.sv', 'rtl\host\tl\tl_port.sv', 'rtl\host\nvme\nvme_ctrl.sv',
     'rtl\pmu\pmu.sv', 'rtl\host\phy_pll_model.sv', 'rtl\host\host_stub.sv', 'rtl\host\pd_host.sv',
     'rtl\host\host_if.sv', 'rtl\top\soc_pwr.sv', 'dv\tb\tb_power.sv'
 ) | ForEach-Object { Join-Path $root $_ }

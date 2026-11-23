@@ -13,7 +13,7 @@
 //                    (0x1000_8000)
 //   +max_cycles=<n>  give up after n clocks (default 2,000,000)
 //   +apb_check       after the firmware ends, the host checks the APB bridge
-//                    with DW, QW and burst reads through BAR0 (apb_check below)
+//                    with DW, QW and burst reads through BAR2 (apb_check below)
 //
 // Since step 2-1, M3 is the transaction layer: the host model (tlp_tb_pkg) on
 // the host_rx_* and host_tx_* pins, on pclk_in, enumerates the device once
@@ -343,10 +343,10 @@ module tb_soc;
   endtask
 
   // ---------------------------------------------------------------------------
-  // APB through the BAR0 window (+apb_check, after the firmware ends). The
-  // testbench points the window at the APB slots it needs (forcing BAR0_WIN's
-  // value inside the transaction layer); DW accesses become 32-bit AXI beats,
-  // QW and longer ones 64-bit beats that the bridge splits into two words.
+  // APB through BAR2 (+apb_check, after the firmware ends). The testbench
+  // points the BAR2 window at the APB slots it needs (forcing BAR2_WIN's value
+  // inside the transaction layer); DW accesses become 32-bit AXI beats, QW and
+  // longer ones 64-bit beats that the bridge splits into two words.
   // ---------------------------------------------------------------------------
   int apb_errors = 0;
 
@@ -366,30 +366,42 @@ module tb_soc;
   task automatic apb_check();
     byteq_t   b;
     bit [2:0] st;
-    // Window on SYS and PMU.
-    force dut.u_pwr.u_host_if.u_tl.bar0_win = 19'h2_0000;   // 0x4000_0000
+    // Window on slots 0 to 7: SYS, PMU, INTC, TIMER, DMA, HOST, 6, 7.
+    force dut.u_pwr.u_host_if.u_tl.bar2_win = 17'h0_8000;   // 0x4000_0000
     // ID (0x000) and VERSION (0x004) in one QW read.
-    host.mem_rd(BAR0, 8, b, st);
-    apb_expect(st == SC && qw(b, 0) == {32'h0002_0001, 32'h5353_4F43}, "QW read of ID and VERSION");
+    host.mem_rd(BAR2, 8, b, st);
+    apb_expect(st == SC && qw(b, 0) == {32'h0002_0002, 32'h5353_4F43}, "QW read of ID and VERSION");
     // SCRATCH through a DW write, read back.
-    host.mem_wr(BAR0 + 64'h8, le_bytes(64'h1234_5678, 4));
-    host.mem_rd(BAR0 + 64'h8, 4, b, st);
+    host.mem_wr(BAR2 + 64'h8, le_bytes(64'h1234_5678, 4));
+    host.mem_rd(BAR2 + 64'h8, 4, b, st);
     apb_expect(st == SC && qw(b, 0) == 64'h1234_5678, "DW write and read of SCRATCH");
     // SCRATCH and the undefined 0x00C in one QW read: PSLVERR inside the beat,
     // so a Completer Abort.
-    host.mem_rd(BAR0 + 64'h8, 8, b, st);
+    host.mem_rd(BAR2 + 64'h8, 8, b, st);
     apb_expect(st == CA, "QW read beside an undefined word gets CA");
     // PMU AON_SCRATCH (0x1018) through the APB crossing into clk_aon.
-    host.mem_wr(BAR0 + 64'h1018, le_bytes(64'hCAFE_0001, 4));
-    host.mem_rd(BAR0 + 64'h1018, 4, b, st);
+    host.mem_wr(BAR2 + 64'h1018, le_bytes(64'hCAFE_0001, 4));
+    host.mem_rd(BAR2 + 64'h1018, 4, b, st);
     apb_expect(st == SC && qw(b, 0) == 64'hCAFE_0001, "DW write and read of AON_SCRATCH");
-    // Window on INTC and TIMER: a 16-byte read is a 2-beat burst over the
-    // timer; MTIMECMP still holds its reset value.
-    force dut.u_pwr.u_host_if.u_tl.bar0_win = 19'h2_0001;   // 0x4000_2000
-    host.mem_rd(BAR0 + 64'h1000, 16, b, st);
+    // A 16-byte read is a 2-beat burst over the timer; MTIMECMP still holds
+    // its reset value.
+    host.mem_rd(BAR2 + 64'h3000, 16, b, st);
     apb_expect(st == SC && qw(b, 8) == '1 && qw(b, 0) != 0, "2-beat burst over the timer");
-    release dut.u_pwr.u_host_if.u_tl.bar0_win;
-    $display("[SOC] apb check through BAR0: QW read, DW write and read, CA beside an undefined word, AON register, 2-beat burst: %0d errors",
+    // Slot 6 has no peripheral: CA.
+    host.mem_rd(BAR2 + 64'h6000, 4, b, st);
+    apb_expect(st == CA, "read of empty slot 6 gets CA");
+    // Window on slots 8 to 15: NVME, then empty slots.
+    force dut.u_pwr.u_host_if.u_tl.bar2_win = 17'h0_8001;   // 0x4000_8000
+    // NVME STATUS: controller off, no command, 16 free slots.
+    host.mem_rd(BAR2 + 64'h4, 4, b, st);
+    apb_expect(st == SC && qw(b, 0) == 64'h0010_0000, "NVME STATUS through slot 8");
+    // CMDBUF holds its reset value.
+    host.mem_rd(BAR2 + 64'h14, 4, b, st);
+    apb_expect(st == SC && qw(b, 0) == 64'h1000_BC00, "NVME CMDBUF through slot 8");
+    host.mem_rd(BAR2 + 64'h7000, 4, b, st);
+    apb_expect(st == CA, "read of empty slot 15 gets CA");
+    release dut.u_pwr.u_host_if.u_tl.bar2_win;
+    $display("[SOC] apb check through BAR2: QW read, DW write and read, CA beside an undefined word, AON register, 2-beat burst, empty slots, NVME slot: %0d errors",
              apb_errors);
   endtask
 
@@ -418,6 +430,99 @@ module tb_soc;
   endtask
 
   // ---------------------------------------------------------------------------
+  // NVMe host (+test=nvme, fw/tests/nvme.c): enables the controller with an
+  // 8-entry admin queue pair, creates I/O queue pair 1 (16 entries) with two
+  // admin commands, submits 12 Read commands on it in two batches, then shuts
+  // the controller down. Completion queue entries come with step 2-3, so the
+  // host follows the controller's state inside the design instead: SQ1 enabled
+  // by the firmware, the SQ1 head at 12.
+  // ---------------------------------------------------------------------------
+  localparam bit [63:0] ASQ   = 64'h0000_0001_4000_0000;
+  localparam bit [63:0] ACQ   = 64'h0000_0001_4001_0000;
+  localparam bit [63:0] IOCQ1 = 64'h0000_0001_4002_0000;
+  localparam bit [63:0] IOSQ1 = 64'h0000_0001_4003_0000;
+  localparam int        NV_IO = 12;
+  int nv_cycles_admin, nv_cycles_io;
+
+  task automatic nv_wr(int off, bit [31:0] v);
+    host.mem_wr(BAR0 + 64'(off), le_bytes({32'd0, v}, 4));
+  endtask
+
+  task automatic nv_rd(int off, output bit [31:0] v);
+    byteq_t b;
+    bit [2:0] st;
+    host.mem_rd(BAR0 + 64'(off), 4, b, st);
+    if (st != SC) herr($sformatf("NVMe register read +%h status %0d", off, st));
+    v = {b[3], b[2], b[1], b[0]};
+  endtask
+
+  function automatic void nv_sqe(bit [63:0] a, bit [7:0] opc, bit [15:0] cid, bit [31:0] nsid,
+                                 bit [63:0] prp1, bit [31:0] cdw10, bit [31:0] cdw11,
+                                 bit [31:0] cdw12);
+    bit [31:0] dw [16];
+    foreach (dw[i]) dw[i] = 32'd0;
+    dw[0] = {cid, 8'h00, opc};
+    dw[1] = nsid;
+    dw[6] = prp1[31:0];
+    dw[7] = prp1[63:32];
+    dw[10] = cdw10;
+    dw[11] = cdw11;
+    dw[12] = cdw12;
+    for (int i = 0; i < 16; i++)
+      for (int k = 0; k < 4; k++) host.hmem[a + 64'(4 * i + k)] = dw[i][8*k +: 8];
+  endfunction
+
+  task automatic nvme_host();
+    bit [31:0] v;
+    int n = 0;
+    longint t0;
+    nv_wr(32'h24, 32'h0007_0007);                        // AQA: 8 entries each
+    host.mem_wr(BAR0 + 64'h28, le_bytes(ASQ, 8));
+    host.mem_wr(BAR0 + 64'h30, le_bytes(ACQ, 8));
+    nv_wr(32'h14, 32'h0046_0001);                        // IOCQES 4, IOSQES 6, EN
+    do begin
+      nv_rd(32'h1C, v);
+      if (++n > 1000) begin herr("CSTS.RDY never set"); return; end
+    end while (!v[0]);
+    // Create I/O CQ 1: 16 entries, vector 1, interrupts on, contiguous.
+    // Create I/O SQ 1: 16 entries on CQ 1, contiguous.
+    nv_sqe(ASQ,       8'h05, 16'h0001, 32'd0, IOCQ1, {16'd15, 16'd1}, {16'd1, 14'd0, 2'b11}, 32'd0);
+    nv_sqe(ASQ + 64,  8'h01, 16'h0002, 32'd0, IOSQ1, {16'd15, 16'd1}, {16'd1, 15'd0, 1'b1}, 32'd0);
+    t0 = $time;
+    nv_wr(32'h1000, 32'd2);
+    n = 0;
+    while (dut.u_pwr.u_host_if.u_nvme.sq_en[1] !== 1'b1) begin
+      @(negedge clk);
+      if (++n > 400000) begin herr("I/O SQ 1 never created"); return; end
+    end
+    nv_cycles_admin = int'(($time - t0) / 20);
+    // 12 Reads: CID 0x100 + i, NSID 1, PRP1 0x1_5000_0000 + 4 KiB x i,
+    // SLBA 8 x i, NLB 7; doorbell after the fifth and after the last.
+    t0 = $time;
+    for (int i = 0; i < NV_IO; i++) begin
+      nv_sqe(IOSQ1 + 64'(64 * i), 8'h02, 16'(16'h0100 + i), 32'd1,
+             64'h0000_0001_5000_0000 + 64'(4096 * i), 32'(8 * i), 32'd0, 32'd7);
+      if (i == 4 || i == NV_IO - 1) nv_wr(32'h1008, 32'(i + 1));
+    end
+    n = 0;
+    while (dut.u_pwr.u_host_if.u_nvme.sq_head[1] != 12'(NV_IO)) begin
+      @(negedge clk);
+      if (++n > 400000) begin herr("I/O commands never all fetched"); return; end
+    end
+    nv_cycles_io = int'(($time - t0) / 20);
+    // Shutdown: SHN normal, until SHST reads complete.
+    nv_wr(32'h14, 32'h0046_4001);
+    n = 0;
+    do begin
+      nv_rd(32'h1C, v);
+      if (++n > 1000) begin herr("CSTS.SHST never complete"); return; end
+    end while (v[3:2] != 2'b10);
+    if (v[1]) herr("CSTS.CFS set");
+    $display("[SOC] nvme host: admin queue up, 2 admin commands to I/O SQ 1 in %0d clk_sys cycles, %0d I/O commands fetched in %0d, shutdown complete",
+             nv_cycles_admin, NV_IO, nv_cycles_io);
+  endtask
+
+  // ---------------------------------------------------------------------------
   // Main
   // ---------------------------------------------------------------------------
   bit    bg;
@@ -443,7 +548,10 @@ module tb_soc;
     fork
       begin
         enumerate();
-        if (bg) gen_bg();
+        fork
+          if (bg) gen_bg();
+          if (test == "nvme") nvme_host();
+        join
       end
     join_none
 

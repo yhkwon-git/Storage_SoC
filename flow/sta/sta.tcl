@@ -39,8 +39,10 @@ foreach clk {clk_sys clk_nand pclk clk_aon} {
   set p [lindex [find_timing_paths -path_delay min -group_path_count 1 -to [get_clocks $clk]] 0]
   if {$p ne ""} { puts $fh "hold_slack_$clk [ns [$p slack]]" }
 }
-# Worst setup slack of the paths that start in each top-level block.
-foreach blk {u_cpu u_xbar u_dma u_ibus u_dbus u_apb u_sys u_intc u_timer g_mem u_pwr} {
+# Worst setup slack of the paths that start in each top-level block, and in
+# the transaction layer and the NVMe controller inside u_pwr.
+foreach blk {u_cpu u_xbar u_dma u_ibus u_dbus u_apb u_sys u_intc u_timer g_mem u_pwr
+             u_pwr.u_host_if.u_tl u_pwr.u_host_if.u_nvme} {
   set cells [get_cells -quiet "${blk}*"]
   if {[llength $cells] == 0} { continue }
   set p [lindex [find_timing_paths -path_delay max -group_path_count 1 -sort_by_slack -from $cells] 0]

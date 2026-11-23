@@ -20,7 +20,7 @@ extern "C" {
 #define SYS_REGS__VERSION__VALUE_bm 0xffffffff
 #define SYS_REGS__VERSION__VALUE_bp 0
 #define SYS_REGS__VERSION__VALUE_bw 32
-#define SYS_REGS__VERSION__VALUE_reset 0x20001
+#define SYS_REGS__VERSION__VALUE_reset 0x20002
 
 // reg - sys_regs::SCRATCH
 #define SYS_REGS__SCRATCH__VALUE_bm 0xffffffff
@@ -363,12 +363,6 @@ typedef struct __attribute__ ((__packed__)) {
 #define HOST_REGS__LINK_STATUS__ID_bp 16
 #define HOST_REGS__LINK_STATUS__ID_bw 16
 
-// reg - host_regs::BAR0_WIN
-#define HOST_REGS__BAR0_WIN__BASE_bm 0xffffe000
-#define HOST_REGS__BAR0_WIN__BASE_bp 13
-#define HOST_REGS__BAR0_WIN__BASE_bw 19
-#define HOST_REGS__BAR0_WIN__BASE_reset 0x20004
-
 // reg - host_regs::BAR2_WIN
 #define HOST_REGS__BAR2_WIN__BASE_bm 0xffff8000
 #define HOST_REGS__BAR2_WIN__BASE_bp 15
@@ -504,7 +498,7 @@ typedef struct __attribute__ ((__packed__)) {
     uint8_t RESERVED_c_f[0x4];
     uint32_t LINK_CTRL;
     uint32_t LINK_STATUS;
-    uint32_t BAR0_WIN;
+    uint8_t RESERVED_18_1b[0x4];
     uint32_t BAR2_WIN;
     uint32_t BM_HADDR_LO;
     uint32_t BM_HADDR_HI;
@@ -522,6 +516,244 @@ typedef struct __attribute__ ((__packed__)) {
     uint32_t TX_TLPS;
 } host_regs_t;
 
+// reg - nvme_regs::CTRL
+#define NVME_REGS__CTRL__IEN_CMD_bm 0x1
+#define NVME_REGS__CTRL__IEN_CMD_bp 0
+#define NVME_REGS__CTRL__IEN_CMD_bw 1
+#define NVME_REGS__CTRL__IEN_CMD_reset 0x0
+
+// reg - nvme_regs::STATUS
+#define NVME_REGS__STATUS__RDY_bm 0x1
+#define NVME_REGS__STATUS__RDY_bp 0
+#define NVME_REGS__STATUS__RDY_bw 1
+#define NVME_REGS__STATUS__CFS_bm 0x2
+#define NVME_REGS__STATUS__CFS_bp 1
+#define NVME_REGS__STATUS__CFS_bw 1
+#define NVME_REGS__STATUS__EN_bm 0x4
+#define NVME_REGS__STATUS__EN_bp 2
+#define NVME_REGS__STATUS__EN_bw 1
+#define NVME_REGS__STATUS__SHST_bm 0x30
+#define NVME_REGS__STATUS__SHST_bp 4
+#define NVME_REGS__STATUS__SHST_bw 2
+#define NVME_REGS__STATUS__CMDS_bm 0x1f00
+#define NVME_REGS__STATUS__CMDS_bp 8
+#define NVME_REGS__STATUS__CMDS_bw 5
+#define NVME_REGS__STATUS__FREE_bm 0x1f0000
+#define NVME_REGS__STATUS__FREE_bp 16
+#define NVME_REGS__STATUS__FREE_bw 5
+
+// reg - nvme_regs::EVENT
+#define NVME_REGS__EVENT__ENABLE_bm 0x1
+#define NVME_REGS__EVENT__ENABLE_bp 0
+#define NVME_REGS__EVENT__ENABLE_bw 1
+#define NVME_REGS__EVENT__ENABLE_reset 0x0
+#define NVME_REGS__EVENT__RESET_bm 0x2
+#define NVME_REGS__EVENT__RESET_bp 1
+#define NVME_REGS__EVENT__RESET_bw 1
+#define NVME_REGS__EVENT__RESET_reset 0x0
+#define NVME_REGS__EVENT__SHUTDOWN_bm 0x4
+#define NVME_REGS__EVENT__SHUTDOWN_bp 2
+#define NVME_REGS__EVENT__SHUTDOWN_bw 1
+#define NVME_REGS__EVENT__SHUTDOWN_reset 0x0
+#define NVME_REGS__EVENT__DB_ERR_bm 0x8
+#define NVME_REGS__EVENT__DB_ERR_bp 3
+#define NVME_REGS__EVENT__DB_ERR_bw 1
+#define NVME_REGS__EVENT__DB_ERR_reset 0x0
+#define NVME_REGS__EVENT__FETCH_ERR_bm 0x10
+#define NVME_REGS__EVENT__FETCH_ERR_bp 4
+#define NVME_REGS__EVENT__FETCH_ERR_bw 1
+#define NVME_REGS__EVENT__FETCH_ERR_reset 0x0
+
+// reg - nvme_regs::EVENT_EN
+#define NVME_REGS__EVENT_EN__EN_bm 0x1f
+#define NVME_REGS__EVENT_EN__EN_bp 0
+#define NVME_REGS__EVENT_EN__EN_bw 5
+#define NVME_REGS__EVENT_EN__EN_reset 0x0
+
+// reg - nvme_regs::CC
+#define NVME_REGS__CC__VALUE_bm 0xffffffff
+#define NVME_REGS__CC__VALUE_bp 0
+#define NVME_REGS__CC__VALUE_bw 32
+
+// reg - nvme_regs::CMDBUF
+#define NVME_REGS__CMDBUF__BASE_bm 0xfffffc00
+#define NVME_REGS__CMDBUF__BASE_bp 10
+#define NVME_REGS__CMDBUF__BASE_bw 22
+#define NVME_REGS__CMDBUF__BASE_reset 0x4002f
+
+// reg - nvme_regs::CMD
+#define NVME_REGS__CMD__SLOT_bm 0xf
+#define NVME_REGS__CMD__SLOT_bp 0
+#define NVME_REGS__CMD__SLOT_bw 4
+#define NVME_REGS__CMD__SQID_bm 0x70000
+#define NVME_REGS__CMD__SQID_bp 16
+#define NVME_REGS__CMD__SQID_bw 3
+#define NVME_REGS__CMD__VALID_bm 0x80000000
+#define NVME_REGS__CMD__VALID_bp 31
+#define NVME_REGS__CMD__VALID_bw 1
+
+// reg - nvme_regs::SLOT_FREE
+#define NVME_REGS__SLOT_FREE__SLOT_bm 0xf
+#define NVME_REGS__SLOT_FREE__SLOT_bp 0
+#define NVME_REGS__SLOT_FREE__SLOT_bw 4
+#define NVME_REGS__SLOT_FREE__SLOT_reset 0x0
+
+// reg - nvme_regs::DB_ERR
+#define NVME_REGS__DB_ERR__QID_bm 0x7
+#define NVME_REGS__DB_ERR__QID_bp 0
+#define NVME_REGS__DB_ERR__QID_bw 3
+#define NVME_REGS__DB_ERR__QID_reset 0x0
+#define NVME_REGS__DB_ERR__CQ_bm 0x8
+#define NVME_REGS__DB_ERR__CQ_bp 3
+#define NVME_REGS__DB_ERR__CQ_bw 1
+#define NVME_REGS__DB_ERR__CQ_reset 0x0
+#define NVME_REGS__DB_ERR__VALUE_bm 0xffff0000
+#define NVME_REGS__DB_ERR__VALUE_bp 16
+#define NVME_REGS__DB_ERR__VALUE_bw 16
+#define NVME_REGS__DB_ERR__VALUE_reset 0x0
+
+// reg - nvme_regs::FETCHES
+#define NVME_REGS__FETCHES__COUNT_bm 0xffffffff
+#define NVME_REGS__FETCHES__COUNT_bp 0
+#define NVME_REGS__FETCHES__COUNT_bw 32
+
+// reg - nvme_regs::AQA
+#define NVME_REGS__AQA__VALUE_bm 0xffffffff
+#define NVME_REGS__AQA__VALUE_bp 0
+#define NVME_REGS__AQA__VALUE_bw 32
+
+// reg - nvme_regs::ASQ_LO
+#define NVME_REGS__ASQ_LO__VALUE_bm 0xffffffff
+#define NVME_REGS__ASQ_LO__VALUE_bp 0
+#define NVME_REGS__ASQ_LO__VALUE_bw 32
+
+// reg - nvme_regs::ASQ_HI
+#define NVME_REGS__ASQ_HI__VALUE_bm 0xffffffff
+#define NVME_REGS__ASQ_HI__VALUE_bp 0
+#define NVME_REGS__ASQ_HI__VALUE_bw 32
+
+// reg - nvme_regs::ACQ_LO
+#define NVME_REGS__ACQ_LO__VALUE_bm 0xffffffff
+#define NVME_REGS__ACQ_LO__VALUE_bp 0
+#define NVME_REGS__ACQ_LO__VALUE_bw 32
+
+// reg - nvme_regs::ACQ_HI
+#define NVME_REGS__ACQ_HI__VALUE_bm 0xffffffff
+#define NVME_REGS__ACQ_HI__VALUE_bp 0
+#define NVME_REGS__ACQ_HI__VALUE_bw 32
+
+// reg - nvme_regs::IOQ::SQB_LO
+#define NVME_REGS__IOQ__SQB_LO__BASE_bm 0xfffff000
+#define NVME_REGS__IOQ__SQB_LO__BASE_bp 12
+#define NVME_REGS__IOQ__SQB_LO__BASE_bw 20
+#define NVME_REGS__IOQ__SQB_LO__BASE_reset 0x0
+
+// reg - nvme_regs::IOQ::SQB_HI
+#define NVME_REGS__IOQ__SQB_HI__BASE_bm 0xffffffff
+#define NVME_REGS__IOQ__SQB_HI__BASE_bp 0
+#define NVME_REGS__IOQ__SQB_HI__BASE_bw 32
+#define NVME_REGS__IOQ__SQB_HI__BASE_reset 0x0
+
+// reg - nvme_regs::IOQ::SQ_CFG
+#define NVME_REGS__IOQ__SQ_CFG__SIZE_bm 0xfff
+#define NVME_REGS__IOQ__SQ_CFG__SIZE_bp 0
+#define NVME_REGS__IOQ__SQ_CFG__SIZE_bw 12
+#define NVME_REGS__IOQ__SQ_CFG__SIZE_reset 0x0
+#define NVME_REGS__IOQ__SQ_CFG__CQID_bm 0x70000
+#define NVME_REGS__IOQ__SQ_CFG__CQID_bp 16
+#define NVME_REGS__IOQ__SQ_CFG__CQID_bw 3
+#define NVME_REGS__IOQ__SQ_CFG__CQID_reset 0x0
+#define NVME_REGS__IOQ__SQ_CFG__EN_bm 0x80000000
+#define NVME_REGS__IOQ__SQ_CFG__EN_bp 31
+#define NVME_REGS__IOQ__SQ_CFG__EN_bw 1
+#define NVME_REGS__IOQ__SQ_CFG__EN_reset 0x0
+
+// reg - nvme_regs::IOQ::CQB_LO
+#define NVME_REGS__IOQ__CQB_LO__BASE_bm 0xfffff000
+#define NVME_REGS__IOQ__CQB_LO__BASE_bp 12
+#define NVME_REGS__IOQ__CQB_LO__BASE_bw 20
+#define NVME_REGS__IOQ__CQB_LO__BASE_reset 0x0
+
+// reg - nvme_regs::IOQ::CQB_HI
+#define NVME_REGS__IOQ__CQB_HI__BASE_bm 0xffffffff
+#define NVME_REGS__IOQ__CQB_HI__BASE_bp 0
+#define NVME_REGS__IOQ__CQB_HI__BASE_bw 32
+#define NVME_REGS__IOQ__CQB_HI__BASE_reset 0x0
+
+// reg - nvme_regs::IOQ::CQ_CFG
+#define NVME_REGS__IOQ__CQ_CFG__SIZE_bm 0xfff
+#define NVME_REGS__IOQ__CQ_CFG__SIZE_bp 0
+#define NVME_REGS__IOQ__CQ_CFG__SIZE_bw 12
+#define NVME_REGS__IOQ__CQ_CFG__SIZE_reset 0x0
+#define NVME_REGS__IOQ__CQ_CFG__IV_bm 0x70000
+#define NVME_REGS__IOQ__CQ_CFG__IV_bp 16
+#define NVME_REGS__IOQ__CQ_CFG__IV_bw 3
+#define NVME_REGS__IOQ__CQ_CFG__IV_reset 0x0
+#define NVME_REGS__IOQ__CQ_CFG__IEN_bm 0x1000000
+#define NVME_REGS__IOQ__CQ_CFG__IEN_bp 24
+#define NVME_REGS__IOQ__CQ_CFG__IEN_bw 1
+#define NVME_REGS__IOQ__CQ_CFG__IEN_reset 0x0
+#define NVME_REGS__IOQ__CQ_CFG__EN_bm 0x80000000
+#define NVME_REGS__IOQ__CQ_CFG__EN_bp 31
+#define NVME_REGS__IOQ__CQ_CFG__EN_bw 1
+#define NVME_REGS__IOQ__CQ_CFG__EN_reset 0x0
+
+// regfile - nvme_regs::IOQ
+typedef struct __attribute__ ((__packed__)) {
+    uint32_t SQB_LO;
+    uint32_t SQB_HI;
+    uint32_t SQ_CFG;
+    uint32_t CQB_LO;
+    uint32_t CQB_HI;
+    uint32_t CQ_CFG;
+    uint8_t RESERVED_18_1f[0x8];
+} nvme_regs__IOQ__stride20_t;
+
+// reg - nvme_regs::SQ_PTR
+#define NVME_REGS__SQ_PTR__HEAD_bm 0xfff
+#define NVME_REGS__SQ_PTR__HEAD_bp 0
+#define NVME_REGS__SQ_PTR__HEAD_bw 12
+#define NVME_REGS__SQ_PTR__TAIL_bm 0xfff0000
+#define NVME_REGS__SQ_PTR__TAIL_bp 16
+#define NVME_REGS__SQ_PTR__TAIL_bw 12
+
+// reg - nvme_regs::CQ_PTR
+#define NVME_REGS__CQ_PTR__HEAD_bm 0xfff
+#define NVME_REGS__CQ_PTR__HEAD_bp 0
+#define NVME_REGS__CQ_PTR__HEAD_bw 12
+#define NVME_REGS__CQ_PTR__TAIL_bm 0xfff0000
+#define NVME_REGS__CQ_PTR__TAIL_bp 16
+#define NVME_REGS__CQ_PTR__TAIL_bw 12
+#define NVME_REGS__CQ_PTR__PHASE_bm 0x80000000
+#define NVME_REGS__CQ_PTR__PHASE_bp 31
+#define NVME_REGS__CQ_PTR__PHASE_bw 1
+
+// addrmap - nvme_regs
+typedef struct __attribute__ ((__packed__)) {
+    uint32_t CTRL;
+    uint32_t STATUS;
+    uint32_t EVENT;
+    uint32_t EVENT_EN;
+    uint32_t CC;
+    uint32_t CMDBUF;
+    uint32_t CMD;
+    uint32_t SLOT_FREE;
+    uint32_t DB_ERR;
+    uint32_t FETCHES;
+    uint8_t RESERVED_28_2f[0x8];
+    uint32_t AQA;
+    uint32_t ASQ_LO;
+    uint32_t ASQ_HI;
+    uint32_t ACQ_LO;
+    uint32_t ACQ_HI;
+    uint8_t RESERVED_44_ff[0xbc];
+    nvme_regs__IOQ__stride20_t IOQ[4];
+    uint8_t RESERVED_180_1ff[0x80];
+    uint32_t SQ_PTR[5];
+    uint8_t RESERVED_214_21f[0xc];
+    uint32_t CQ_PTR[5];
+} nvme_regs_t;
+
 // addrmap - soc_apb
 typedef struct __attribute__ ((__packed__)) {
     sys_regs_t SYS;
@@ -535,13 +767,15 @@ typedef struct __attribute__ ((__packed__)) {
     dma_regs_t DMA;
     uint8_t RESERVED_4020_4fff[0xfe0];
     host_regs_t HOST;
+    uint8_t RESERVED_5058_7fff[0x2fa8];
+    nvme_regs_t NVME;
 } soc_apb_t;
 
 // Instances
 #define soc_apb (*(volatile soc_apb_t *)0x40000000UL)
 
 
-static_assert(sizeof(soc_apb_t) == 0x5058, "Packing error");
+static_assert(sizeof(soc_apb_t) == 0x8234, "Packing error");
 
 #ifdef __cplusplus
 }

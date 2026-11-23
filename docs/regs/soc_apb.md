@@ -9,7 +9,7 @@ Don't override. Generated from: soc_apb
 
 - Absolute Address: 0x0
 - Base Offset: 0x0
-- Size: 0x5058
+- Size: 0x8234
 
 <p>Register blocks in the APB window at 0x4000_0000, one 4 KiB slot each.</p>
 
@@ -21,6 +21,7 @@ Don't override. Generated from: soc_apb
 |0x3000|   TIMER  |TIMER|
 |0x4000|    DMA   | DMA |
 |0x5000|   HOST   | HOST|
+|0x8000|   NVME   | NVME|
 
 ## SYS address map
 
@@ -59,11 +60,11 @@ Don't override. Generated from: soc_apb
 - Base Offset: 0x4
 - Size: 0x4
 
-<p>Register map version: 0x0002_0001 is the map of step 2-1 (HOST block with the transaction layer's registers).</p>
+<p>Register map version: 0x0002_0002 is the map of step 2-2 (NVMe block; BAR0 no longer has an AXI window).</p>
 
 |Bits|Identifier|Access| Reset |Name|
 |----|----------|------|-------|----|
-|31:0|   value  |   r  |0x20001|  — |
+|31:0|   value  |   r  |0x20002|  — |
 
 ### SCRATCH register
 
@@ -609,7 +610,6 @@ Don't override. Generated from: soc_apb
 | 0x08 |   STATUS  |   STATUS  |
 | 0x10 | LINK_CTRL | LINK_CTRL |
 | 0x14 |LINK_STATUS|LINK_STATUS|
-| 0x18 |  BAR0_WIN |  BAR0_WIN |
 | 0x1C |  BAR2_WIN |  BAR2_WIN |
 | 0x20 |BM_HADDR_LO|BM_HADDR_LO|
 | 0x24 |BM_HADDR_HI|BM_HADDR_HI|
@@ -752,18 +752,6 @@ Don't override. Generated from: soc_apb
 #### id field
 
 <p>Bus and device number captured from configuration writes; function 0.</p>
-
-### BAR0_WIN register
-
-- Absolute Address: 0x5018
-- Base Offset: 0x18
-- Size: 0x4
-
-<p>AXI address of BAR0 offsets 0x0000 to 0x1FFF (8 KiB aligned). BAR0 0x2000 to 0x3FFF hold the MSI-X table and PBA inside the transaction layer.</p>
-
-| Bits|Identifier|Access| Reset |Name|
-|-----|----------|------|-------|----|
-|31:13|   base   |  rw  |0x20004|  — |
 
 ### BAR2_WIN register
 
@@ -1014,3 +1002,937 @@ Don't override. Generated from: soc_apb
 |Bits|Identifier|Access|Reset|Name|
 |----|----------|------|-----|----|
 |31:0|   count  |   r  |  —  |  — |
+
+## NVME address map
+
+- Absolute Address: 0x8000
+- Base Offset: 0x8000
+- Size: 0x234
+
+<p>Firmware side of the NVMe controller (rtl/host/nvme/nvme_ctrl.sv, docs/11_nvme_queues.md). The host side (CAP, CC, CSTS, AQA, ASQ, ACQ, doorbells) is in BAR0 and is mirrored here read-only.</p>
+
+|Offset|Identifier|   Name  |
+|------|----------|---------|
+| 0x000|   CTRL   |   CTRL  |
+| 0x004|  STATUS  |  STATUS |
+| 0x008|   EVENT  |  EVENT  |
+| 0x00C| EVENT_EN | EVENT_EN|
+| 0x010|    CC    |    CC   |
+| 0x014|  CMDBUF  |  CMDBUF |
+| 0x018|    CMD   |   CMD   |
+| 0x01C| SLOT_FREE|SLOT_FREE|
+| 0x020|  DB_ERR  |  DB_ERR |
+| 0x024|  FETCHES | FETCHES |
+| 0x030|    AQA   |   AQA   |
+| 0x034|  ASQ_LO  |  ASQ_LO |
+| 0x038|  ASQ_HI  |  ASQ_HI |
+| 0x03C|  ACQ_LO  |  ACQ_LO |
+| 0x040|  ACQ_HI  |  ACQ_HI |
+| 0x100|  IOQ[0]  |    —    |
+| 0x120|  IOQ[1]  |    —    |
+| 0x140|  IOQ[2]  |    —    |
+| 0x160|  IOQ[3]  |    —    |
+| 0x200| SQ_PTR[0]|  SQ_PTR |
+| 0x204| SQ_PTR[1]|  SQ_PTR |
+| 0x208| SQ_PTR[2]|  SQ_PTR |
+| 0x20C| SQ_PTR[3]|  SQ_PTR |
+| 0x210| SQ_PTR[4]|  SQ_PTR |
+| 0x220| CQ_PTR[0]|  CQ_PTR |
+| 0x224| CQ_PTR[1]|  CQ_PTR |
+| 0x228| CQ_PTR[2]|  CQ_PTR |
+| 0x22C| CQ_PTR[3]|  CQ_PTR |
+| 0x230| CQ_PTR[4]|  CQ_PTR |
+
+### CTRL register
+
+- Absolute Address: 0x8000
+- Base Offset: 0x0
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|  0 |  ien_cmd |  rw  | 0x0 |  — |
+
+#### ien_cmd field
+
+<p>Interrupt (INTC source 3) while commands wait in CMD.</p>
+
+### STATUS register
+
+- Absolute Address: 0x8004
+- Base Offset: 0x4
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+|  0  |    rdy   |   r  |  —  |  — |
+|  1  |    cfs   |   r  |  —  |  — |
+|  2  |    en    |   r  |  —  |  — |
+| 5:4 |   shst   |   r  |  —  |  — |
+| 12:8|   cmds   |   r  |  —  |  — |
+|20:16|   free   |   r  |  —  |  — |
+
+#### rdy field
+
+<p>CSTS.RDY.</p>
+
+#### cfs field
+
+<p>CSTS.CFS: a command fetch failed.</p>
+
+#### en field
+
+<p>CC.EN.</p>
+
+#### shst field
+
+<p>CSTS.SHST.</p>
+
+#### cmds field
+
+<p>Commands waiting in CMD.</p>
+
+#### free field
+
+<p>Free command buffer slots.</p>
+
+### EVENT register
+
+- Absolute Address: 0x8008
+- Base Offset: 0x8
+- Size: 0x4
+
+<p>Controller events, set by hardware and cleared by writing 1. EVENT AND EVENT_EN is INTC source 3, with CTRL.IEN_CMD.</p>
+
+|Bits|Identifier|  Access |Reset|Name|
+|----|----------|---------|-----|----|
+|  0 |  enable  |rw, woclr| 0x0 |  — |
+|  1 |   reset  |rw, woclr| 0x0 |  — |
+|  2 | shutdown |rw, woclr| 0x0 |  — |
+|  3 |  db_err  |rw, woclr| 0x0 |  — |
+|  4 | fetch_err|rw, woclr| 0x0 |  — |
+
+#### enable field
+
+<p>The host enabled the controller (CC.EN 0 to 1); the admin queue is loaded and CSTS.RDY is 1.</p>
+
+#### reset field
+
+<p>A controller reset (CC.EN 1 to 0) finished: queues deleted, commands dropped, CSTS.RDY 0.</p>
+
+#### shutdown field
+
+<p>The host requested a shutdown (CC.SHN).</p>
+
+#### db_err field
+
+<p>A doorbell write was ignored; see DB_ERR.</p>
+
+#### fetch_err field
+
+<p>A command fetch failed; CSTS.CFS is set.</p>
+
+### EVENT_EN register
+
+- Absolute Address: 0x800C
+- Base Offset: 0xC
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+| 4:0|    en    |  rw  | 0x0 |  — |
+
+### CC register
+
+- Absolute Address: 0x8010
+- Base Offset: 0x10
+- Size: 0x4
+
+<p>The host's Controller Configuration.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   value  |   r  |  —  |  — |
+
+### CMDBUF register
+
+- Absolute Address: 0x8014
+- Base Offset: 0x14
+- Size: 0x4
+
+<p>SRAM address of the command buffer: 16 slots of 64 bytes, 1 KiB aligned.</p>
+
+| Bits|Identifier|Access| Reset |Name|
+|-----|----------|------|-------|----|
+|31:10|   base   |  rw  |0x4002F|  — |
+
+### CMD register
+
+- Absolute Address: 0x8018
+- Base Offset: 0x18
+- Size: 0x4
+
+<p>Oldest fetched command; reading it removes it. VALID 0 when none waits. The command is at CMDBUF + 64 x SLOT until SLOT_FREE returns the slot.</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 3:0 |   slot   |   r  |  —  |  — |
+|18:16|   sqid   |   r  |  —  |  — |
+|  31 |   valid  |   r  |  —  |  — |
+
+#### sqid field
+
+<p>Submission queue it came from.</p>
+
+### SLOT_FREE register
+
+- Absolute Address: 0x801C
+- Base Offset: 0x1C
+- Size: 0x4
+
+<p>A write returns the slot it names to the free list.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+| 3:0|   slot   |   w  | 0x0 |  — |
+
+### DB_ERR register
+
+- Absolute Address: 0x8020
+- Base Offset: 0x20
+- Size: 0x4
+
+<p>The last doorbell write that was ignored: to a queue that is not enabled, or a value not below the queue size.</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 2:0 |    qid   |   r  | 0x0 |  — |
+|  3  |    cq    |   r  | 0x0 |  — |
+|31:16|   value  |   r  | 0x0 |  — |
+
+#### qid field
+
+<p>Queue ID.</p>
+
+#### cq field
+
+<p>1: completion queue head doorbell; 0: submission queue tail doorbell.</p>
+
+#### value field
+
+<p>Value written.</p>
+
+### FETCHES register
+
+- Absolute Address: 0x8024
+- Base Offset: 0x24
+- Size: 0x4
+
+<p>Commands fetched since reset (wraps).</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   count  |   r  |  —  |  — |
+
+### AQA register
+
+- Absolute Address: 0x8030
+- Base Offset: 0x30
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   value  |   r  |  —  |  — |
+
+#### value field
+
+<p>The host's Admin Queue Attributes.</p>
+
+### ASQ_LO register
+
+- Absolute Address: 0x8034
+- Base Offset: 0x34
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   value  |   r  |  —  |  — |
+
+#### value field
+
+<p>Admin Submission Queue base, bits 31:0.</p>
+
+### ASQ_HI register
+
+- Absolute Address: 0x8038
+- Base Offset: 0x38
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   value  |   r  |  —  |  — |
+
+### ACQ_LO register
+
+- Absolute Address: 0x803C
+- Base Offset: 0x3C
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   value  |   r  |  —  |  — |
+
+#### value field
+
+<p>Admin Completion Queue base, bits 31:0.</p>
+
+### ACQ_HI register
+
+- Absolute Address: 0x8040
+- Base Offset: 0x40
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   value  |   r  |  —  |  — |
+
+## IOQ register file
+
+- Absolute Address: 0x8100
+- Base Offset: 0x100
+- Size: 0x18
+- Array Dimensions: [4]
+- Array Stride: 0x20
+- Total Size: 0x80
+
+|Offset|Identifier| Name |
+|------|----------|------|
+| 0x00 |  SQB_LO  |SQB_LO|
+| 0x04 |  SQB_HI  |SQB_HI|
+| 0x08 |  SQ_CFG  |SQ_CFG|
+| 0x0C |  CQB_LO  |CQB_LO|
+| 0x10 |  CQB_HI  |CQB_HI|
+| 0x14 |  CQ_CFG  |CQ_CFG|
+
+### SQB_LO register
+
+- Absolute Address: 0x8100
+- Base Offset: 0x0
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+|31:12|   base   |  rw  | 0x0 |  — |
+
+#### base field
+
+<p>Submission queue base, bits 31:12.</p>
+
+### SQB_HI register
+
+- Absolute Address: 0x8104
+- Base Offset: 0x4
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   base   |  rw  | 0x0 |  — |
+
+### SQ_CFG register
+
+- Absolute Address: 0x8108
+- Base Offset: 0x8
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 11:0|   size   |  rw  | 0x0 |  — |
+|18:16|   cqid   |  rw  | 0x0 |  — |
+|  31 |    en    |  rw  | 0x0 |  — |
+
+#### size field
+
+<p>Entries - 1.</p>
+
+#### cqid field
+
+<p>Completion queue for this submission queue.</p>
+
+#### en field
+
+<p>Queue enabled; enabling sets its head and tail to 0.</p>
+
+### CQB_LO register
+
+- Absolute Address: 0x810C
+- Base Offset: 0xC
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+|31:12|   base   |  rw  | 0x0 |  — |
+
+#### base field
+
+<p>Completion queue base, bits 31:12.</p>
+
+### CQB_HI register
+
+- Absolute Address: 0x8110
+- Base Offset: 0x10
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   base   |  rw  | 0x0 |  — |
+
+### CQ_CFG register
+
+- Absolute Address: 0x8114
+- Base Offset: 0x14
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 11:0|   size   |  rw  | 0x0 |  — |
+|18:16|    iv    |  rw  | 0x0 |  — |
+|  24 |    ien   |  rw  | 0x0 |  — |
+|  31 |    en    |  rw  | 0x0 |  — |
+
+#### size field
+
+<p>Entries - 1.</p>
+
+#### iv field
+
+<p>MSI-X vector.</p>
+
+#### ien field
+
+<p>Interrupts enabled.</p>
+
+#### en field
+
+<p>Queue enabled; enabling sets head and tail to 0 and the phase to 1.</p>
+
+## IOQ register file
+
+- Absolute Address: 0x8120
+- Base Offset: 0x100
+- Size: 0x18
+- Array Dimensions: [4]
+- Array Stride: 0x20
+- Total Size: 0x80
+
+|Offset|Identifier| Name |
+|------|----------|------|
+| 0x00 |  SQB_LO  |SQB_LO|
+| 0x04 |  SQB_HI  |SQB_HI|
+| 0x08 |  SQ_CFG  |SQ_CFG|
+| 0x0C |  CQB_LO  |CQB_LO|
+| 0x10 |  CQB_HI  |CQB_HI|
+| 0x14 |  CQ_CFG  |CQ_CFG|
+
+### SQB_LO register
+
+- Absolute Address: 0x8120
+- Base Offset: 0x0
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+|31:12|   base   |  rw  | 0x0 |  — |
+
+#### base field
+
+<p>Submission queue base, bits 31:12.</p>
+
+### SQB_HI register
+
+- Absolute Address: 0x8124
+- Base Offset: 0x4
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   base   |  rw  | 0x0 |  — |
+
+### SQ_CFG register
+
+- Absolute Address: 0x8128
+- Base Offset: 0x8
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 11:0|   size   |  rw  | 0x0 |  — |
+|18:16|   cqid   |  rw  | 0x0 |  — |
+|  31 |    en    |  rw  | 0x0 |  — |
+
+#### size field
+
+<p>Entries - 1.</p>
+
+#### cqid field
+
+<p>Completion queue for this submission queue.</p>
+
+#### en field
+
+<p>Queue enabled; enabling sets its head and tail to 0.</p>
+
+### CQB_LO register
+
+- Absolute Address: 0x812C
+- Base Offset: 0xC
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+|31:12|   base   |  rw  | 0x0 |  — |
+
+#### base field
+
+<p>Completion queue base, bits 31:12.</p>
+
+### CQB_HI register
+
+- Absolute Address: 0x8130
+- Base Offset: 0x10
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   base   |  rw  | 0x0 |  — |
+
+### CQ_CFG register
+
+- Absolute Address: 0x8134
+- Base Offset: 0x14
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 11:0|   size   |  rw  | 0x0 |  — |
+|18:16|    iv    |  rw  | 0x0 |  — |
+|  24 |    ien   |  rw  | 0x0 |  — |
+|  31 |    en    |  rw  | 0x0 |  — |
+
+#### size field
+
+<p>Entries - 1.</p>
+
+#### iv field
+
+<p>MSI-X vector.</p>
+
+#### ien field
+
+<p>Interrupts enabled.</p>
+
+#### en field
+
+<p>Queue enabled; enabling sets head and tail to 0 and the phase to 1.</p>
+
+## IOQ register file
+
+- Absolute Address: 0x8140
+- Base Offset: 0x100
+- Size: 0x18
+- Array Dimensions: [4]
+- Array Stride: 0x20
+- Total Size: 0x80
+
+|Offset|Identifier| Name |
+|------|----------|------|
+| 0x00 |  SQB_LO  |SQB_LO|
+| 0x04 |  SQB_HI  |SQB_HI|
+| 0x08 |  SQ_CFG  |SQ_CFG|
+| 0x0C |  CQB_LO  |CQB_LO|
+| 0x10 |  CQB_HI  |CQB_HI|
+| 0x14 |  CQ_CFG  |CQ_CFG|
+
+### SQB_LO register
+
+- Absolute Address: 0x8140
+- Base Offset: 0x0
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+|31:12|   base   |  rw  | 0x0 |  — |
+
+#### base field
+
+<p>Submission queue base, bits 31:12.</p>
+
+### SQB_HI register
+
+- Absolute Address: 0x8144
+- Base Offset: 0x4
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   base   |  rw  | 0x0 |  — |
+
+### SQ_CFG register
+
+- Absolute Address: 0x8148
+- Base Offset: 0x8
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 11:0|   size   |  rw  | 0x0 |  — |
+|18:16|   cqid   |  rw  | 0x0 |  — |
+|  31 |    en    |  rw  | 0x0 |  — |
+
+#### size field
+
+<p>Entries - 1.</p>
+
+#### cqid field
+
+<p>Completion queue for this submission queue.</p>
+
+#### en field
+
+<p>Queue enabled; enabling sets its head and tail to 0.</p>
+
+### CQB_LO register
+
+- Absolute Address: 0x814C
+- Base Offset: 0xC
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+|31:12|   base   |  rw  | 0x0 |  — |
+
+#### base field
+
+<p>Completion queue base, bits 31:12.</p>
+
+### CQB_HI register
+
+- Absolute Address: 0x8150
+- Base Offset: 0x10
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   base   |  rw  | 0x0 |  — |
+
+### CQ_CFG register
+
+- Absolute Address: 0x8154
+- Base Offset: 0x14
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 11:0|   size   |  rw  | 0x0 |  — |
+|18:16|    iv    |  rw  | 0x0 |  — |
+|  24 |    ien   |  rw  | 0x0 |  — |
+|  31 |    en    |  rw  | 0x0 |  — |
+
+#### size field
+
+<p>Entries - 1.</p>
+
+#### iv field
+
+<p>MSI-X vector.</p>
+
+#### ien field
+
+<p>Interrupts enabled.</p>
+
+#### en field
+
+<p>Queue enabled; enabling sets head and tail to 0 and the phase to 1.</p>
+
+## IOQ register file
+
+- Absolute Address: 0x8160
+- Base Offset: 0x100
+- Size: 0x18
+- Array Dimensions: [4]
+- Array Stride: 0x20
+- Total Size: 0x80
+
+|Offset|Identifier| Name |
+|------|----------|------|
+| 0x00 |  SQB_LO  |SQB_LO|
+| 0x04 |  SQB_HI  |SQB_HI|
+| 0x08 |  SQ_CFG  |SQ_CFG|
+| 0x0C |  CQB_LO  |CQB_LO|
+| 0x10 |  CQB_HI  |CQB_HI|
+| 0x14 |  CQ_CFG  |CQ_CFG|
+
+### SQB_LO register
+
+- Absolute Address: 0x8160
+- Base Offset: 0x0
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+|31:12|   base   |  rw  | 0x0 |  — |
+
+#### base field
+
+<p>Submission queue base, bits 31:12.</p>
+
+### SQB_HI register
+
+- Absolute Address: 0x8164
+- Base Offset: 0x4
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   base   |  rw  | 0x0 |  — |
+
+### SQ_CFG register
+
+- Absolute Address: 0x8168
+- Base Offset: 0x8
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 11:0|   size   |  rw  | 0x0 |  — |
+|18:16|   cqid   |  rw  | 0x0 |  — |
+|  31 |    en    |  rw  | 0x0 |  — |
+
+#### size field
+
+<p>Entries - 1.</p>
+
+#### cqid field
+
+<p>Completion queue for this submission queue.</p>
+
+#### en field
+
+<p>Queue enabled; enabling sets its head and tail to 0.</p>
+
+### CQB_LO register
+
+- Absolute Address: 0x816C
+- Base Offset: 0xC
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+|31:12|   base   |  rw  | 0x0 |  — |
+
+#### base field
+
+<p>Completion queue base, bits 31:12.</p>
+
+### CQB_HI register
+
+- Absolute Address: 0x8170
+- Base Offset: 0x10
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   base   |  rw  | 0x0 |  — |
+
+### CQ_CFG register
+
+- Absolute Address: 0x8174
+- Base Offset: 0x14
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 11:0|   size   |  rw  | 0x0 |  — |
+|18:16|    iv    |  rw  | 0x0 |  — |
+|  24 |    ien   |  rw  | 0x0 |  — |
+|  31 |    en    |  rw  | 0x0 |  — |
+
+#### size field
+
+<p>Entries - 1.</p>
+
+#### iv field
+
+<p>MSI-X vector.</p>
+
+#### ien field
+
+<p>Interrupts enabled.</p>
+
+#### en field
+
+<p>Queue enabled; enabling sets head and tail to 0 and the phase to 1.</p>
+
+### SQ_PTR register
+
+- Absolute Address: 0x8200
+- Base Offset: 0x200
+- Size: 0x4
+- Array Dimensions: [5]
+- Array Stride: 0x4
+- Total Size: 0x14
+
+<p>Submission queue 0 to 4: head (next entry to fetch) and tail (last doorbell).</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 11:0|   head   |   r  |  —  |  — |
+|27:16|   tail   |   r  |  —  |  — |
+
+### SQ_PTR register
+
+- Absolute Address: 0x8204
+- Base Offset: 0x200
+- Size: 0x4
+- Array Dimensions: [5]
+- Array Stride: 0x4
+- Total Size: 0x14
+
+<p>Submission queue 0 to 4: head (next entry to fetch) and tail (last doorbell).</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 11:0|   head   |   r  |  —  |  — |
+|27:16|   tail   |   r  |  —  |  — |
+
+### SQ_PTR register
+
+- Absolute Address: 0x8208
+- Base Offset: 0x200
+- Size: 0x4
+- Array Dimensions: [5]
+- Array Stride: 0x4
+- Total Size: 0x14
+
+<p>Submission queue 0 to 4: head (next entry to fetch) and tail (last doorbell).</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 11:0|   head   |   r  |  —  |  — |
+|27:16|   tail   |   r  |  —  |  — |
+
+### SQ_PTR register
+
+- Absolute Address: 0x820C
+- Base Offset: 0x200
+- Size: 0x4
+- Array Dimensions: [5]
+- Array Stride: 0x4
+- Total Size: 0x14
+
+<p>Submission queue 0 to 4: head (next entry to fetch) and tail (last doorbell).</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 11:0|   head   |   r  |  —  |  — |
+|27:16|   tail   |   r  |  —  |  — |
+
+### SQ_PTR register
+
+- Absolute Address: 0x8210
+- Base Offset: 0x200
+- Size: 0x4
+- Array Dimensions: [5]
+- Array Stride: 0x4
+- Total Size: 0x14
+
+<p>Submission queue 0 to 4: head (next entry to fetch) and tail (last doorbell).</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 11:0|   head   |   r  |  —  |  — |
+|27:16|   tail   |   r  |  —  |  — |
+
+### CQ_PTR register
+
+- Absolute Address: 0x8220
+- Base Offset: 0x220
+- Size: 0x4
+- Array Dimensions: [5]
+- Array Stride: 0x4
+- Total Size: 0x14
+
+<p>Completion queue 0 to 4: head (last doorbell), tail (next entry to write) and phase.</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 11:0|   head   |   r  |  —  |  — |
+|27:16|   tail   |   r  |  —  |  — |
+|  31 |   phase  |   r  |  —  |  — |
+
+### CQ_PTR register
+
+- Absolute Address: 0x8224
+- Base Offset: 0x220
+- Size: 0x4
+- Array Dimensions: [5]
+- Array Stride: 0x4
+- Total Size: 0x14
+
+<p>Completion queue 0 to 4: head (last doorbell), tail (next entry to write) and phase.</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 11:0|   head   |   r  |  —  |  — |
+|27:16|   tail   |   r  |  —  |  — |
+|  31 |   phase  |   r  |  —  |  — |
+
+### CQ_PTR register
+
+- Absolute Address: 0x8228
+- Base Offset: 0x220
+- Size: 0x4
+- Array Dimensions: [5]
+- Array Stride: 0x4
+- Total Size: 0x14
+
+<p>Completion queue 0 to 4: head (last doorbell), tail (next entry to write) and phase.</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 11:0|   head   |   r  |  —  |  — |
+|27:16|   tail   |   r  |  —  |  — |
+|  31 |   phase  |   r  |  —  |  — |
+
+### CQ_PTR register
+
+- Absolute Address: 0x822C
+- Base Offset: 0x220
+- Size: 0x4
+- Array Dimensions: [5]
+- Array Stride: 0x4
+- Total Size: 0x14
+
+<p>Completion queue 0 to 4: head (last doorbell), tail (next entry to write) and phase.</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 11:0|   head   |   r  |  —  |  — |
+|27:16|   tail   |   r  |  —  |  — |
+|  31 |   phase  |   r  |  —  |  — |
+
+### CQ_PTR register
+
+- Absolute Address: 0x8230
+- Base Offset: 0x220
+- Size: 0x4
+- Array Dimensions: [5]
+- Array Stride: 0x4
+- Total Size: 0x14
+
+<p>Completion queue 0 to 4: head (last doorbell), tail (next entry to write) and phase.</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 11:0|   head   |   r  |  —  |  — |
+|27:16|   tail   |   r  |  —  |  — |
+|  31 |   phase  |   r  |  —  |  — |

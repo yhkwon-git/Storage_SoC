@@ -12,12 +12,19 @@
 // Memory map of the test:
 //   AXI 0x1000_8000-0x1000_FFFF  BAR2 window (32 KiB), checked against a
 //                                byte shadow of everything the host wrote
-//   AXI 0x2000_0000-0x2000_1FFF  BAR0 window (8 KiB)
 //   AXI 0x1000_0000-0x1000_7FFF  local side of bus-master transfers
 //   host 0x0000_0001_2000_0000   and 0x3000_0000: bus-master sources
 //   host 0x0000_0000_5000_0000   and 0x0000_0002_5000_0000: destinations
 //   host 0xFEE0_0000             MSI-X messages
+//   AXI 0x1001_0000-0x1001_7FFF  local side of the NVMe port's transfers
+//   host 0x0000_0004_0000_0000   and 0x0000_0004_4000_0000: the NVMe port's
+//                                sources and destinations
+//   BAR0 0x0000-0x1FFF           a register model on the register port
 //   BAR0 at 0x0000_0008_0000_0000 (4DW headers), BAR2 at 0xC000_0000 (3DW)
+//
+// The random test also drives the NVMe controller's bus-master port (nv_*)
+// with its own transfers, so that it competes with the HOST-register requests
+// for the bus master.
 //
 // axi4_checker watches M3. A test passes when the host model, the memory
 // model and every check here report no error.
@@ -37,7 +44,6 @@ module tb_tl;
   axi4_checker #(.KIND("M"), .IDX(3)) u_chk (.a(axi));
 
   // HOST register signals
-  logic [31:13] bar0_win = 19'h1_0000;   // 0x2000_0000
   logic [31:15] bar2_win = 17'h0_2001;   // 0x1000_8000
   logic [7:0]   cto_ticks = 8'd64;
   logic         bm_start = 1'b0, bm_d2h = 1'b0;
@@ -57,6 +63,29 @@ module tb_tl;
   logic ev_discard, ev_msix_drop, rx_tlp, tx_tlp, idle;
   logic [1:0] awid, arid;
 
+  // Register port: a model of 2048 DWs (BAR0 0x0000-0x1FFF)
+  logic        rp_we;
+  logic [10:0] rp_dw;
+  logic [3:0]  rp_be;
+  logic [31:0] rp_wdata;
+  logic [31:0] rp_mem [2048];
+  int          rp_writes;
+  initial for (int i = 0; i < 2048; i++) rp_mem[i] = 32'(i) * 32'h0101_0003 ^ 32'hA5C3_0000;
+  always @(posedge clk) if (rp_we) begin
+    for (int k = 0; k < 4; k++) if (rp_be[k]) rp_mem[rp_dw][8*k +: 8] <= rp_wdata[8*k +: 8];
+    rp_writes++;
+  end
+  wire [31:0] rp_rd0 = rp_mem[rp_dw];
+  wire [31:0] rp_rd1 = rp_mem[11'(rp_dw + 11'd1)];
+
+  // NVMe bus-master port, driven by the random test
+  logic        nv_valid = 1'b0, nv_d2h = 1'b0;
+  logic        nv_ready, nv_done;
+  logic [63:2] nv_haddr = '0;
+  logic [31:2] nv_laddr = '0;
+  logic [17:0] nv_len = '0;
+  logic [2:0]  nv_cause;
+
   tl_core dut (
     .clk (clk), .rst_n (rst_n),
     .rxp_valid (tif.rx_valid), .rxp_ready (tif.rx_ready), .rxp_data (tif.rx_data),
@@ -72,7 +101,11 @@ module tb_tl;
     .m_arburst (axi.arburst), .m_arvalid (axi.arvalid), .m_arready (axi.arready),
     .m_rid (axi.rid[1:0]), .m_rdata (axi.rdata), .m_rresp (axi.rresp), .m_rlast (axi.rlast),
     .m_rvalid (axi.rvalid), .m_rready (axi.rready),
-    .bar0_win (bar0_win), .bar2_win (bar2_win), .cto_ticks (cto_ticks),
+    .rp_we (rp_we), .rp_dw (rp_dw), .rp_be (rp_be), .rp_wdata (rp_wdata),
+    .rp_rd0 (rp_rd0), .rp_rd1 (rp_rd1),
+    .nv_valid (nv_valid), .nv_ready (nv_ready), .nv_d2h (nv_d2h), .nv_haddr (nv_haddr),
+    .nv_laddr (nv_laddr), .nv_len (nv_len), .nv_done (nv_done), .nv_cause (nv_cause),
+    .bar2_win (bar2_win), .cto_ticks (cto_ticks),
     .bm_start (bm_start), .bm_d2h (bm_d2h), .bm_haddr (bm_haddr), .bm_laddr (bm_laddr),
     .bm_len (bm_len), .bm_done (bm_done), .bm_cause (bm_cause), .bm_busy (bm_busy),
     .msix_req (msix_req), .msix_vec (msix_vec),
@@ -123,7 +156,6 @@ module tb_tl;
   localparam bit [63:0] BAR0 = 64'h0000_0008_0000_0000;
   localparam bit [63:0] BAR2 = 64'h0000_0000_C000_0000;
   localparam bit [31:0] W2   = 32'h1000_8000;
-  localparam bit [31:0] W0   = 32'h2000_0000;
   localparam bit [63:0] MSI  = 64'h0000_0000_FEE0_0000;
 
   // ---------------------------------------------------------------------------
@@ -244,6 +276,51 @@ module tb_tl;
     cyc = int'(($time - t0) / CLK);
     @(negedge clk);
   endtask
+
+  // A transfer on the NVMe controller's port: VALID until READY, then done.
+  int nv_xfers, nv_contend;
+  task automatic nv_xfer(bit d2h, bit [63:0] ha, bit [31:0] la, int len, output bit [2:0] cause);
+    @(negedge clk);
+    nv_d2h   = d2h;
+    nv_haddr = ha[63:2];
+    nv_laddr = la[31:2];
+    nv_len   = 18'(len);
+    nv_valid = 1'b1;
+    // READY is combinational and settles before the next edge.
+    #1;
+    while (!nv_ready) begin @(negedge clk); #1; end
+    @(posedge clk);
+    #1;
+    nv_valid = 1'b0;
+    while (!nv_done) @(posedge clk);
+    cause = nv_cause;
+    nv_xfers++;
+    @(negedge clk);
+  endtask
+
+  // Clocks in which both requesters wait for the bus master, and the
+  // arbiter's rule: with both waiting when the bus master takes a request,
+  // the one not served last goes first. A done on the NVMe port must belong
+  // to an NVMe transfer: the controller takes any done while its fetch
+  // waits as that fetch's.
+  int  nv_alt;
+  bit  tb_last_nv, nv_out;
+  always @(posedge clk) if (rst_n) begin
+    bit g_nv, g_csr;
+    g_nv  = nv_valid && nv_ready;
+    g_csr = dut.grant_csr;
+    if (nv_valid && !nv_ready && bm_busy) nv_contend++;
+    if (g_nv && g_csr) fail("bus master granted to both requesters");
+    if (nv_done && !nv_out) fail("done on the NVMe port with no NVMe transfer in flight");
+    if (nv_done) nv_out = 1'b0;
+    if (g_nv)    nv_out = 1'b1;
+    if (dut.csr_pend && nv_valid && dut.bm_req_ready) begin
+      if (tb_last_nv ? !g_csr : !g_nv) fail("bus-master requesters not served alternately");
+      nv_alt++;
+    end
+    if (g_nv)  tb_last_nv = 1'b1;
+    if (g_csr) tb_last_nv = 1'b0;
+  end
 
   function void cmp_h2d(bit [63:0] ha, bit [31:0] la, int len, string what);
     for (int i = 0; i < 4 * len; i++) begin
@@ -433,19 +510,41 @@ module tb_tl;
       while (!zr.done) @(negedge clk);
       if (zr.status != SC || zr.ncpl != 1) fail("zero-length read");
     end
-    // BAR0 window: writes and reads reach AXI at bar0_win.
+    // BAR0 0x0000-0x1FFF: the register port, one DW per clock; writes and
+    // reads of up to 2 DWs. A longer write is dropped with UR, a longer read
+    // gets CA.
     w2_write(0, rnd_bytes(4));   // keep the BAR2 shadow in use
-    b = rnd_bytes(40);
-    host.mem_wr(BAR0 + 64'h104, b);
+    b = rnd_bytes(16);
+    host.mem_wr(BAR0 + 64'h104, b[0:7]);
+    host.mem_wr(BAR0 + 64'h10C, b[8:15]);
+    host.mem_wr(BAR0 + 64'h201, le_bytes(64'h00C0_FFEE, 3));
+    host.mem_wr(BAR0 + 64'h1FFC, le_bytes(64'h1357_9BDF, 4));
+    host.mem_wr(BAR0 + 64'h300, rnd_bytes(12));
     begin
-      byteq_t rb;
+      byteq_t   rb;
       bit [2:0] st;
-      host.mem_rd(BAR0 + 64'h104, 40, rb, st);
-      if (st != SC || !same(rb, b)) fail("BAR0 window write and read");
-      for (int i = 0; i < 40; i++) if (mem.get(W0 + 32'h104 + 32'(i)) !== b[i]) begin
-        fail("BAR0 window lands at bar0_win");
+      bit [31:0] d80, dc0;
+      int       w0 = rp_writes, ur0 = c_ur;
+      d80 = rp_mem[11'h80];
+      dc0 = rp_mem[11'hC0];
+      wait_idle();
+      if (rp_writes - w0 != 6) fail($sformatf("%0d register-port writes, expected 6", rp_writes - w0));
+      if (c_ur - ur0 != 1) fail("a 3-DW write to BAR0 is dropped with UR");
+      if (rp_mem[11'hC0] !== dc0) fail("a 3-DW write to BAR0 reached the register port");
+      for (int i = 0; i < 16; i++) if (rp_mem[11'h41 + 11'(i / 4)][8*(i%4) +: 8] !== b[i]) begin
+        fail($sformatf("BAR0 write: byte %0d", i));
         break;
       end
+      if (rp_mem[11'h80][31:8] !== 24'hC0_FFEE || rp_mem[11'h80][7:0] !== d80[7:0])
+        fail($sformatf("BAR0 partial write: %h", rp_mem[11'h80]));
+      host.mem_rd(BAR0 + 64'h108, 8, rb, st);
+      if (st != SC || !same(rb, b[4:11])) fail("BAR0 read of 2 DWs");
+      host.mem_rd(BAR0 + 64'h10A, 2, rb, st);
+      if (st != SC || !same(rb, b[6:7])) fail("BAR0 read of 2 bytes");
+      host.mem_rd(BAR0 + 64'h1FFC, 4, rb, st);
+      if (st != SC || !same(rb, le_bytes(64'h1357_9BDF, 4))) fail("BAR0 read of the last DW");
+      host.mem_rd(BAR0 + 64'h104, 12, rb, st);
+      if (st != CA) fail($sformatf("BAR0 read of 3 DWs: status %0d, expected CA", st));
     end
     wait_idle();
   endtask
@@ -669,6 +768,35 @@ module tb_tl;
       end
     end
     wait_idle();
+    // Both requesters at once: the NVMe port asks one clock after a START,
+    // when the START is waiting too, so the arbiter picks between them. In
+    // odd rounds an NVMe transfer runs alone first, so the HOST-register
+    // request must win; in even rounds the NVMe request must.
+    for (int k = 0; k < 8; k++) begin
+      bit [2:0] c1, c2;
+      bit [63:0] h1, h2;
+      bit [31:0] l1, l2;
+      int alt0;
+      h1 = 64'h0000_0000_3008_0000 + 64'(4096 * k);
+      h2 = 64'h0000_0004_0000_0000 + 64'(4096 * k);
+      l1 = 32'h1000_4000 + 32'(256 * k);
+      l2 = 32'h1001_0000 + 32'(256 * k);
+      if (k % 2 == 1) begin
+        nv_xfer(1'b0, h2 + 64'h800, l2 + 32'h80, 4, c2);
+        if (c2 != 0) fail($sformatf("NVMe-port transfer alone %0d: cause %0d", k, c2));
+        cmp_h2d(h2 + 64'h800, l2 + 32'h80, 4, $sformatf("NVMe-port transfer alone %0d", k));
+      end
+      alt0 = nv_alt;
+      fork
+        bm_xfer(1'b0, h1, l1, 16 + k, c1, cyc);
+        begin @(negedge clk); nv_xfer(1'b0, h2, l2, 16 + k, c2); end
+      join
+      if (c1 != 0 || c2 != 0) fail($sformatf("requests at once %0d: causes %0d and %0d", k, c1, c2));
+      cmp_h2d(h1, l1, 16 + k, $sformatf("requests at once %0d, HOST registers", k));
+      cmp_h2d(h2, l2, 16 + k, $sformatf("requests at once %0d, NVMe port", k));
+      if (nv_alt != alt0 + 1) fail($sformatf("requests at once %0d: both did not wait", k));
+    end
+    wait_idle();
   endtask
 
   // Bus-master errors: each cause once, then a good request.
@@ -736,7 +864,7 @@ module tb_tl;
   // Everything at once: inbound traffic, bus-master requests, MSI-X.
   int rnd_ops, rnd_bm, rnd_msix_sent;
   task automatic t_random(int nops);
-    bit done_tgt, done_bm;
+    bit done_tgt, done_bm, done_nv;
     int msix_exp;
     host.msis.delete();
     msix_exp = 0;
@@ -837,6 +965,32 @@ module tb_tl;
           rnd_bm++;
         end
         done_bm = 1'b1;
+      end
+      // NVMe-port requests, in their own address ranges, checked one by one
+      begin
+        bit [2:0] cause;
+        int       len;
+        bit [63:0] ha;
+        bit [31:0] la;
+        while (!done_bm) begin
+          bit d2h = 1'($urandom_range(1));
+          len = ($urandom_range(3) == 0) ? $urandom_range(1024, 1) : $urandom_range(64, 1);
+          ha  = 64'h0000_0004_0000_0000 + 64'(4 * $urandom_range(65535, 0));
+          if (d2h) ha = ha + 64'h4000_0000;
+          la  = 32'h1001_0000 + 32'(4 * $urandom_range(8191 - len, 0));
+          nv_xfer(d2h, ha, la, len, cause);
+          if (cause != 0) fail($sformatf("NVMe-port request: cause %0d", cause));
+          else if (d2h) begin
+            int w = 0;
+            while (w < 40) begin @(negedge clk); w++; end
+            while (tif.tx_valid) @(negedge clk);
+            cmp_d2h(ha, la, len, "NVMe-port D2H");
+          end else begin
+            cmp_h2d(ha, la, len, "NVMe-port H2D");
+          end
+          if ($urandom_range(3) == 0) clocks($urandom_range(30, 1));
+        end
+        done_nv = 1'b1;
       end
     join
     wait_idle();
@@ -959,7 +1113,8 @@ module tb_tl;
       $display("[TL] bus master 8 KiB: host to SoC %0d clocks (%0.2f B/clk), SoC to host %0d clocks (%0.2f B/clk)",
                bm_cyc_h2d, real'(bm_bytes_h2d) / bm_cyc_h2d, bm_cyc_d2h, real'(bm_bytes_d2h) / bm_cyc_d2h);
     if (rnd_ops > 0)
-      $display("[TL] random: %0d inbound operations, %0d bus-master requests, %0d MSI-X", rnd_ops, rnd_bm, rnd_msix_sent);
+      $display("[TL] random: %0d inbound operations, %0d bus-master requests, %0d NVMe-port requests (%0d clocks both waiting, %0d grants with both waiting), %0d MSI-X",
+               rnd_ops, rnd_bm, nv_xfers, nv_contend, nv_alt, rnd_msix_sent);
     if (errors == 0) $display("[TL] PASS");
     else             $display("[TL] FAIL: %0d errors", errors);
     if (errors != 0) $fatal(1, "tb_tl failed");

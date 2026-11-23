@@ -12,7 +12,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 out="${BUILD_DIR:-$root/build/dv}/soc"
-tests=(hello memtest irq buserr perf dma power reset host soc_app)
+tests=(hello memtest irq buserr perf dma power reset host nvme soc_app)
 mkdir -p "$out"
 
 if command -v riscv-none-elf-gcc > /dev/null; then
@@ -33,8 +33,10 @@ src=(
   "$here/lint/waivers.vlt" -F "$rtl/vendor/ibex/ibex.f"
   "$rtl/csr/gen/sys_regs_pkg.sv" "$rtl/csr/gen/intc_regs_pkg.sv" "$rtl/csr/gen/timer_regs_pkg.sv"
   "$rtl/csr/gen/dma_regs_pkg.sv" "$rtl/csr/gen/pmu_regs_pkg.sv" "$rtl/csr/gen/host_regs_pkg.sv"
+  "$rtl/csr/gen/nvme_regs_pkg.sv"
   "$rtl/csr/gen/sys_regs.sv" "$rtl/csr/gen/intc_regs.sv" "$rtl/csr/gen/timer_regs.sv"
   "$rtl/csr/gen/dma_regs.sv" "$rtl/csr/gen/pmu_regs.sv" "$rtl/csr/gen/host_regs.sv"
+  "$rtl/csr/gen/nvme_regs.sv"
   "$rtl/common/rr_arb.sv" "$rtl/common/fifo_sync.sv" "$rtl/common/cdc_sync_2ff.sv"
   "$rtl/common/cdc_async_fifo.sv" "$rtl/common/rst_sync.sv" "$rtl/common/clk_gate.sv"
   "$rtl/axi/axi_id_tracker.sv" "$rtl/axi/axi_err_slv.sv" "$rtl/axi/axi_xbar.sv" "$rtl/axi/axi2apb.sv"
@@ -44,7 +46,7 @@ src=(
   "$rtl/host/tl/tl_pkg.sv" "$rtl/host/tl/tl_dw_align.sv" "$rtl/host/tl/tl_rx_buf.sv"
   "$rtl/host/tl/tl_rx_unpack.sv" "$rtl/host/tl/tl_tx_pack.sv" "$rtl/host/tl/tl_cfg.sv" "$rtl/host/tl/tl_msix.sv"
   "$rtl/host/tl/tl_wr.sv" "$rtl/host/tl/tl_rd.sv" "$rtl/host/tl/tl_bm.sv" "$rtl/host/tl/tl_core.sv"
-  "$rtl/host/tl/tl_port.sv"
+  "$rtl/host/tl/tl_port.sv" "$rtl/host/nvme/nvme_ctrl.sv"
   "$rtl/pmu/iso_clamp.sv" "$rtl/pmu/ret_reg.sv" "$rtl/pmu/apb_cdc.sv" "$rtl/pmu/pmu.sv"
   "$rtl/host/phy_pll_model.sv" "$rtl/host/host_stub.sv" "$rtl/host/pd_host.sv" "$rtl/host/host_if.sv"
   "$rtl/top/soc_pwr.sv" "$rtl/top/soc_top.sv"

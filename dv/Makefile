@@ -1,5 +1,5 @@
 # Block-level checks: lint of rtl/ and the block testbenches.
-#   make -C dv            lint, fifo, slice, xbar, dma, tl, power, soc
+#   make -C dv            lint, fifo, slice, xbar, dma, tl, nvme, power, soc
 #   make -C dv fifo       FIFO at six clock pairs (FIFO_SRC, MIN_EFF: see run_fifo.sh)
 #   make -C dv xbar       crossbar: directed test and SEEDS random seeds (SEEDS, N: see run_xbar.sh)
 #   make -C dv xbar-mut   crossbar testbench against seven planted bugs (not part of all)
@@ -8,6 +8,9 @@
 #   make -C dv tl         transaction layer: six directed tests, throughput, SEEDS random seeds (SEEDS, TL_N:
 #                         see run_tl.sh)
 #   make -C dv tl-mut     transaction-layer testbench against planted bugs (not part of all)
+#   make -C dv nvme       NVMe registers and queues: directed tests, SEEDS random seeds (SEEDS, NVME_N:
+#                         see run_nvme.sh)
+#   make -C dv nvme-mut   NVMe testbench against fourteen planted bugs (not part of all)
 #   make -C dv power      PMU, PD_HOST and resets: directed and PLL-stuck tests, random off-state values
 #   make -C dv power-x    the same on Vivado's simulator with X off-state values (Windows, not part of all)
 #   make -C dv power-mut  power testbench against eleven planted bugs (not part of all)
@@ -28,32 +31,36 @@ XBAR_RTL := $(RTL)/common/rr_arb.sv $(RTL)/common/fifo_sync.sv \
             $(RTL)/axi/axi_id_tracker.sv $(RTL)/axi/axi_err_slv.sv $(RTL)/axi/axi_xbar.sv
 CSR_GEN  := $(RTL)/csr/gen/sys_regs_pkg.sv $(RTL)/csr/gen/intc_regs_pkg.sv $(RTL)/csr/gen/timer_regs_pkg.sv \
             $(RTL)/csr/gen/dma_regs_pkg.sv $(RTL)/csr/gen/pmu_regs_pkg.sv $(RTL)/csr/gen/host_regs_pkg.sv \
+            $(RTL)/csr/gen/nvme_regs_pkg.sv \
             $(RTL)/csr/gen/sys_regs.sv $(RTL)/csr/gen/intc_regs.sv $(RTL)/csr/gen/timer_regs.sv \
-            $(RTL)/csr/gen/dma_regs.sv $(RTL)/csr/gen/pmu_regs.sv $(RTL)/csr/gen/host_regs.sv
+            $(RTL)/csr/gen/dma_regs.sv $(RTL)/csr/gen/pmu_regs.sv $(RTL)/csr/gen/host_regs.sv \
+            $(RTL)/csr/gen/nvme_regs.sv
 DMA_RTL  := $(RTL)/csr/gen/dma_regs_pkg.sv $(RTL)/csr/gen/dma_regs.sv $(RTL)/common/fifo_sync.sv \
             $(RTL)/dma/dma.sv
 TL_RTL   := $(RTL)/axi/axi_channel_reg_slice.sv $(RTL)/host/tl/tl_pkg.sv $(RTL)/host/tl/tl_dw_align.sv \
             $(RTL)/host/tl/tl_rx_buf.sv $(RTL)/host/tl/tl_rx_unpack.sv $(RTL)/host/tl/tl_tx_pack.sv \
             $(RTL)/host/tl/tl_cfg.sv $(RTL)/host/tl/tl_msix.sv $(RTL)/host/tl/tl_wr.sv $(RTL)/host/tl/tl_rd.sv \
             $(RTL)/host/tl/tl_bm.sv $(RTL)/host/tl/tl_core.sv $(RTL)/host/tl/tl_port.sv
+NVME_RTL := $(RTL)/csr/gen/nvme_regs_pkg.sv $(RTL)/csr/gen/nvme_regs.sv $(RTL)/host/nvme/nvme_ctrl.sv
 PWR_RTL  := $(RTL)/csr/gen/pmu_regs_pkg.sv $(RTL)/csr/gen/host_regs_pkg.sv \
             $(RTL)/csr/gen/pmu_regs.sv $(RTL)/csr/gen/host_regs.sv $(RTL)/common/fifo_sync.sv $(TL_RTL) \
+            $(NVME_RTL) \
             $(RTL)/common/cdc_sync_2ff.sv $(RTL)/common/cdc_async_fifo.sv $(RTL)/common/rst_sync.sv \
             $(RTL)/common/clk_gate.sv $(RTL)/pmu/iso_clamp.sv $(RTL)/pmu/ret_reg.sv $(RTL)/pmu/apb_cdc.sv \
             $(RTL)/pmu/pmu.sv $(RTL)/host/phy_pll_model.sv $(RTL)/host/host_stub.sv $(RTL)/host/pd_host.sv \
             $(RTL)/host/host_if.sv $(RTL)/top/soc_pwr.sv
 SOC_RTL  := $(CSR_GEN) $(XBAR_RTL) $(RTL)/axi/axi2apb.sv $(RTL)/cpu/cpu_ibex.sv $(RTL)/cpu/obi2axi.sv \
             $(RTL)/mem/mem_array.sv $(RTL)/mem/axi_mem.sv $(RTL)/periph/apb_sys.sv $(RTL)/periph/apb_timer.sv \
-            $(RTL)/periph/apb_intc.sv $(RTL)/dma/dma.sv $(TL_RTL) \
+            $(RTL)/periph/apb_intc.sv $(RTL)/dma/dma.sv $(TL_RTL) $(RTL)/host/nvme/nvme_ctrl.sv \
             $(RTL)/common/cdc_sync_2ff.sv $(RTL)/common/cdc_async_fifo.sv $(RTL)/common/rst_sync.sv \
             $(RTL)/common/clk_gate.sv $(RTL)/pmu/iso_clamp.sv $(RTL)/pmu/ret_reg.sv $(RTL)/pmu/apb_cdc.sv \
             $(RTL)/pmu/pmu.sv $(RTL)/host/phy_pll_model.sv $(RTL)/host/host_stub.sv $(RTL)/host/pd_host.sv \
             $(RTL)/host/host_if.sv $(RTL)/top/soc_pwr.sv $(RTL)/top/soc_top.sv
 
-.PHONY: all lint fifo slice xbar xbar-mut dma dma-mut tl tl-mut power power-x power-mut iso-check soc \
+.PHONY: all lint fifo slice xbar xbar-mut dma dma-mut tl tl-mut nvme nvme-mut power power-x power-mut iso-check soc \
         ral ral-mut rdl-check
 
-all: lint iso-check fifo slice xbar dma tl power soc
+all: lint iso-check fifo slice xbar dma tl nvme power soc
 
 lint:
 	verilator --lint-only -Wall --top-module cdc_async_fifo \
@@ -64,6 +71,7 @@ lint:
 	verilator --lint-only -Wall --timescale 1ns/1ps --top-module dma lint/waivers.vlt $(DMA_RTL)
 	verilator --lint-only -Wall --timescale 1ns/1ps --top-module tl_core lint/waivers.vlt \
 	  $(RTL)/common/fifo_sync.sv $(TL_RTL)
+	verilator --lint-only -Wall --timescale 1ns/1ps --top-module nvme_ctrl lint/waivers.vlt $(NVME_RTL)
 	verilator --lint-only -Wall --timescale 1ns/1ps --top-module soc_pwr lint/waivers.vlt $(PWR_RTL)
 	verilator --lint-only -Wall --timescale 1ns/1ps --top-module soc_top \
 	  lint/waivers.vlt -F $(RTL)/vendor/ibex/ibex.f $(SOC_RTL)
@@ -97,6 +105,12 @@ tl:
 
 tl-mut:
 	bash mutate_tl.sh
+
+nvme:
+	bash run_nvme.sh
+
+nvme-mut:
+	bash mutate_nvme.sh
 
 power:
 	bash run_power.sh
