@@ -60,11 +60,11 @@ Don't override. Generated from: soc_apb
 - Base Offset: 0x4
 - Size: 0x4
 
-<p>Register map version: 0x0002_0002 is the map of step 2-2 (NVMe block; BAR0 no longer has an AXI window).</p>
+<p>Register map version: 0x0002_0003 is the map of step 2-3 (NVMe data transfers by PRP and completion queue entries).</p>
 
 |Bits|Identifier|Access| Reset |Name|
 |----|----------|------|-------|----|
-|31:0|   value  |   r  |0x20002|  — |
+|31:0|   value  |   r  |0x20003|  — |
 
 ### SCRATCH register
 
@@ -1009,39 +1009,53 @@ Don't override. Generated from: soc_apb
 - Base Offset: 0x8000
 - Size: 0x234
 
-<p>Firmware side of the NVMe controller (rtl/host/nvme/nvme_ctrl.sv, docs/11_nvme_queues.md). The host side (CAP, CC, CSTS, AQA, ASQ, ACQ, doorbells) is in BAR0 and is mirrored here read-only.</p>
+<p>Firmware side of the NVMe controller (rtl/host/nvme/nvme_ctrl.sv, docs/11_nvme_queues.md, docs/12_nvme_data.md). The host side (CAP, CC, CSTS, AQA, ASQ, ACQ, doorbells) is in BAR0 and is mirrored here read-only.</p>
 
-|Offset|Identifier|   Name  |
-|------|----------|---------|
-| 0x000|   CTRL   |   CTRL  |
-| 0x004|  STATUS  |  STATUS |
-| 0x008|   EVENT  |  EVENT  |
-| 0x00C| EVENT_EN | EVENT_EN|
-| 0x010|    CC    |    CC   |
-| 0x014|  CMDBUF  |  CMDBUF |
-| 0x018|    CMD   |   CMD   |
-| 0x01C| SLOT_FREE|SLOT_FREE|
-| 0x020|  DB_ERR  |  DB_ERR |
-| 0x024|  FETCHES | FETCHES |
-| 0x030|    AQA   |   AQA   |
-| 0x034|  ASQ_LO  |  ASQ_LO |
-| 0x038|  ASQ_HI  |  ASQ_HI |
-| 0x03C|  ACQ_LO  |  ACQ_LO |
-| 0x040|  ACQ_HI  |  ACQ_HI |
-| 0x100|  IOQ[0]  |    —    |
-| 0x120|  IOQ[1]  |    —    |
-| 0x140|  IOQ[2]  |    —    |
-| 0x160|  IOQ[3]  |    —    |
-| 0x200| SQ_PTR[0]|  SQ_PTR |
-| 0x204| SQ_PTR[1]|  SQ_PTR |
-| 0x208| SQ_PTR[2]|  SQ_PTR |
-| 0x20C| SQ_PTR[3]|  SQ_PTR |
-| 0x210| SQ_PTR[4]|  SQ_PTR |
-| 0x220| CQ_PTR[0]|  CQ_PTR |
-| 0x224| CQ_PTR[1]|  CQ_PTR |
-| 0x228| CQ_PTR[2]|  CQ_PTR |
-| 0x22C| CQ_PTR[3]|  CQ_PTR |
-| 0x230| CQ_PTR[4]|  CQ_PTR |
+|Offset|Identifier|   Name   |
+|------|----------|----------|
+| 0x000|   CTRL   |   CTRL   |
+| 0x004|  STATUS  |  STATUS  |
+| 0x008|   EVENT  |   EVENT  |
+| 0x00C| EVENT_EN | EVENT_EN |
+| 0x010|    CC    |    CC    |
+| 0x014|  CMDBUF  |  CMDBUF  |
+| 0x018|    CMD   |    CMD   |
+| 0x01C| SLOT_FREE| SLOT_FREE|
+| 0x020|  DB_ERR  |  DB_ERR  |
+| 0x024|  FETCHES |  FETCHES |
+| 0x030|    AQA   |    AQA   |
+| 0x034|  ASQ_LO  |  ASQ_LO  |
+| 0x038|  ASQ_HI  |  ASQ_HI  |
+| 0x03C|  ACQ_LO  |  ACQ_LO  |
+| 0x040|  ACQ_HI  |  ACQ_HI  |
+| 0x050|XF_PRP1_LO|XF_PRP1_LO|
+| 0x054|XF_PRP1_HI|XF_PRP1_HI|
+| 0x058|XF_PRP2_LO|XF_PRP2_LO|
+| 0x05C|XF_PRP2_HI|XF_PRP2_HI|
+| 0x060| XF_LADDR | XF_LADDR |
+| 0x064|  XF_LEN  |  XF_LEN  |
+| 0x068|  XF_CTRL |  XF_CTRL |
+| 0x06C| XF_STATUS| XF_STATUS|
+| 0x070| XF_CYCLES| XF_CYCLES|
+| 0x080|  CQE_DW0 |  CQE_DW0 |
+| 0x084| CQE_INFO | CQE_INFO |
+| 0x088| CQE_CTRL | CQE_CTRL |
+| 0x08C|CQE_STATUS|CQE_STATUS|
+| 0x090|   CQES   |   CQES   |
+| 0x100|  IOQ[0]  |     —    |
+| 0x120|  IOQ[1]  |     —    |
+| 0x140|  IOQ[2]  |     —    |
+| 0x160|  IOQ[3]  |     —    |
+| 0x200| SQ_PTR[0]|  SQ_PTR  |
+| 0x204| SQ_PTR[1]|  SQ_PTR  |
+| 0x208| SQ_PTR[2]|  SQ_PTR  |
+| 0x20C| SQ_PTR[3]|  SQ_PTR  |
+| 0x210| SQ_PTR[4]|  SQ_PTR  |
+| 0x220| CQ_PTR[0]|  CQ_PTR  |
+| 0x224| CQ_PTR[1]|  CQ_PTR  |
+| 0x228| CQ_PTR[2]|  CQ_PTR  |
+| 0x22C| CQ_PTR[3]|  CQ_PTR  |
+| 0x230| CQ_PTR[4]|  CQ_PTR  |
 
 ### CTRL register
 
@@ -1052,10 +1066,15 @@ Don't override. Generated from: soc_apb
 |Bits|Identifier|Access|Reset|Name|
 |----|----------|------|-----|----|
 |  0 |  ien_cmd |  rw  | 0x0 |  — |
+|  1 | ien_xfer |  rw  | 0x0 |  — |
 
 #### ien_cmd field
 
 <p>Interrupt (INTC source 3) while commands wait in CMD.</p>
+
+#### ien_xfer field
+
+<p>Interrupt (INTC source 3) while XF_STATUS.DONE or ERR is set.</p>
 
 ### STATUS register
 
@@ -1111,6 +1130,7 @@ Don't override. Generated from: soc_apb
 |  2 | shutdown |rw, woclr| 0x0 |  — |
 |  3 |  db_err  |rw, woclr| 0x0 |  — |
 |  4 | fetch_err|rw, woclr| 0x0 |  — |
+|  5 |  cqe_err |rw, woclr| 0x0 |  — |
 
 #### enable field
 
@@ -1132,6 +1152,10 @@ Don't override. Generated from: soc_apb
 
 <p>A command fetch failed; CSTS.CFS is set.</p>
 
+#### cqe_err field
+
+<p>A completion queue entry was dropped (posted while 4 wait, or to a completion queue that is not enabled) or its write to the host failed (CSTS.CFS is set); see CQE_STATUS.</p>
+
 ### EVENT_EN register
 
 - Absolute Address: 0x800C
@@ -1140,7 +1164,7 @@ Don't override. Generated from: soc_apb
 
 |Bits|Identifier|Access|Reset|Name|
 |----|----------|------|-----|----|
-| 4:0|    en    |  rw  | 0x0 |  — |
+| 5:0|    en    |  rw  | 0x0 |  — |
 
 ### CC register
 
@@ -1295,6 +1319,234 @@ Don't override. Generated from: soc_apb
 |Bits|Identifier|Access|Reset|Name|
 |----|----------|------|-----|----|
 |31:0|   value  |   r  |  —  |  — |
+
+### XF_PRP1_LO register
+
+- Absolute Address: 0x8050
+- Base Offset: 0x50
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   value  |  rw  | 0x0 |  — |
+
+#### value field
+
+<p>PRP entry 1, bits 31:0: the first page and the offset in it, DW aligned.</p>
+
+### XF_PRP1_HI register
+
+- Absolute Address: 0x8054
+- Base Offset: 0x54
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   value  |  rw  | 0x0 |  — |
+
+### XF_PRP2_LO register
+
+- Absolute Address: 0x8058
+- Base Offset: 0x58
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   value  |  rw  | 0x0 |  — |
+
+#### value field
+
+<p>PRP entry 2, bits 31:0: the second page (page aligned) when the data spans two pages, or a PRP list pointer (8-byte aligned) when it spans more.</p>
+
+### XF_PRP2_HI register
+
+- Absolute Address: 0x805C
+- Base Offset: 0x5C
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   value  |  rw  | 0x0 |  — |
+
+### XF_LADDR register
+
+- Absolute Address: 0x8060
+- Base Offset: 0x60
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:2|   addr   |  rw  | 0x0 |  — |
+
+#### addr field
+
+<p>SRAM address of the data, contiguous there.</p>
+
+### XF_LEN register
+
+- Absolute Address: 0x8064
+- Base Offset: 0x64
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|17:2|   bytes  |  rw  | 0x0 |  — |
+
+#### bytes field
+
+<p>Length in bytes, a multiple of 4, 4 to 128 KiB.</p>
+
+### XF_CTRL register
+
+- Absolute Address: 0x8068
+- Base Offset: 0x68
+- Size: 0x4
+
+<p>START while XF_STATUS.BUSY is ignored.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|  0 |   start  |   w  | 0x0 |  — |
+|  1 |    d2h   |  rw  | 0x0 |  — |
+
+#### start field
+
+<p>Start the transfer.</p>
+
+#### d2h field
+
+<p>1: SRAM to host (a read command); 0: host to SRAM (a write command).</p>
+
+### XF_STATUS register
+
+- Absolute Address: 0x806C
+- Base Offset: 0x6C
+- Size: 0x4
+
+<p>DONE or ERR is INTC source 3 with CTRL.IEN_XFER. Write 1 to clear; START clears both.</p>
+
+|Bits|Identifier|  Access |Reset|Name|
+|----|----------|---------|-----|----|
+|  0 |   busy   |    r    |  —  |  — |
+|  1 |   done   |rw, woclr| 0x0 |  — |
+|  2 |    err   |rw, woclr| 0x0 |  — |
+|11:8|   cause  |    r    | 0x0 |  — |
+
+#### cause field
+
+<p>Why the transfer failed: 1 to 7 the bus master's cause, 8 a length out of range, 9 a PRP entry with a bad offset, 10 aborted by a controller reset.</p>
+
+### XF_CYCLES register
+
+- Absolute Address: 0x8070
+- Base Offset: 0x70
+- Size: 0x4
+
+<p>Clocks from START to the end of the last transfer.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   count  |   r  |  —  |  — |
+
+### CQE_DW0 register
+
+- Absolute Address: 0x8080
+- Base Offset: 0x80
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   value  |  rw  | 0x0 |  — |
+
+#### value field
+
+<p>Command specific DW0 of the entry.</p>
+
+### CQE_INFO register
+
+- Absolute Address: 0x8084
+- Base Offset: 0x84
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 15:0|    cid   |  rw  | 0x0 |  — |
+|18:16|   sqid   |  rw  | 0x0 |  — |
+
+#### cid field
+
+<p>Command identifier.</p>
+
+#### sqid field
+
+<p>Submission queue the command came from; the entry carries its head.</p>
+
+### CQE_CTRL register
+
+- Absolute Address: 0x8088
+- Base Offset: 0x88
+- Size: 0x4
+
+<p>A write queues the entry.</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 2:0 |   cqid   |  rw  | 0x0 |  — |
+|31:17|  status  |  rw  | 0x0 |  — |
+
+#### cqid field
+
+<p>Completion queue, 0 to 4.</p>
+
+#### status field
+
+<p>Status field of DW3 (bits 31:17: SC, SCT, CRD, M, DNR); 0 for success.</p>
+
+### CQE_STATUS register
+
+- Absolute Address: 0x808C
+- Base Offset: 0x8C
+- Size: 0x4
+
+|Bits|Identifier|  Access |Reset|Name|
+|----|----------|---------|-----|----|
+| 2:0|   count  |    r    |  —  |  — |
+|  4 |   full   |    r    |  —  |  — |
+|  5 |  cq_full |    r    |  —  |  — |
+|  8 |   drop   |rw, woclr| 0x0 |  — |
+|  9 |   werr   |rw, woclr| 0x0 |  — |
+
+#### count field
+
+<p>Entries waiting to be written.</p>
+
+#### full field
+
+<p>4 entries wait: a post now is dropped.</p>
+
+#### cq_full field
+
+<p>The oldest entry waits for room in its completion queue.</p>
+
+#### drop field
+
+<p>An entry was dropped: posted while 4 waited, or to a completion queue that is not enabled.</p>
+
+#### werr field
+
+<p>An entry's write to the host failed.</p>
+
+### CQES register
+
+- Absolute Address: 0x8090
+- Base Offset: 0x90
+- Size: 0x4
+
+<p>Completion queue entries written since reset (wraps).</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   count  |   r  |  —  |  — |
 
 ## IOQ register file
 

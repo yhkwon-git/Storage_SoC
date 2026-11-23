@@ -8,9 +8,9 @@
 #   make -C dv tl         transaction layer: six directed tests, throughput, SEEDS random seeds (SEEDS, TL_N:
 #                         see run_tl.sh)
 #   make -C dv tl-mut     transaction-layer testbench against planted bugs (not part of all)
-#   make -C dv nvme       NVMe registers and queues: directed tests, SEEDS random seeds (SEEDS, NVME_N:
-#                         see run_nvme.sh)
-#   make -C dv nvme-mut   NVMe testbench against fourteen planted bugs (not part of all)
+#   make -C dv nvme       NVMe controller: directed tests, SEEDS random queue and random I/O seeds
+#                         (SEEDS, NVME_N, NVME_IO_N: see run_nvme.sh)
+#   make -C dv nvme-mut   NVMe testbench against 27 planted bugs (not part of all)
 #   make -C dv power      PMU, PD_HOST and resets: directed and PLL-stuck tests, random off-state values
 #   make -C dv power-x    the same on Vivado's simulator with X off-state values (Windows, not part of all)
 #   make -C dv power-mut  power testbench against eleven planted bugs (not part of all)
@@ -41,7 +41,8 @@ TL_RTL   := $(RTL)/axi/axi_channel_reg_slice.sv $(RTL)/host/tl/tl_pkg.sv $(RTL)/
             $(RTL)/host/tl/tl_rx_buf.sv $(RTL)/host/tl/tl_rx_unpack.sv $(RTL)/host/tl/tl_tx_pack.sv \
             $(RTL)/host/tl/tl_cfg.sv $(RTL)/host/tl/tl_msix.sv $(RTL)/host/tl/tl_wr.sv $(RTL)/host/tl/tl_rd.sv \
             $(RTL)/host/tl/tl_bm.sv $(RTL)/host/tl/tl_core.sv $(RTL)/host/tl/tl_port.sv
-NVME_RTL := $(RTL)/csr/gen/nvme_regs_pkg.sv $(RTL)/csr/gen/nvme_regs.sv $(RTL)/host/nvme/nvme_ctrl.sv
+NVME_RTL := $(RTL)/csr/gen/nvme_regs_pkg.sv $(RTL)/csr/gen/nvme_regs.sv $(RTL)/host/nvme/nvme_lbuf.sv \
+            $(RTL)/host/nvme/nvme_prp.sv $(RTL)/host/nvme/nvme_cqe.sv $(RTL)/host/nvme/nvme_ctrl.sv
 PWR_RTL  := $(RTL)/csr/gen/pmu_regs_pkg.sv $(RTL)/csr/gen/host_regs_pkg.sv \
             $(RTL)/csr/gen/pmu_regs.sv $(RTL)/csr/gen/host_regs.sv $(RTL)/common/fifo_sync.sv $(TL_RTL) \
             $(NVME_RTL) \
@@ -51,7 +52,8 @@ PWR_RTL  := $(RTL)/csr/gen/pmu_regs_pkg.sv $(RTL)/csr/gen/host_regs_pkg.sv \
             $(RTL)/host/host_if.sv $(RTL)/top/soc_pwr.sv
 SOC_RTL  := $(CSR_GEN) $(XBAR_RTL) $(RTL)/axi/axi2apb.sv $(RTL)/cpu/cpu_ibex.sv $(RTL)/cpu/obi2axi.sv \
             $(RTL)/mem/mem_array.sv $(RTL)/mem/axi_mem.sv $(RTL)/periph/apb_sys.sv $(RTL)/periph/apb_timer.sv \
-            $(RTL)/periph/apb_intc.sv $(RTL)/dma/dma.sv $(TL_RTL) $(RTL)/host/nvme/nvme_ctrl.sv \
+            $(RTL)/periph/apb_intc.sv $(RTL)/dma/dma.sv $(TL_RTL) $(RTL)/host/nvme/nvme_lbuf.sv \
+            $(RTL)/host/nvme/nvme_prp.sv $(RTL)/host/nvme/nvme_cqe.sv $(RTL)/host/nvme/nvme_ctrl.sv \
             $(RTL)/common/cdc_sync_2ff.sv $(RTL)/common/cdc_async_fifo.sv $(RTL)/common/rst_sync.sv \
             $(RTL)/common/clk_gate.sv $(RTL)/pmu/iso_clamp.sv $(RTL)/pmu/ret_reg.sv $(RTL)/pmu/apb_cdc.sv \
             $(RTL)/pmu/pmu.sv $(RTL)/host/phy_pll_model.sv $(RTL)/host/host_stub.sv $(RTL)/host/pd_host.sv \

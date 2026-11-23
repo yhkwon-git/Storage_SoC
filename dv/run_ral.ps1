@@ -32,7 +32,7 @@ $src = @(
     'rtl\host\tl\tl_pkg.sv', 'rtl\host\tl\tl_dw_align.sv', 'rtl\host\tl\tl_rx_buf.sv',
     'rtl\host\tl\tl_rx_unpack.sv', 'rtl\host\tl\tl_tx_pack.sv', 'rtl\host\tl\tl_cfg.sv',
     'rtl\host\tl\tl_msix.sv', 'rtl\host\tl\tl_wr.sv', 'rtl\host\tl\tl_rd.sv', 'rtl\host\tl\tl_bm.sv',
-    'rtl\host\tl\tl_core.sv', 'rtl\host\tl\tl_port.sv', 'rtl\host\nvme\nvme_ctrl.sv',
+    'rtl\host\tl\tl_core.sv', 'rtl\host\tl\tl_port.sv', 'rtl\host\nvme\nvme_lbuf.sv', 'rtl\host\nvme\nvme_prp.sv', 'rtl\host\nvme\nvme_cqe.sv', 'rtl\host\nvme\nvme_ctrl.sv',
     'rtl\host\phy_pll_model.sv', 'rtl\host\host_stub.sv', 'rtl\host\pd_host.sv', 'rtl\host\host_if.sv',
     'rtl\top\soc_pwr.sv',
     'rtl\periph\apb_sys.sv', 'rtl\periph\apb_intc.sv', 'rtl\periph\apb_timer.sv', 'rtl\dma\dma.sv',

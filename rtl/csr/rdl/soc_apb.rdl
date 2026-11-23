@@ -24,8 +24,8 @@ addrmap sys_regs {
 
   reg {
     name = "VERSION";
-    desc = "Register map version: 0x0002_0002 is the map of step 2-2 (NVMe block; BAR0 no longer has an AXI window).";
-    field { sw = r; hw = na; } value[31:0] = 32'h0002_0002;
+    desc = "Register map version: 0x0002_0003 is the map of step 2-3 (NVMe data transfers by PRP and completion queue entries).";
+    field { sw = r; hw = na; } value[31:0] = 32'h0002_0003;
   } VERSION @ 0x004;
 
   reg {
@@ -394,13 +394,14 @@ addrmap dma_regs {
 
 addrmap nvme_regs {
   name = "NVME";
-  desc = "Firmware side of the NVMe controller (rtl/host/nvme/nvme_ctrl.sv, docs/11_nvme_queues.md). The host side (CAP, CC, CSTS, AQA, ASQ, ACQ, doorbells) is in BAR0 and is mirrored here read-only.";
+  desc = "Firmware side of the NVMe controller (rtl/host/nvme/nvme_ctrl.sv, docs/11_nvme_queues.md, docs/12_nvme_data.md). The host side (CAP, CC, CSTS, AQA, ASQ, ACQ, doorbells) is in BAR0 and is mirrored here read-only.";
   default regwidth = 32;
   default accesswidth = 32;
 
   reg {
     name = "CTRL";
     field { sw = rw; hw = r; desc = "Interrupt (INTC source 3) while commands wait in CMD."; } ien_cmd[0:0] = 1'b0;
+    field { sw = rw; hw = r; desc = "Interrupt (INTC source 3) while XF_STATUS.DONE or ERR is set."; } ien_xfer[1:1] = 1'b0;
   } CTRL @ 0x000;
 
   reg {
@@ -421,11 +422,12 @@ addrmap nvme_regs {
     field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "The host requested a shutdown (CC.SHN)."; } shutdown[2:2] = 1'b0;
     field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "A doorbell write was ignored; see DB_ERR."; } db_err[3:3] = 1'b0;
     field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "A command fetch failed; CSTS.CFS is set."; } fetch_err[4:4] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "A completion queue entry was dropped (posted while 4 wait, or to a completion queue that is not enabled) or its write to the host failed (CSTS.CFS is set); see CQE_STATUS."; } cqe_err[5:5] = 1'b0;
   } EVENT @ 0x008;
 
   reg {
     name = "EVENT_EN";
-    field { sw = rw; hw = r; } en[4:0] = 5'h0;
+    field { sw = rw; hw = r; } en[5:0] = 6'h0;
   } EVENT_EN @ 0x00C;
 
   reg {
@@ -492,6 +494,95 @@ addrmap nvme_regs {
     name = "ACQ_HI";
     field { sw = r; hw = w; } value[31:0];
   } ACQ_HI @ 0x040;
+
+  // Data transfer between host memory and SRAM by PRP (step 2-3): one at a
+  // time; the registers are taken at START.
+  reg {
+    name = "XF_PRP1_LO";
+    field { sw = rw; hw = r; desc = "PRP entry 1, bits 31:0: the first page and the offset in it, DW aligned."; } value[31:0] = 32'h0;
+  } XF_PRP1_LO @ 0x050;
+
+  reg {
+    name = "XF_PRP1_HI";
+    field { sw = rw; hw = r; } value[31:0] = 32'h0;
+  } XF_PRP1_HI @ 0x054;
+
+  reg {
+    name = "XF_PRP2_LO";
+    field { sw = rw; hw = r; desc = "PRP entry 2, bits 31:0: the second page (page aligned) when the data spans two pages, or a PRP list pointer (8-byte aligned) when it spans more."; } value[31:0] = 32'h0;
+  } XF_PRP2_LO @ 0x058;
+
+  reg {
+    name = "XF_PRP2_HI";
+    field { sw = rw; hw = r; } value[31:0] = 32'h0;
+  } XF_PRP2_HI @ 0x05C;
+
+  reg {
+    name = "XF_LADDR";
+    field { sw = rw; hw = r; desc = "SRAM address of the data, contiguous there."; } addr[31:2] = 30'h0;
+  } XF_LADDR @ 0x060;
+
+  reg {
+    name = "XF_LEN";
+    field { sw = rw; hw = r; desc = "Length in bytes, a multiple of 4, 4 to 128 KiB."; } bytes[17:2] = 16'h0;
+  } XF_LEN @ 0x064;
+
+  reg {
+    name = "XF_CTRL";
+    desc = "START while XF_STATUS.BUSY is ignored.";
+    field { sw = w; hw = r; singlepulse; desc = "Start the transfer."; } start[0:0] = 1'b0;
+    field { sw = rw; hw = r; desc = "1: SRAM to host (a read command); 0: host to SRAM (a write command)."; } d2h[1:1] = 1'b0;
+  } XF_CTRL @ 0x068;
+
+  reg {
+    name = "XF_STATUS";
+    desc = "DONE or ERR is INTC source 3 with CTRL.IEN_XFER. Write 1 to clear; START clears both.";
+    field { sw = r; hw = w; } busy[0:0];
+    field { sw = rw; onwrite = woclr; hw = r; hwset; hwclr; precedence = hw; } done[1:1] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; hwclr; precedence = hw; } err[2:2] = 1'b0;
+    field { sw = r; hw = w; we; desc = "Why the transfer failed: 1 to 7 the bus master's cause, 8 a length out of range, 9 a PRP entry with a bad offset, 10 aborted by a controller reset."; } cause[11:8] = 4'h0;
+  } XF_STATUS @ 0x06C;
+
+  reg {
+    name = "XF_CYCLES";
+    desc = "Clocks from START to the end of the last transfer.";
+    field { sw = r; hw = w; } count[31:0];
+  } XF_CYCLES @ 0x070;
+
+  // Completion queue entries (step 2-3): writing CQE_CTRL queues an entry
+  // built from CQE_DW0, CQE_INFO and CQE_CTRL; up to 4 wait.
+  reg {
+    name = "CQE_DW0";
+    field { sw = rw; hw = r; desc = "Command specific DW0 of the entry."; } value[31:0] = 32'h0;
+  } CQE_DW0 @ 0x080;
+
+  reg {
+    name = "CQE_INFO";
+    field { sw = rw; hw = r; desc = "Command identifier."; } cid[15:0] = 16'h0;
+    field { sw = rw; hw = r; desc = "Submission queue the command came from; the entry carries its head."; } sqid[18:16] = 3'h0;
+  } CQE_INFO @ 0x084;
+
+  reg {
+    name = "CQE_CTRL";
+    desc = "A write queues the entry.";
+    field { sw = rw; hw = r; swmod; desc = "Completion queue, 0 to 4."; } cqid[2:0] = 3'h0;
+    field { sw = rw; hw = r; desc = "Status field of DW3 (bits 31:17: SC, SCT, CRD, M, DNR); 0 for success."; } status[31:17] = 15'h0;
+  } CQE_CTRL @ 0x088;
+
+  reg {
+    name = "CQE_STATUS";
+    field { sw = r; hw = w; desc = "Entries waiting to be written."; } count[2:0];
+    field { sw = r; hw = w; desc = "4 entries wait: a post now is dropped."; } full[4:4];
+    field { sw = r; hw = w; desc = "The oldest entry waits for room in its completion queue."; } cq_full[5:5];
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "An entry was dropped: posted while 4 waited, or to a completion queue that is not enabled."; } drop[8:8] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "An entry's write to the host failed."; } werr[9:9] = 1'b0;
+  } CQE_STATUS @ 0x08C;
+
+  reg {
+    name = "CQES";
+    desc = "Completion queue entries written since reset (wraps).";
+    field { sw = r; hw = w; } count[31:0];
+  } CQES @ 0x090;
 
   // I/O queue pairs 1 to 4, written by firmware when it handles the admin
   // commands that create and delete them. A controller reset clears EN.

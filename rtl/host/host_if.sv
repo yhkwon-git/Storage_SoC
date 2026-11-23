@@ -6,10 +6,14 @@
 //
 // Core side of the host interface, in PD_CORE: the HOST registers (host_regs,
 // APB slot 5), the transaction layer (rtl/host/tl/tl_core.sv, AXI master M3),
-// the NVMe controller's registers and queues (rtl/host/nvme/nvme_ctrl.sv,
-// host side in BAR0, firmware side APB slot 8, fetches through the
-// transaction layer's bus master) and the four dual-clock FIFOs that join
-// clk_sys and pclk. The FIFOs sit whole
+// the NVMe controller (rtl/host/nvme/nvme_ctrl.sv: host side in BAR0,
+// firmware side APB slot 8, fetches, PRP transfers and completion entries
+// through the transaction layer's bus master, local buffer on crossbar S5)
+// and the four dual-clock FIFOs that join clk_sys and pclk.
+//
+// MSI-X requests: a HOST-register MSIX_REQ goes first; the NVMe
+// controller's request (a completion queue's vector) waits for a clock
+// without one. The FIFOs sit whole
 // in PD_CORE; their pclk halves are clocked by the PLL's gated clock and held
 // in reset through PD_HOST's isolated reset output while PD_HOST is off, and
 // their clk_sys halves are held in reset by the PMU (hostq_rst_req_n) from the
@@ -55,6 +59,33 @@ module host_if (
   output logic [31:0]  prdata_nvme,
   output logic         pready_nvme,
   output logic         pslverr_nvme,
+
+  // NVMe controller's local buffer: AXI4 slave, crossbar S5 (step 2-3)
+  input  wire  [3:0]   nb_awid,
+  input  wire  [31:0]  nb_awaddr,
+  input  wire  [7:0]   nb_awlen,
+  input  wire          nb_awvalid,
+  output logic         nb_awready,
+  input  wire  [63:0]  nb_wdata,
+  input  wire  [7:0]   nb_wstrb,
+  input  wire          nb_wlast,
+  input  wire          nb_wvalid,
+  output logic         nb_wready,
+  output logic [3:0]   nb_bid,
+  output logic [1:0]   nb_bresp,
+  output logic         nb_bvalid,
+  input  wire          nb_bready,
+  input  wire  [3:0]   nb_arid,
+  input  wire  [31:0]  nb_araddr,
+  input  wire  [7:0]   nb_arlen,
+  input  wire          nb_arvalid,
+  output logic         nb_arready,
+  output logic [3:0]   nb_rid,
+  output logic [63:0]  nb_rdata,
+  output logic [1:0]   nb_rresp,
+  output logic         nb_rlast,
+  output logic         nb_rvalid,
+  input  wire          nb_rready,
 
   input  wire          host_on,          // PMU, clk_aon level
   output logic         host_idle,        // to the PMU
@@ -229,7 +260,11 @@ module host_if (
     if (!rst_n) msix_wr <= 1'b0;
     else        msix_wr <= hwif_out.MSIX_REQ.vector.swmod;
   end
-  assign msix_req = msix_wr;
+  logic       nv_mx_req;
+  logic [2:0] nv_mx_vec;
+  wire        nv_mx_ack = nv_mx_req && !msix_wr;
+  assign msix_req = msix_wr || nv_mx_req;
+  wire  [2:0] msix_vec = msix_wr ? hwif_out.MSIX_REQ.vector.value : nv_mx_vec;
 
   tl_core u_tl (
     .clk (clk), .rst_n (rst_n),
@@ -256,7 +291,7 @@ module host_if (
     .bm_haddr ({hwif_out.BM_HADDR_HI.addr.value, hwif_out.BM_HADDR_LO.addr.value}),
     .bm_laddr (hwif_out.BM_LADDR.addr.value), .bm_len (hwif_out.BM_LEN.bytes.value),
     .bm_done (bm_done), .bm_cause (bm_cause), .bm_busy (bm_busy),
-    .msix_req (msix_req), .msix_vec (hwif_out.MSIX_REQ.vector.value),
+    .msix_req (msix_req), .msix_vec (msix_vec),
     .st_mse (st_mse), .st_bme (st_bme), .st_msix_en (st_msix_en), .st_msix_fmask (st_msix_fmask),
     .st_mps256 (st_mps256), .st_mrrs (st_mrrs), .st_id (st_id), .st_msix_pend (st_msix_pend),
     .ev_ur (ev_ur), .ev_malformed (ev_malformed), .ev_poisoned (ev_poisoned),
@@ -273,6 +308,14 @@ module host_if (
     .reg_rd0 (rp_rd0), .reg_rd1 (rp_rd1),
     .bm_valid (nv_valid), .bm_ready (nv_ready), .bm_d2h (nv_d2h), .bm_haddr (nv_haddr),
     .bm_laddr (nv_laddr), .bm_len (nv_len), .bm_done (nv_done), .bm_cause (nv_cause),
+    .s_awid (nb_awid), .s_awaddr (nb_awaddr), .s_awlen (nb_awlen), .s_awvalid (nb_awvalid),
+    .s_awready (nb_awready), .s_wdata (nb_wdata), .s_wstrb (nb_wstrb), .s_wlast (nb_wlast),
+    .s_wvalid (nb_wvalid), .s_wready (nb_wready), .s_bid (nb_bid), .s_bresp (nb_bresp),
+    .s_bvalid (nb_bvalid), .s_bready (nb_bready),
+    .s_arid (nb_arid), .s_araddr (nb_araddr), .s_arlen (nb_arlen), .s_arvalid (nb_arvalid),
+    .s_arready (nb_arready), .s_rid (nb_rid), .s_rdata (nb_rdata), .s_rresp (nb_rresp),
+    .s_rlast (nb_rlast), .s_rvalid (nb_rvalid), .s_rready (nb_rready),
+    .msix_req (nv_mx_req), .msix_vec (nv_mx_vec), .msix_ack (nv_mx_ack),
     .irq (irq_nvme), .idle (nv_idle)
   );
 

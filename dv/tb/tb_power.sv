@@ -92,6 +92,12 @@ module tb_power;
     .prdata_nvme   (prdata_nvme),
     .pready_nvme   (pready_nvme),
     .pslverr_nvme  (pslverr_nvme),
+    // No traffic to the NVMe controller's local buffer here.
+    .nb_awid (4'd0), .nb_awaddr (32'd0), .nb_awlen (8'd0), .nb_awvalid (1'b0), .nb_awready (),
+    .nb_wdata (64'd0), .nb_wstrb (8'd0), .nb_wlast (1'b0), .nb_wvalid (1'b0), .nb_wready (),
+    .nb_bid (), .nb_bresp (), .nb_bvalid (), .nb_bready (1'b1),
+    .nb_arid (4'd0), .nb_araddr (32'd0), .nb_arlen (8'd0), .nb_arvalid (1'b0), .nb_arready (),
+    .nb_rid (), .nb_rdata (), .nb_rresp (), .nb_rlast (), .nb_rvalid (), .nb_rready (1'b1),
     .irq_pmu       (irq_pmu),
     .irq_host_err  (irq_host_err),
     .irq_host_bm   (irq_host_bm),

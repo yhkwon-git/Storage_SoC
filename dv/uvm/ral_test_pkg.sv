@@ -33,7 +33,8 @@
 // (checked in 3); HOST TX and RX push and pop the host FIFOs (checked in 3);
 // HOST BM_CTRL starts a bus-master transfer and MSIX_REQ requests a vector
 // (both checked by tb_tl and the host firmware test); NVME SLOT_FREE is
-// write-only and returns a command-buffer slot (checked by tb_nvme).
+// write-only and returns a command-buffer slot, XF_CTRL starts a PRP transfer
+// and CQE_CTRL queues a completion queue entry (all checked by tb_nvme).
 // Fields written by hardware (PENDING, CLAIM, MTIME, the DMA's and PMU's
 // status and counters) are volatile in the model, so the bit bash does not
 // compare them.
@@ -159,6 +160,9 @@ package ral_test_pkg;
       exclude(rm.HOST.BM_CTRL,   "NO_REG_BIT_BASH_TEST");
       exclude(rm.HOST.MSIX_REQ,  "NO_REG_BIT_BASH_TEST");
       exclude(rm.NVME.SLOT_FREE, "NO_REG_BIT_BASH_TEST");
+      // A write starts a PRP transfer or queues a completion queue entry.
+      exclude(rm.NVME.XF_CTRL,   "NO_REG_BIT_BASH_TEST");
+      exclude(rm.NVME.CQE_CTRL,  "NO_REG_BIT_BASH_TEST");
 
       // 1. Reset values.
       rst_seq = uvm_reg_hw_reset_seq::type_id::create("rst_seq");

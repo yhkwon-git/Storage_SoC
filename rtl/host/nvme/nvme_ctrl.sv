@@ -4,8 +4,9 @@
 // -----------------------------------------------------------------------------
 // nvme_ctrl
 //
-// NVMe-style controller registers and queues (step 2-2, docs/11_nvme_queues.md),
-// in clk_sys next to the transaction layer.
+// NVMe-style controller (docs/11_nvme_queues.md: registers and queues, step
+// 2-2; docs/12_nvme_data.md: data transfers and completions, step 2-3), in
+// clk_sys next to the transaction layer.
 //
 // Host side, BAR0 0x0000-0x1FFF through the transaction layer's register port
 // (one DW per write, two DWs readable at once):
@@ -24,7 +25,8 @@
 // no fetch is in flight, every queue is deleted (I/O queue enables cleared),
 // waiting commands are dropped, every command buffer slot is freed, and RDY
 // falls. CC.SHN, written while the controller is on, sets SHST to
-// "processing", and to "complete" once no fetch is in flight.
+// "processing", and to "complete" once no fetch, data transfer or completion
+// entry write is in flight. A reset waits for the same.
 //
 // Queues 1 to 4 are set up by firmware in nvme_regs (APB slot 8) as it handles
 // the admin commands that create them; enabling a queue sets its pointers to
@@ -40,10 +42,20 @@
 // firmware reads through CMD, and the head moves on. Firmware returns the slot
 // with SLOT_FREE. A fetch that fails (an error completion, a timeout) sets
 // CSTS.CFS and stops fetching until the next controller reset.
+//
+// Data and completions (step 2-3): firmware starts a PRP transfer (XF_*,
+// nvme_prp) between host memory and SRAM, and posts completion queue entries
+// (CQE_*, nvme_cqe), which carry the SQ head and the phase tag and are
+// followed by the completion queue's MSI-X vector. PRP list entries and the
+// entry being posted pass through the local buffer (nvme_lbuf, an AXI slave
+// on the crossbar). The fetch engine, the PRP engine and the poster share the
+// transaction layer's NVMe bus-master port, round robin.
 // -----------------------------------------------------------------------------
 
 module nvme_ctrl #(
-  parameter int NSLOT = 16
+  parameter int          NSLOT     = 16,
+  parameter int          IDW       = 4,              // AXI ID width at the local buffer
+  parameter logic [31:0] LBUF_BASE = 32'h5000_0000
 ) (
   input  wire           clk,
   input  wire           rst_n,
@@ -76,6 +88,38 @@ module nvme_ctrl #(
   output logic [17:0]   bm_len,
   input  wire           bm_done,
   input  wire  [2:0]    bm_cause,
+
+  // Local buffer: AXI4 slave (crossbar S5)
+  input  wire  [IDW-1:0] s_awid,
+  input  wire  [31:0]   s_awaddr,
+  input  wire  [7:0]    s_awlen,
+  input  wire           s_awvalid,
+  output logic          s_awready,
+  input  wire  [63:0]   s_wdata,
+  input  wire  [7:0]    s_wstrb,
+  input  wire           s_wlast,
+  input  wire           s_wvalid,
+  output logic          s_wready,
+  output logic [IDW-1:0] s_bid,
+  output logic [1:0]    s_bresp,
+  output logic          s_bvalid,
+  input  wire           s_bready,
+  input  wire  [IDW-1:0] s_arid,
+  input  wire  [31:0]   s_araddr,
+  input  wire  [7:0]    s_arlen,
+  input  wire           s_arvalid,
+  output logic          s_arready,
+  output logic [IDW-1:0] s_rid,
+  output logic [63:0]   s_rdata,
+  output logic [1:0]    s_rresp,
+  output logic          s_rlast,
+  output logic          s_rvalid,
+  input  wire           s_rready,
+
+  // MSI-X vector of a completion queue: held until acknowledged
+  output logic          msix_req,
+  output logic [2:0]    msix_vec,
+  input  wire           msix_ack,
 
   output logic          irq,           // INTC source 3
   output logic          idle
@@ -289,17 +333,194 @@ module nvme_ctrl #(
 
   wire can_fetch = (c_st == C_ON) && !cfs && (shst == 2'b00) && any && have_slot && !f_busy;
 
-  assign bm_valid = f_req;
-  assign bm_d2h   = 1'b0;
-  assign bm_haddr = f_haddr;
-  assign bm_laddr = {hwif_out.CMDBUF.base.value, f_slot, 4'd0};
-  assign bm_len   = 18'd16;
+  // ---------------------------------------------------------------------------
+  // Local buffer, PRP engine and completion poster (step 2-3)
+  // ---------------------------------------------------------------------------
+  logic [3:0]  lb_raddr, lb_waddr;
+  logic [63:0] lb_rdata, lb_wdata;
+  logic        lb_we;
+
+  nvme_lbuf #(.WORDS(16), .IDW(IDW)) u_lbuf (
+    .clk (clk), .rst_n (rst_n),
+    .s_awid (s_awid), .s_awaddr (s_awaddr), .s_awlen (s_awlen), .s_awvalid (s_awvalid),
+    .s_awready (s_awready), .s_wdata (s_wdata), .s_wstrb (s_wstrb), .s_wlast (s_wlast),
+    .s_wvalid (s_wvalid), .s_wready (s_wready), .s_bid (s_bid), .s_bresp (s_bresp),
+    .s_bvalid (s_bvalid), .s_bready (s_bready),
+    .s_arid (s_arid), .s_araddr (s_araddr), .s_arlen (s_arlen), .s_arvalid (s_arvalid),
+    .s_arready (s_arready), .s_rid (s_rid), .s_rdata (s_rdata), .s_rresp (s_rresp),
+    .s_rlast (s_rlast), .s_rvalid (s_rvalid), .s_rready (s_rready),
+    .e_raddr (lb_raddr), .e_rdata (lb_rdata), .e_we (lb_we), .e_waddr (lb_waddr), .e_wdata (lb_wdata)
+  );
+
+  // A controller reset ends both engines' work between bus-master transfers.
+  wire quit = (c_st == C_RESET);
+
+  logic        p_valid, p_ready, p_d2h, p_done, p_busy, p_fin;
+  logic [63:2] p_haddr;
+  logic [31:2] p_laddr;
+  logic [17:0] p_len;
+  logic [3:0]  p_cause;
+  wire         xf_start = hwif_out.XF_CTRL.start.value && !p_busy;
+
+  nvme_prp #(.LBUF_BASE(LBUF_BASE)) u_prp (
+    .clk (clk), .rst_n (rst_n),
+    .start (xf_start), .d2h (hwif_out.XF_CTRL.d2h.value),
+    .prp1 ({hwif_out.XF_PRP1_HI.value.value, hwif_out.XF_PRP1_LO.value.value}),
+    .prp2 ({hwif_out.XF_PRP2_HI.value.value, hwif_out.XF_PRP2_LO.value.value}),
+    .laddr (hwif_out.XF_LADDR.addr.value), .len (hwif_out.XF_LEN.bytes.value),
+    .quit (quit), .busy (p_busy), .done (p_fin), .cause (p_cause),
+    .bm_valid (p_valid), .bm_ready (p_ready), .bm_d2h (p_d2h), .bm_haddr (p_haddr),
+    .bm_laddr (p_laddr), .bm_len (p_len), .bm_done (p_done), .bm_cause (bm_cause),
+    .e_raddr (lb_raddr), .e_rdata (lb_rdata)
+  );
+
+  // CQE_CTRL, like SLOT_FREE, is used one clock after its write.
+  logic c_post;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) c_post <= 1'b0;
+    else        c_post <= hwif_out.CQE_CTRL.cqid.swmod;
+  end
+
+  logic        c_valid, c_ready, c_done, c_adv, c_drop, c_werr, c_active, c_wait, c_full;
+  logic [63:2] c_haddr;
+  logic [31:2] c_laddr;
+  logic [2:0]  c_cq, c_sq, c_count;
+  logic        c_en, c_ien;
+  logic [63:12] c_base;
+  logic [11:0] c_size, c_head, c_tail, c_sqh;
+  logic        c_phase;
+  logic [2:0]  c_iv;
+
+  nvme_cqe #(.LBUF_BASE(LBUF_BASE)) u_cqe (
+    .clk (clk), .rst_n (rst_n),
+    .post (c_post), .p_cqid (hwif_out.CQE_CTRL.cqid.value), .p_cid (hwif_out.CQE_INFO.cid.value),
+    .p_sqid (hwif_out.CQE_INFO.sqid.value), .p_status (hwif_out.CQE_CTRL.status.value),
+    .p_dw0 (hwif_out.CQE_DW0.value.value), .quit (quit),
+    .cur_cq (c_cq), .cur_sq (c_sq), .cq_en (c_en), .cq_base (c_base), .cq_size (c_size),
+    .cq_head (c_head), .cq_tail (c_tail), .cq_phase (c_phase), .cq_ien (c_ien), .cq_iv (c_iv),
+    .sq_head (c_sqh), .cq_adv (c_adv),
+    .bm_valid (c_valid), .bm_ready (c_ready), .bm_haddr (c_haddr), .bm_laddr (c_laddr),
+    .bm_done (c_done), .bm_cause (bm_cause),
+    .e_we (lb_we), .e_waddr (lb_waddr), .e_wdata (lb_wdata),
+    .msix_req (msix_req), .msix_vec (msix_vec), .msix_ack (msix_ack),
+    .count (c_count), .full (c_full), .cq_wait (c_wait), .drop (c_drop), .werr (c_werr),
+    .active (c_active)
+  );
+
+  // The poster's queues: queue 0 is the admin pair (vector 0, interrupts on).
+  always_comb begin
+    c_en    = 1'b0;
+    c_base  = adm_cqb;
+    c_size  = 12'd0;
+    c_head  = 12'd0;
+    c_tail  = 12'd0;
+    c_phase = 1'b1;
+    c_ien   = 1'b1;
+    c_iv    = 3'd0;
+    c_sqh   = 12'd0;
+    for (int i = 0; i < NQ; i++) begin
+      if (c_cq == 3'(i)) begin
+        c_en    = cq_en[i];
+        c_size  = cq_size[i];
+        c_head  = cq_head[i];
+        c_tail  = cq_tail[i];
+        c_phase = cq_phase[i];
+        if (i > 0) begin
+          c_base = {hwif_out.IOQ[i-1].CQB_HI.base.value, hwif_out.IOQ[i-1].CQB_LO.base.value};
+          c_ien  = hwif_out.IOQ[i-1].CQ_CFG.ien.value;
+          c_iv   = hwif_out.IOQ[i-1].CQ_CFG.iv.value;
+        end
+      end
+      if (c_sq == 3'(i)) c_sqh = sq_head[i];
+    end
+  end
+
+  // ---------------------------------------------------------------------------
+  // Bus-master requesters: fetch (0), PRP engine (1), poster (2), round
+  // robin. A choice holds until the transaction layer takes it; done goes to
+  // the owner of the transfer in flight.
+  // ---------------------------------------------------------------------------
+  logic       own_busy, lk;
+  logic [1:0] own, lk_sel, last_own, a_pick;
+  wire  [2:0] reqs = {c_valid, p_valid, f_req};
+
+  always_comb begin
+    a_pick = 2'd0;
+    for (int k = 3; k >= 1; k--) begin
+      logic [1:0] r;
+      r = 2'((int'(last_own) + k) % 3);
+      if (reqs[r]) a_pick = r;
+    end
+  end
+
+  wire [1:0] sel = lk ? lk_sel : a_pick;
+  assign bm_valid = !own_busy && reqs[sel];
+
+  always_comb begin
+    case (sel)
+      2'd0: begin
+        bm_d2h   = 1'b0;
+        bm_haddr = f_haddr;
+        bm_laddr = {hwif_out.CMDBUF.base.value, f_slot, 4'd0};
+        bm_len   = 18'd16;
+      end
+      2'd1: begin
+        bm_d2h   = p_d2h;
+        bm_haddr = p_haddr;
+        bm_laddr = p_laddr;
+        bm_len   = p_len;
+      end
+      default: begin
+        bm_d2h   = 1'b1;
+        bm_haddr = c_haddr;
+        bm_laddr = c_laddr;
+        bm_len   = 18'd4;
+      end
+    endcase
+  end
+
+  wire gnt    = bm_valid && bm_ready;
+  wire f_gnt  = gnt && (sel == 2'd0);
+  assign p_ready = gnt && (sel == 2'd1);
+  assign c_ready = gnt && (sel == 2'd2);
+  wire f_done_w  = bm_done && own_busy && (own == 2'd0);
+  assign p_done  = bm_done && own_busy && (own == 2'd1);
+  assign c_done  = bm_done && own_busy && (own == 2'd2);
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      own_busy <= 1'b0;
+      own      <= 2'd0;
+      last_own <= 2'd2;
+      lk       <= 1'b0;
+      lk_sel   <= 2'd0;
+    end else begin
+      if (gnt) begin
+        own_busy <= 1'b1;
+        own      <= sel;
+        last_own <= sel;
+        lk       <= 1'b0;
+      end else begin
+        lk     <= bm_valid;
+        lk_sel <= sel;
+      end
+      if (bm_done) own_busy <= 1'b0;
+    end
+  end
+
+  // XF_CYCLES: clocks from START to the end of the transfer.
+  logic [31:0] xf_cyc, n_cqes;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n)        xf_cyc <= 32'd0;
+    else if (xf_start) xf_cyc <= 32'd0;
+    else if (p_busy)   xf_cyc <= xf_cyc + 32'd1;
+  end
 
   // ---------------------------------------------------------------------------
   // Controller state and queue pointers
   // ---------------------------------------------------------------------------
   wire [11:0] next_head = (sq_head[f_q] == sq_size[f_q]) ? 12'd0 : sq_head[f_q] + 12'd1;
-  wire        f_ok      = bm_done && (bm_cause == 3'd0) && (c_st == C_ON);
+  wire        f_ok      = f_done_w && (bm_cause == 3'd0) && (c_st == C_ON);
 
   logic ev_enable, ev_reset, ev_shut, ev_fetch_err, ev_db;
   logic clr_ioq;
@@ -318,6 +539,7 @@ module nvme_ctrl #(
       f_busy <= 1'b0; f_req <= 1'b0; f_q <= 3'd0; f_slot <= '0; f_haddr <= '0;
       rr <= 3'(NQ - 1);
       n_fetch <= 32'd0;
+      n_cqes  <= 32'd0;
       ev_enable <= 1'b0; ev_reset <= 1'b0; ev_shut <= 1'b0; ev_fetch_err <= 1'b0; ev_db <= 1'b0;
       clr_ioq <= 1'b0;
       cf_flush <= 1'b0;
@@ -352,7 +574,7 @@ module nvme_ctrl #(
       end
 
       // Shutdown completes once no fetch is in flight.
-      if (shst == 2'b01 && !f_busy) shst <= 2'b10;
+      if (shst == 2'b01 && !f_busy && !p_busy && !c_active) shst <= 2'b10;
 
       // Controller enable and reset, CC.EN as a level
       case (c_st)
@@ -368,7 +590,7 @@ module nvme_ctrl #(
           c_st      <= C_ON;
         end
         C_ON: if (!cc[0]) c_st <= C_RESET;
-        default: if (!f_busy) begin  // C_RESET
+        default: if (!f_busy && !p_busy && !c_active) begin  // C_RESET
           for (int i = 0; i < NQ; i++) begin
             sq_head[i] <= 12'd0; sq_tail[i] <= 12'd0;
             cq_head[i] <= 12'd0; cq_tail[i] <= 12'd0; cq_phase[i] <= 1'b1;
@@ -400,8 +622,8 @@ module nvme_ctrl #(
         slot_free[alloc] <= 1'b0;
         rr      <= pick;
       end
-      if (f_req && bm_ready) f_req <= 1'b0;
-      if (bm_done && f_busy) begin
+      if (f_req && f_gnt) f_req <= 1'b0;
+      if (f_done_w && f_busy) begin
         f_busy <= 1'b0;
         if (f_ok) begin
           sq_head[f_q] <= next_head;
@@ -415,10 +637,23 @@ module nvme_ctrl #(
         end
       end
       if (free_wr && c_st != C_RESET) slot_free[free_slot] <= 1'b1;
+
+      // A completion queue entry written: the tail moves on, and the phase
+      // toggles at the wrap. A failed write is a controller fatal status.
+      if (c_adv) begin
+        for (int i = 0; i < NQ; i++) begin
+          if (c_cq == 3'(i)) begin
+            cq_tail[i] <= (cq_tail[i] == cq_size[i]) ? 12'd0 : cq_tail[i] + 12'd1;
+            if (cq_tail[i] == cq_size[i]) cq_phase[i] <= !cq_phase[i];
+          end
+        end
+        n_cqes <= n_cqes + 32'd1;
+      end
+      if (c_werr) cfs <= 1'b1;
     end
   end
 
-  assign cf_push = bm_done && f_busy && f_ok;
+  assign cf_push = f_done_w && f_busy && f_ok;
   assign cf_din  = {f_q, f_slot};
 
   // ---------------------------------------------------------------------------
@@ -464,6 +699,23 @@ module nvme_ctrl #(
 
     hwif_in.FETCHES.count.next = n_fetch;
 
+    hwif_in.XF_STATUS.busy.next  = p_busy;
+    hwif_in.XF_STATUS.done.hwset = p_fin && (p_cause == 4'd0);
+    hwif_in.XF_STATUS.done.hwclr = xf_start;
+    hwif_in.XF_STATUS.err.hwset  = p_fin && (p_cause != 4'd0);
+    hwif_in.XF_STATUS.err.hwclr  = xf_start;
+    hwif_in.XF_STATUS.cause.next = p_cause;
+    hwif_in.XF_STATUS.cause.we   = p_fin;
+    hwif_in.XF_CYCLES.count.next = xf_cyc;
+
+    hwif_in.CQE_STATUS.count.next   = c_count;
+    hwif_in.CQE_STATUS.full.next    = c_full;
+    hwif_in.CQE_STATUS.cq_full.next = c_wait;
+    hwif_in.CQE_STATUS.drop.hwset   = c_drop;
+    hwif_in.CQE_STATUS.werr.hwset   = c_werr;
+    hwif_in.CQES.count.next         = n_cqes;
+    hwif_in.EVENT.cqe_err.hwset     = c_drop || c_werr;
+
     for (int i = 0; i < NQ - 1; i++) begin
       hwif_in.IOQ[i].SQ_CFG.en.hwclr = clr_ioq;
       hwif_in.IOQ[i].CQ_CFG.en.hwclr = clr_ioq;
@@ -478,21 +730,20 @@ module nvme_ctrl #(
   end
 
   assign irq  = (hwif_out.CTRL.ien_cmd.value && !cf_empty) ||
-                |({hwif_out.EVENT.fetch_err.value, hwif_out.EVENT.db_err.value,
-                   hwif_out.EVENT.shutdown.value, hwif_out.EVENT.reset.value,
-                   hwif_out.EVENT.enable.value} & hwif_out.EVENT_EN.en.value);
-  assign idle = !f_busy;
+                (hwif_out.CTRL.ien_xfer.value &&
+                 (hwif_out.XF_STATUS.done.value || hwif_out.XF_STATUS.err.value)) ||
+                |({hwif_out.EVENT.cqe_err.value, hwif_out.EVENT.fetch_err.value,
+                   hwif_out.EVENT.db_err.value, hwif_out.EVENT.shutdown.value,
+                   hwif_out.EVENT.reset.value, hwif_out.EVENT.enable.value} & hwif_out.EVENT_EN.en.value);
+  assign idle = !f_busy && !p_busy && !c_active && !own_busy;
 
-  // Completion queue bases and interrupt settings, and a submission queue's
-  // completion queue, are used from step 2-3 on.
+  // A submission queue's completion queue is firmware's business: the poster
+  // takes the queue from CQE_CTRL.
   /* verilator lint_off UNUSEDSIGNAL */
   logic [NQ-2:0] unused_cq;
   always_comb
-    for (int i = 0; i < NQ - 1; i++)
-      unused_cq[i] = ^{hwif_out.IOQ[i].CQB_LO.base.value, hwif_out.IOQ[i].CQB_HI.base.value,
-                       hwif_out.IOQ[i].CQ_CFG.iv.value, hwif_out.IOQ[i].CQ_CFG.ien.value,
-                       hwif_out.IOQ[i].SQ_CFG.cqid.value};
-  wire unused_ok = ^{adm_cqb, reg_wdata[31:16], unused_cq};
+    for (int i = 0; i < NQ - 1; i++) unused_cq[i] = ^hwif_out.IOQ[i].SQ_CFG.cqid.value;
+  wire unused_ok = ^{reg_wdata[31:16], unused_cq};
   /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule : nvme_ctrl

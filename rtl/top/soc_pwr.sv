@@ -15,6 +15,7 @@
 //   APB slot 1  PMU   (clk_sys -> apb_cdc -> clk_aon)
 //   APB slot 5  HOST  (clk_sys)
 //   APB slot 8  NVME  (clk_sys)
+//   AXI S5      NVMe controller's local buffer (clk_sys)
 //   AXI M3      transaction layer (clk_sys)
 //   host_rx_*, host_tx_*  packed TLPs to and from the host, on pclk
 //               (pclk_in while the PHY PLL runs)
@@ -52,6 +53,32 @@ module soc_pwr #(
   output logic [31:0]  prdata_nvme,
   output logic         pready_nvme,
   output logic         pslverr_nvme,
+  // NVMe controller's local buffer: AXI4 slave, crossbar S5
+  input  wire  [3:0]    nb_awid,
+  input  wire  [31:0]   nb_awaddr,
+  input  wire  [7:0]    nb_awlen,
+  input  wire           nb_awvalid,
+  output logic          nb_awready,
+  input  wire  [63:0]   nb_wdata,
+  input  wire  [7:0]    nb_wstrb,
+  input  wire           nb_wlast,
+  input  wire           nb_wvalid,
+  output logic          nb_wready,
+  output logic [3:0]    nb_bid,
+  output logic [1:0]    nb_bresp,
+  output logic          nb_bvalid,
+  input  wire           nb_bready,
+  input  wire  [3:0]    nb_arid,
+  input  wire  [31:0]   nb_araddr,
+  input  wire  [7:0]    nb_arlen,
+  input  wire           nb_arvalid,
+  output logic          nb_arready,
+  output logic [3:0]    nb_rid,
+  output logic [63:0]   nb_rdata,
+  output logic [1:0]    nb_rresp,
+  output logic          nb_rlast,
+  output logic          nb_rvalid,
+  input  wire           nb_rready,
 
   output logic         irq_pmu,         // clk_sys level (INTC source 10)
   output logic         irq_host_err,    // INTC source 5
@@ -233,6 +260,31 @@ module soc_pwr #(
     .prdata_nvme     (prdata_nvme),
     .pready_nvme     (pready_nvme),
     .pslverr_nvme    (pslverr_nvme),
+    .nb_awid         (nb_awid),
+    .nb_awaddr       (nb_awaddr),
+    .nb_awlen        (nb_awlen),
+    .nb_awvalid      (nb_awvalid),
+    .nb_awready      (nb_awready),
+    .nb_wdata        (nb_wdata),
+    .nb_wstrb        (nb_wstrb),
+    .nb_wlast        (nb_wlast),
+    .nb_wvalid       (nb_wvalid),
+    .nb_wready       (nb_wready),
+    .nb_bid          (nb_bid),
+    .nb_bresp        (nb_bresp),
+    .nb_bvalid       (nb_bvalid),
+    .nb_bready       (nb_bready),
+    .nb_arid         (nb_arid),
+    .nb_araddr       (nb_araddr),
+    .nb_arlen        (nb_arlen),
+    .nb_arvalid      (nb_arvalid),
+    .nb_arready      (nb_arready),
+    .nb_rid          (nb_rid),
+    .nb_rdata        (nb_rdata),
+    .nb_rresp        (nb_rresp),
+    .nb_rlast        (nb_rlast),
+    .nb_rvalid       (nb_rvalid),
+    .nb_rready       (nb_rready),
     .host_on         (host_on),
     .host_idle       (host_idle),
     .irq_err         (irq_host_err),

@@ -140,6 +140,33 @@
 #define NVME_CMD_SQID(c)   (((c) & NVME_REGS__CMD__SQID_bm) >> NVME_REGS__CMD__SQID_bp)
 #define NVME_Q_EN          (1u << 31)   /* SQ_CFG.EN, CQ_CFG.EN */
 #define NVME_CQ_IEN        (1u << 24)
+#define NVME_EV_CQE_ERR    NVME_REGS__EVENT__CQE_ERR_bm
+#define NVME_IEN_XFER      NVME_REGS__CTRL__IEN_XFER_bm
+
+/* Data transfers by PRP and completion queue entries (step 2-3,
+ * docs/12_nvme_data.md). */
+#define NVME_XF_PRP1_LO    APB_REG(NVME.XF_PRP1_LO)
+#define NVME_XF_PRP1_HI    APB_REG(NVME.XF_PRP1_HI)
+#define NVME_XF_PRP2_LO    APB_REG(NVME.XF_PRP2_LO)
+#define NVME_XF_PRP2_HI    APB_REG(NVME.XF_PRP2_HI)
+#define NVME_XF_LADDR      APB_REG(NVME.XF_LADDR)
+#define NVME_XF_LEN        APB_REG(NVME.XF_LEN)
+#define NVME_XF_CTRL       APB_REG(NVME.XF_CTRL)
+#define NVME_XF_STATUS     APB_REG(NVME.XF_STATUS)
+#define NVME_XF_CYCLES     APB_REG(NVME.XF_CYCLES)
+#define NVME_CQE_DW0       APB_REG(NVME.CQE_DW0)
+#define NVME_CQE_INFO      APB_REG(NVME.CQE_INFO)
+#define NVME_CQE_CTRL      APB_REG(NVME.CQE_CTRL)
+#define NVME_CQE_STATUS    APB_REG(NVME.CQE_STATUS)
+#define NVME_CQES          APB_REG(NVME.CQES)
+
+#define NVME_XF_START      NVME_REGS__XF_CTRL__START_bm
+#define NVME_XF_D2H        NVME_REGS__XF_CTRL__D2H_bm
+#define NVME_XF_BUSY       NVME_REGS__XF_STATUS__BUSY_bm
+#define NVME_XF_DONE       NVME_REGS__XF_STATUS__DONE_bm
+#define NVME_XF_ERR        NVME_REGS__XF_STATUS__ERR_bm
+#define NVME_XF_CAUSE(s)   (((s) & NVME_REGS__XF_STATUS__CAUSE_bm) >> NVME_REGS__XF_STATUS__CAUSE_bp)
+#define NVME_CQE_FULL      NVME_REGS__CQE_STATUS__FULL_bm
 
 #define INTC_PENDING   APB_REG(INTC.PENDING)
 #define INTC_ENABLE    APB_REG(INTC.ENABLE)

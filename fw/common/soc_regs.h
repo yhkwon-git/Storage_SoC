@@ -20,7 +20,7 @@ extern "C" {
 #define SYS_REGS__VERSION__VALUE_bm 0xffffffff
 #define SYS_REGS__VERSION__VALUE_bp 0
 #define SYS_REGS__VERSION__VALUE_bw 32
-#define SYS_REGS__VERSION__VALUE_reset 0x20002
+#define SYS_REGS__VERSION__VALUE_reset 0x20003
 
 // reg - sys_regs::SCRATCH
 #define SYS_REGS__SCRATCH__VALUE_bm 0xffffffff
@@ -521,6 +521,10 @@ typedef struct __attribute__ ((__packed__)) {
 #define NVME_REGS__CTRL__IEN_CMD_bp 0
 #define NVME_REGS__CTRL__IEN_CMD_bw 1
 #define NVME_REGS__CTRL__IEN_CMD_reset 0x0
+#define NVME_REGS__CTRL__IEN_XFER_bm 0x2
+#define NVME_REGS__CTRL__IEN_XFER_bp 1
+#define NVME_REGS__CTRL__IEN_XFER_bw 1
+#define NVME_REGS__CTRL__IEN_XFER_reset 0x0
 
 // reg - nvme_regs::STATUS
 #define NVME_REGS__STATUS__RDY_bm 0x1
@@ -563,11 +567,15 @@ typedef struct __attribute__ ((__packed__)) {
 #define NVME_REGS__EVENT__FETCH_ERR_bp 4
 #define NVME_REGS__EVENT__FETCH_ERR_bw 1
 #define NVME_REGS__EVENT__FETCH_ERR_reset 0x0
+#define NVME_REGS__EVENT__CQE_ERR_bm 0x20
+#define NVME_REGS__EVENT__CQE_ERR_bp 5
+#define NVME_REGS__EVENT__CQE_ERR_bw 1
+#define NVME_REGS__EVENT__CQE_ERR_reset 0x0
 
 // reg - nvme_regs::EVENT_EN
-#define NVME_REGS__EVENT_EN__EN_bm 0x1f
+#define NVME_REGS__EVENT_EN__EN_bm 0x3f
 #define NVME_REGS__EVENT_EN__EN_bp 0
-#define NVME_REGS__EVENT_EN__EN_bw 5
+#define NVME_REGS__EVENT_EN__EN_bw 6
 #define NVME_REGS__EVENT_EN__EN_reset 0x0
 
 // reg - nvme_regs::CC
@@ -641,6 +649,124 @@ typedef struct __attribute__ ((__packed__)) {
 #define NVME_REGS__ACQ_HI__VALUE_bm 0xffffffff
 #define NVME_REGS__ACQ_HI__VALUE_bp 0
 #define NVME_REGS__ACQ_HI__VALUE_bw 32
+
+// reg - nvme_regs::XF_PRP1_LO
+#define NVME_REGS__XF_PRP1_LO__VALUE_bm 0xffffffff
+#define NVME_REGS__XF_PRP1_LO__VALUE_bp 0
+#define NVME_REGS__XF_PRP1_LO__VALUE_bw 32
+#define NVME_REGS__XF_PRP1_LO__VALUE_reset 0x0
+
+// reg - nvme_regs::XF_PRP1_HI
+#define NVME_REGS__XF_PRP1_HI__VALUE_bm 0xffffffff
+#define NVME_REGS__XF_PRP1_HI__VALUE_bp 0
+#define NVME_REGS__XF_PRP1_HI__VALUE_bw 32
+#define NVME_REGS__XF_PRP1_HI__VALUE_reset 0x0
+
+// reg - nvme_regs::XF_PRP2_LO
+#define NVME_REGS__XF_PRP2_LO__VALUE_bm 0xffffffff
+#define NVME_REGS__XF_PRP2_LO__VALUE_bp 0
+#define NVME_REGS__XF_PRP2_LO__VALUE_bw 32
+#define NVME_REGS__XF_PRP2_LO__VALUE_reset 0x0
+
+// reg - nvme_regs::XF_PRP2_HI
+#define NVME_REGS__XF_PRP2_HI__VALUE_bm 0xffffffff
+#define NVME_REGS__XF_PRP2_HI__VALUE_bp 0
+#define NVME_REGS__XF_PRP2_HI__VALUE_bw 32
+#define NVME_REGS__XF_PRP2_HI__VALUE_reset 0x0
+
+// reg - nvme_regs::XF_LADDR
+#define NVME_REGS__XF_LADDR__ADDR_bm 0xfffffffc
+#define NVME_REGS__XF_LADDR__ADDR_bp 2
+#define NVME_REGS__XF_LADDR__ADDR_bw 30
+#define NVME_REGS__XF_LADDR__ADDR_reset 0x0
+
+// reg - nvme_regs::XF_LEN
+#define NVME_REGS__XF_LEN__BYTES_bm 0x3fffc
+#define NVME_REGS__XF_LEN__BYTES_bp 2
+#define NVME_REGS__XF_LEN__BYTES_bw 16
+#define NVME_REGS__XF_LEN__BYTES_reset 0x0
+
+// reg - nvme_regs::XF_CTRL
+#define NVME_REGS__XF_CTRL__START_bm 0x1
+#define NVME_REGS__XF_CTRL__START_bp 0
+#define NVME_REGS__XF_CTRL__START_bw 1
+#define NVME_REGS__XF_CTRL__START_reset 0x0
+#define NVME_REGS__XF_CTRL__D2H_bm 0x2
+#define NVME_REGS__XF_CTRL__D2H_bp 1
+#define NVME_REGS__XF_CTRL__D2H_bw 1
+#define NVME_REGS__XF_CTRL__D2H_reset 0x0
+
+// reg - nvme_regs::XF_STATUS
+#define NVME_REGS__XF_STATUS__BUSY_bm 0x1
+#define NVME_REGS__XF_STATUS__BUSY_bp 0
+#define NVME_REGS__XF_STATUS__BUSY_bw 1
+#define NVME_REGS__XF_STATUS__DONE_bm 0x2
+#define NVME_REGS__XF_STATUS__DONE_bp 1
+#define NVME_REGS__XF_STATUS__DONE_bw 1
+#define NVME_REGS__XF_STATUS__DONE_reset 0x0
+#define NVME_REGS__XF_STATUS__ERR_bm 0x4
+#define NVME_REGS__XF_STATUS__ERR_bp 2
+#define NVME_REGS__XF_STATUS__ERR_bw 1
+#define NVME_REGS__XF_STATUS__ERR_reset 0x0
+#define NVME_REGS__XF_STATUS__CAUSE_bm 0xf00
+#define NVME_REGS__XF_STATUS__CAUSE_bp 8
+#define NVME_REGS__XF_STATUS__CAUSE_bw 4
+#define NVME_REGS__XF_STATUS__CAUSE_reset 0x0
+
+// reg - nvme_regs::XF_CYCLES
+#define NVME_REGS__XF_CYCLES__COUNT_bm 0xffffffff
+#define NVME_REGS__XF_CYCLES__COUNT_bp 0
+#define NVME_REGS__XF_CYCLES__COUNT_bw 32
+
+// reg - nvme_regs::CQE_DW0
+#define NVME_REGS__CQE_DW0__VALUE_bm 0xffffffff
+#define NVME_REGS__CQE_DW0__VALUE_bp 0
+#define NVME_REGS__CQE_DW0__VALUE_bw 32
+#define NVME_REGS__CQE_DW0__VALUE_reset 0x0
+
+// reg - nvme_regs::CQE_INFO
+#define NVME_REGS__CQE_INFO__CID_bm 0xffff
+#define NVME_REGS__CQE_INFO__CID_bp 0
+#define NVME_REGS__CQE_INFO__CID_bw 16
+#define NVME_REGS__CQE_INFO__CID_reset 0x0
+#define NVME_REGS__CQE_INFO__SQID_bm 0x70000
+#define NVME_REGS__CQE_INFO__SQID_bp 16
+#define NVME_REGS__CQE_INFO__SQID_bw 3
+#define NVME_REGS__CQE_INFO__SQID_reset 0x0
+
+// reg - nvme_regs::CQE_CTRL
+#define NVME_REGS__CQE_CTRL__CQID_bm 0x7
+#define NVME_REGS__CQE_CTRL__CQID_bp 0
+#define NVME_REGS__CQE_CTRL__CQID_bw 3
+#define NVME_REGS__CQE_CTRL__CQID_reset 0x0
+#define NVME_REGS__CQE_CTRL__STATUS_bm 0xfffe0000
+#define NVME_REGS__CQE_CTRL__STATUS_bp 17
+#define NVME_REGS__CQE_CTRL__STATUS_bw 15
+#define NVME_REGS__CQE_CTRL__STATUS_reset 0x0
+
+// reg - nvme_regs::CQE_STATUS
+#define NVME_REGS__CQE_STATUS__COUNT_bm 0x7
+#define NVME_REGS__CQE_STATUS__COUNT_bp 0
+#define NVME_REGS__CQE_STATUS__COUNT_bw 3
+#define NVME_REGS__CQE_STATUS__FULL_bm 0x10
+#define NVME_REGS__CQE_STATUS__FULL_bp 4
+#define NVME_REGS__CQE_STATUS__FULL_bw 1
+#define NVME_REGS__CQE_STATUS__CQ_FULL_bm 0x20
+#define NVME_REGS__CQE_STATUS__CQ_FULL_bp 5
+#define NVME_REGS__CQE_STATUS__CQ_FULL_bw 1
+#define NVME_REGS__CQE_STATUS__DROP_bm 0x100
+#define NVME_REGS__CQE_STATUS__DROP_bp 8
+#define NVME_REGS__CQE_STATUS__DROP_bw 1
+#define NVME_REGS__CQE_STATUS__DROP_reset 0x0
+#define NVME_REGS__CQE_STATUS__WERR_bm 0x200
+#define NVME_REGS__CQE_STATUS__WERR_bp 9
+#define NVME_REGS__CQE_STATUS__WERR_bw 1
+#define NVME_REGS__CQE_STATUS__WERR_reset 0x0
+
+// reg - nvme_regs::CQES
+#define NVME_REGS__CQES__COUNT_bm 0xffffffff
+#define NVME_REGS__CQES__COUNT_bp 0
+#define NVME_REGS__CQES__COUNT_bw 32
 
 // reg - nvme_regs::IOQ::SQB_LO
 #define NVME_REGS__IOQ__SQB_LO__BASE_bm 0xfffff000
@@ -746,7 +872,23 @@ typedef struct __attribute__ ((__packed__)) {
     uint32_t ASQ_HI;
     uint32_t ACQ_LO;
     uint32_t ACQ_HI;
-    uint8_t RESERVED_44_ff[0xbc];
+    uint8_t RESERVED_44_4f[0xc];
+    uint32_t XF_PRP1_LO;
+    uint32_t XF_PRP1_HI;
+    uint32_t XF_PRP2_LO;
+    uint32_t XF_PRP2_HI;
+    uint32_t XF_LADDR;
+    uint32_t XF_LEN;
+    uint32_t XF_CTRL;
+    uint32_t XF_STATUS;
+    uint32_t XF_CYCLES;
+    uint8_t RESERVED_74_7f[0xc];
+    uint32_t CQE_DW0;
+    uint32_t CQE_INFO;
+    uint32_t CQE_CTRL;
+    uint32_t CQE_STATUS;
+    uint32_t CQES;
+    uint8_t RESERVED_94_ff[0x6c];
     nvme_regs__IOQ__stride20_t IOQ[4];
     uint8_t RESERVED_180_1ff[0x80];
     uint32_t SQ_PTR[5];

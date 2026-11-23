@@ -20,3 +20,4 @@ jobs:
           DMA_N: "100"
           TL_N: "1000"
           NVME_N: "1000"
+          NVME_IO_N: "150"

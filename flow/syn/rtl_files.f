@@ -46,6 +46,9 @@ rtl/host/tl/tl_rd.sv
 rtl/host/tl/tl_bm.sv
 rtl/host/tl/tl_core.sv
 rtl/host/tl/tl_port.sv
+rtl/host/nvme/nvme_lbuf.sv
+rtl/host/nvme/nvme_prp.sv
+rtl/host/nvme/nvme_cqe.sv
 rtl/host/nvme/nvme_ctrl.sv
 rtl/pmu/iso_clamp.sv
 rtl/pmu/ret_reg.sv

@@ -102,6 +102,20 @@ module nvme_regs (
         logic ASQ_HI;
         logic ACQ_LO;
         logic ACQ_HI;
+        logic XF_PRP1_LO;
+        logic XF_PRP1_HI;
+        logic XF_PRP2_LO;
+        logic XF_PRP2_HI;
+        logic XF_LADDR;
+        logic XF_LEN;
+        logic XF_CTRL;
+        logic XF_STATUS;
+        logic XF_CYCLES;
+        logic CQE_DW0;
+        logic CQE_INFO;
+        logic CQE_CTRL;
+        logic CQE_STATUS;
+        logic CQES;
         struct {
             logic SQB_LO;
             logic SQB_HI;
@@ -156,6 +170,34 @@ module nvme_regs (
         is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h3c);
         decoded_reg_strb.ACQ_HI = cpuif_req_masked & (cpuif_addr == 12'h40) & !cpuif_req_is_wr;
         is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h40);
+        decoded_reg_strb.XF_PRP1_LO = cpuif_req_masked & (cpuif_addr == 12'h50);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h50);
+        decoded_reg_strb.XF_PRP1_HI = cpuif_req_masked & (cpuif_addr == 12'h54);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h54);
+        decoded_reg_strb.XF_PRP2_LO = cpuif_req_masked & (cpuif_addr == 12'h58);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h58);
+        decoded_reg_strb.XF_PRP2_HI = cpuif_req_masked & (cpuif_addr == 12'h5c);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h5c);
+        decoded_reg_strb.XF_LADDR = cpuif_req_masked & (cpuif_addr == 12'h60);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h60);
+        decoded_reg_strb.XF_LEN = cpuif_req_masked & (cpuif_addr == 12'h64);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h64);
+        decoded_reg_strb.XF_CTRL = cpuif_req_masked & (cpuif_addr == 12'h68);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h68);
+        decoded_reg_strb.XF_STATUS = cpuif_req_masked & (cpuif_addr == 12'h6c);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h6c);
+        decoded_reg_strb.XF_CYCLES = cpuif_req_masked & (cpuif_addr == 12'h70) & !cpuif_req_is_wr;
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h70);
+        decoded_reg_strb.CQE_DW0 = cpuif_req_masked & (cpuif_addr == 12'h80);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h80);
+        decoded_reg_strb.CQE_INFO = cpuif_req_masked & (cpuif_addr == 12'h84);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h84);
+        decoded_reg_strb.CQE_CTRL = cpuif_req_masked & (cpuif_addr == 12'h88);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h88);
+        decoded_reg_strb.CQE_STATUS = cpuif_req_masked & (cpuif_addr == 12'h8c);
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h8c);
+        decoded_reg_strb.CQES = cpuif_req_masked & (cpuif_addr == 12'h90) & !cpuif_req_is_wr;
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h90);
         for(int i0=0; i0<4; i0++) begin
             decoded_reg_strb.IOQ[i0].SQB_LO = cpuif_req_masked & (cpuif_addr == 12'h100 + (12)'(i0) * 12'h20);
             is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h100 + (12)'(i0) * 12'h20);
@@ -197,6 +239,10 @@ module nvme_regs (
                 logic next;
                 logic load_next;
             } ien_cmd;
+            struct {
+                logic next;
+                logic load_next;
+            } ien_xfer;
         } CTRL;
         struct {
             struct {
@@ -219,10 +265,14 @@ module nvme_regs (
                 logic next;
                 logic load_next;
             } fetch_err;
+            struct {
+                logic next;
+                logic load_next;
+            } cqe_err;
         } EVENT;
         struct {
             struct {
-                logic [4:0] next;
+                logic [5:0] next;
                 logic load_next;
             } en;
         } EVENT_EN;
@@ -252,6 +302,102 @@ module nvme_regs (
                 logic load_next;
             } value;
         } DB_ERR;
+        struct {
+            struct {
+                logic [31:0] next;
+                logic load_next;
+            } value;
+        } XF_PRP1_LO;
+        struct {
+            struct {
+                logic [31:0] next;
+                logic load_next;
+            } value;
+        } XF_PRP1_HI;
+        struct {
+            struct {
+                logic [31:0] next;
+                logic load_next;
+            } value;
+        } XF_PRP2_LO;
+        struct {
+            struct {
+                logic [31:0] next;
+                logic load_next;
+            } value;
+        } XF_PRP2_HI;
+        struct {
+            struct {
+                logic [29:0] next;
+                logic load_next;
+            } addr;
+        } XF_LADDR;
+        struct {
+            struct {
+                logic [15:0] next;
+                logic load_next;
+            } bytes;
+        } XF_LEN;
+        struct {
+            struct {
+                logic next;
+                logic load_next;
+            } start;
+            struct {
+                logic next;
+                logic load_next;
+            } d2h;
+        } XF_CTRL;
+        struct {
+            struct {
+                logic next;
+                logic load_next;
+            } done;
+            struct {
+                logic next;
+                logic load_next;
+            } err;
+            struct {
+                logic [3:0] next;
+                logic load_next;
+            } cause;
+        } XF_STATUS;
+        struct {
+            struct {
+                logic [31:0] next;
+                logic load_next;
+            } value;
+        } CQE_DW0;
+        struct {
+            struct {
+                logic [15:0] next;
+                logic load_next;
+            } cid;
+            struct {
+                logic [2:0] next;
+                logic load_next;
+            } sqid;
+        } CQE_INFO;
+        struct {
+            struct {
+                logic [2:0] next;
+                logic load_next;
+            } cqid;
+            struct {
+                logic [14:0] next;
+                logic load_next;
+            } status;
+        } CQE_CTRL;
+        struct {
+            struct {
+                logic next;
+                logic load_next;
+            } drop;
+            struct {
+                logic next;
+                logic load_next;
+            } werr;
+        } CQE_STATUS;
         struct {
             struct {
                 struct {
@@ -318,6 +464,9 @@ module nvme_regs (
             struct {
                 logic value;
             } ien_cmd;
+            struct {
+                logic value;
+            } ien_xfer;
         } CTRL;
         struct {
             struct {
@@ -335,10 +484,13 @@ module nvme_regs (
             struct {
                 logic value;
             } fetch_err;
+            struct {
+                logic value;
+            } cqe_err;
         } EVENT;
         struct {
             struct {
-                logic [4:0] value;
+                logic [5:0] value;
             } en;
         } EVENT_EN;
         struct {
@@ -362,6 +514,84 @@ module nvme_regs (
                 logic [15:0] value;
             } value;
         } DB_ERR;
+        struct {
+            struct {
+                logic [31:0] value;
+            } value;
+        } XF_PRP1_LO;
+        struct {
+            struct {
+                logic [31:0] value;
+            } value;
+        } XF_PRP1_HI;
+        struct {
+            struct {
+                logic [31:0] value;
+            } value;
+        } XF_PRP2_LO;
+        struct {
+            struct {
+                logic [31:0] value;
+            } value;
+        } XF_PRP2_HI;
+        struct {
+            struct {
+                logic [29:0] value;
+            } addr;
+        } XF_LADDR;
+        struct {
+            struct {
+                logic [15:0] value;
+            } bytes;
+        } XF_LEN;
+        struct {
+            struct {
+                logic value;
+            } start;
+            struct {
+                logic value;
+            } d2h;
+        } XF_CTRL;
+        struct {
+            struct {
+                logic value;
+            } done;
+            struct {
+                logic value;
+            } err;
+            struct {
+                logic [3:0] value;
+            } cause;
+        } XF_STATUS;
+        struct {
+            struct {
+                logic [31:0] value;
+            } value;
+        } CQE_DW0;
+        struct {
+            struct {
+                logic [15:0] value;
+            } cid;
+            struct {
+                logic [2:0] value;
+            } sqid;
+        } CQE_INFO;
+        struct {
+            struct {
+                logic [2:0] value;
+            } cqid;
+            struct {
+                logic [14:0] value;
+            } status;
+        } CQE_CTRL;
+        struct {
+            struct {
+                logic value;
+            } drop;
+            struct {
+                logic value;
+            } werr;
+        } CQE_STATUS;
         struct {
             struct {
                 struct {
@@ -435,6 +665,29 @@ module nvme_regs (
         end
     end
     assign hwif_out.CTRL.ien_cmd.value = field_storage.CTRL.ien_cmd.value;
+    // Field: nvme_regs.CTRL.ien_xfer
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.CTRL.ien_xfer.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.CTRL && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.CTRL.ien_xfer.value & ~decoded_wr_biten[1:1]) | (decoded_wr_data[1:1] & decoded_wr_biten[1:1]);
+            load_next_c = '1;
+        end
+        field_combo.CTRL.ien_xfer.next = next_c;
+        field_combo.CTRL.ien_xfer.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.CTRL.ien_xfer.value <= 1'h0;
+        end else begin
+            if(field_combo.CTRL.ien_xfer.load_next) begin
+                field_storage.CTRL.ien_xfer.value <= field_combo.CTRL.ien_xfer.next;
+            end
+        end
+    end
+    assign hwif_out.CTRL.ien_xfer.value = field_storage.CTRL.ien_xfer.value;
     // Field: nvme_regs.EVENT.enable
     always_comb begin
         automatic logic [0:0] next_c;
@@ -565,14 +818,40 @@ module nvme_regs (
         end
     end
     assign hwif_out.EVENT.fetch_err.value = field_storage.EVENT.fetch_err.value;
+    // Field: nvme_regs.EVENT.cqe_err
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.EVENT.cqe_err.value;
+        load_next_c = '0;
+        if(hwif_in.EVENT.cqe_err.hwset) begin // HW Set
+            next_c = '1;
+            load_next_c = '1;
+        end else if(decoded_reg_strb.EVENT && decoded_req_is_wr) begin // SW write 1 clear
+            next_c = field_storage.EVENT.cqe_err.value & ~(decoded_wr_data[5:5] & decoded_wr_biten[5:5]);
+            load_next_c = '1;
+        end
+        field_combo.EVENT.cqe_err.next = next_c;
+        field_combo.EVENT.cqe_err.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.EVENT.cqe_err.value <= 1'h0;
+        end else begin
+            if(field_combo.EVENT.cqe_err.load_next) begin
+                field_storage.EVENT.cqe_err.value <= field_combo.EVENT.cqe_err.next;
+            end
+        end
+    end
+    assign hwif_out.EVENT.cqe_err.value = field_storage.EVENT.cqe_err.value;
     // Field: nvme_regs.EVENT_EN.en
     always_comb begin
-        automatic logic [4:0] next_c;
+        automatic logic [5:0] next_c;
         automatic logic load_next_c;
         next_c = field_storage.EVENT_EN.en.value;
         load_next_c = '0;
         if(decoded_reg_strb.EVENT_EN && decoded_req_is_wr) begin // SW write
-            next_c = (field_storage.EVENT_EN.en.value & ~decoded_wr_biten[4:0]) | (decoded_wr_data[4:0] & decoded_wr_biten[4:0]);
+            next_c = (field_storage.EVENT_EN.en.value & ~decoded_wr_biten[5:0]) | (decoded_wr_data[5:0] & decoded_wr_biten[5:0]);
             load_next_c = '1;
         end
         field_combo.EVENT_EN.en.next = next_c;
@@ -580,7 +859,7 @@ module nvme_regs (
     end
     always_ff @(posedge clk or negedge arst_n) begin
         if(~arst_n) begin
-            field_storage.EVENT_EN.en.value <= 5'h0;
+            field_storage.EVENT_EN.en.value <= 6'h0;
         end else begin
             if(field_combo.EVENT_EN.en.load_next) begin
                 field_storage.EVENT_EN.en.value <= field_combo.EVENT_EN.en.next;
@@ -702,6 +981,441 @@ module nvme_regs (
             end
         end
     end
+    // Field: nvme_regs.XF_PRP1_LO.value
+    always_comb begin
+        automatic logic [31:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.XF_PRP1_LO.value.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.XF_PRP1_LO && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.XF_PRP1_LO.value.value & ~decoded_wr_biten[31:0]) | (decoded_wr_data[31:0] & decoded_wr_biten[31:0]);
+            load_next_c = '1;
+        end
+        field_combo.XF_PRP1_LO.value.next = next_c;
+        field_combo.XF_PRP1_LO.value.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.XF_PRP1_LO.value.value <= 32'h0;
+        end else begin
+            if(field_combo.XF_PRP1_LO.value.load_next) begin
+                field_storage.XF_PRP1_LO.value.value <= field_combo.XF_PRP1_LO.value.next;
+            end
+        end
+    end
+    assign hwif_out.XF_PRP1_LO.value.value = field_storage.XF_PRP1_LO.value.value;
+    // Field: nvme_regs.XF_PRP1_HI.value
+    always_comb begin
+        automatic logic [31:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.XF_PRP1_HI.value.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.XF_PRP1_HI && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.XF_PRP1_HI.value.value & ~decoded_wr_biten[31:0]) | (decoded_wr_data[31:0] & decoded_wr_biten[31:0]);
+            load_next_c = '1;
+        end
+        field_combo.XF_PRP1_HI.value.next = next_c;
+        field_combo.XF_PRP1_HI.value.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.XF_PRP1_HI.value.value <= 32'h0;
+        end else begin
+            if(field_combo.XF_PRP1_HI.value.load_next) begin
+                field_storage.XF_PRP1_HI.value.value <= field_combo.XF_PRP1_HI.value.next;
+            end
+        end
+    end
+    assign hwif_out.XF_PRP1_HI.value.value = field_storage.XF_PRP1_HI.value.value;
+    // Field: nvme_regs.XF_PRP2_LO.value
+    always_comb begin
+        automatic logic [31:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.XF_PRP2_LO.value.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.XF_PRP2_LO && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.XF_PRP2_LO.value.value & ~decoded_wr_biten[31:0]) | (decoded_wr_data[31:0] & decoded_wr_biten[31:0]);
+            load_next_c = '1;
+        end
+        field_combo.XF_PRP2_LO.value.next = next_c;
+        field_combo.XF_PRP2_LO.value.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.XF_PRP2_LO.value.value <= 32'h0;
+        end else begin
+            if(field_combo.XF_PRP2_LO.value.load_next) begin
+                field_storage.XF_PRP2_LO.value.value <= field_combo.XF_PRP2_LO.value.next;
+            end
+        end
+    end
+    assign hwif_out.XF_PRP2_LO.value.value = field_storage.XF_PRP2_LO.value.value;
+    // Field: nvme_regs.XF_PRP2_HI.value
+    always_comb begin
+        automatic logic [31:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.XF_PRP2_HI.value.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.XF_PRP2_HI && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.XF_PRP2_HI.value.value & ~decoded_wr_biten[31:0]) | (decoded_wr_data[31:0] & decoded_wr_biten[31:0]);
+            load_next_c = '1;
+        end
+        field_combo.XF_PRP2_HI.value.next = next_c;
+        field_combo.XF_PRP2_HI.value.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.XF_PRP2_HI.value.value <= 32'h0;
+        end else begin
+            if(field_combo.XF_PRP2_HI.value.load_next) begin
+                field_storage.XF_PRP2_HI.value.value <= field_combo.XF_PRP2_HI.value.next;
+            end
+        end
+    end
+    assign hwif_out.XF_PRP2_HI.value.value = field_storage.XF_PRP2_HI.value.value;
+    // Field: nvme_regs.XF_LADDR.addr
+    always_comb begin
+        automatic logic [29:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.XF_LADDR.addr.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.XF_LADDR && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.XF_LADDR.addr.value & ~decoded_wr_biten[31:2]) | (decoded_wr_data[31:2] & decoded_wr_biten[31:2]);
+            load_next_c = '1;
+        end
+        field_combo.XF_LADDR.addr.next = next_c;
+        field_combo.XF_LADDR.addr.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.XF_LADDR.addr.value <= 30'h0;
+        end else begin
+            if(field_combo.XF_LADDR.addr.load_next) begin
+                field_storage.XF_LADDR.addr.value <= field_combo.XF_LADDR.addr.next;
+            end
+        end
+    end
+    assign hwif_out.XF_LADDR.addr.value = field_storage.XF_LADDR.addr.value;
+    // Field: nvme_regs.XF_LEN.bytes
+    always_comb begin
+        automatic logic [15:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.XF_LEN.bytes.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.XF_LEN && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.XF_LEN.bytes.value & ~decoded_wr_biten[17:2]) | (decoded_wr_data[17:2] & decoded_wr_biten[17:2]);
+            load_next_c = '1;
+        end
+        field_combo.XF_LEN.bytes.next = next_c;
+        field_combo.XF_LEN.bytes.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.XF_LEN.bytes.value <= 16'h0;
+        end else begin
+            if(field_combo.XF_LEN.bytes.load_next) begin
+                field_storage.XF_LEN.bytes.value <= field_combo.XF_LEN.bytes.next;
+            end
+        end
+    end
+    assign hwif_out.XF_LEN.bytes.value = field_storage.XF_LEN.bytes.value;
+    // Field: nvme_regs.XF_CTRL.start
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.XF_CTRL.start.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.XF_CTRL && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.XF_CTRL.start.value & ~decoded_wr_biten[0:0]) | (decoded_wr_data[0:0] & decoded_wr_biten[0:0]);
+            load_next_c = '1;
+        end else begin // singlepulse clears back to 0
+            next_c = '0;
+            load_next_c = '1;
+        end
+        field_combo.XF_CTRL.start.next = next_c;
+        field_combo.XF_CTRL.start.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.XF_CTRL.start.value <= 1'h0;
+        end else begin
+            if(field_combo.XF_CTRL.start.load_next) begin
+                field_storage.XF_CTRL.start.value <= field_combo.XF_CTRL.start.next;
+            end
+        end
+    end
+    assign hwif_out.XF_CTRL.start.value = field_storage.XF_CTRL.start.value;
+    // Field: nvme_regs.XF_CTRL.d2h
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.XF_CTRL.d2h.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.XF_CTRL && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.XF_CTRL.d2h.value & ~decoded_wr_biten[1:1]) | (decoded_wr_data[1:1] & decoded_wr_biten[1:1]);
+            load_next_c = '1;
+        end
+        field_combo.XF_CTRL.d2h.next = next_c;
+        field_combo.XF_CTRL.d2h.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.XF_CTRL.d2h.value <= 1'h0;
+        end else begin
+            if(field_combo.XF_CTRL.d2h.load_next) begin
+                field_storage.XF_CTRL.d2h.value <= field_combo.XF_CTRL.d2h.next;
+            end
+        end
+    end
+    assign hwif_out.XF_CTRL.d2h.value = field_storage.XF_CTRL.d2h.value;
+    // Field: nvme_regs.XF_STATUS.done
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.XF_STATUS.done.value;
+        load_next_c = '0;
+        if(hwif_in.XF_STATUS.done.hwset) begin // HW Set
+            next_c = '1;
+            load_next_c = '1;
+        end else if(hwif_in.XF_STATUS.done.hwclr) begin // HW Clear
+            next_c = '0;
+            load_next_c = '1;
+        end else if(decoded_reg_strb.XF_STATUS && decoded_req_is_wr) begin // SW write 1 clear
+            next_c = field_storage.XF_STATUS.done.value & ~(decoded_wr_data[1:1] & decoded_wr_biten[1:1]);
+            load_next_c = '1;
+        end
+        field_combo.XF_STATUS.done.next = next_c;
+        field_combo.XF_STATUS.done.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.XF_STATUS.done.value <= 1'h0;
+        end else begin
+            if(field_combo.XF_STATUS.done.load_next) begin
+                field_storage.XF_STATUS.done.value <= field_combo.XF_STATUS.done.next;
+            end
+        end
+    end
+    assign hwif_out.XF_STATUS.done.value = field_storage.XF_STATUS.done.value;
+    // Field: nvme_regs.XF_STATUS.err
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.XF_STATUS.err.value;
+        load_next_c = '0;
+        if(hwif_in.XF_STATUS.err.hwset) begin // HW Set
+            next_c = '1;
+            load_next_c = '1;
+        end else if(hwif_in.XF_STATUS.err.hwclr) begin // HW Clear
+            next_c = '0;
+            load_next_c = '1;
+        end else if(decoded_reg_strb.XF_STATUS && decoded_req_is_wr) begin // SW write 1 clear
+            next_c = field_storage.XF_STATUS.err.value & ~(decoded_wr_data[2:2] & decoded_wr_biten[2:2]);
+            load_next_c = '1;
+        end
+        field_combo.XF_STATUS.err.next = next_c;
+        field_combo.XF_STATUS.err.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.XF_STATUS.err.value <= 1'h0;
+        end else begin
+            if(field_combo.XF_STATUS.err.load_next) begin
+                field_storage.XF_STATUS.err.value <= field_combo.XF_STATUS.err.next;
+            end
+        end
+    end
+    assign hwif_out.XF_STATUS.err.value = field_storage.XF_STATUS.err.value;
+    // Field: nvme_regs.XF_STATUS.cause
+    always_comb begin
+        automatic logic [3:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.XF_STATUS.cause.value;
+        load_next_c = '0;
+        if(hwif_in.XF_STATUS.cause.we) begin // HW Write - we
+            next_c = hwif_in.XF_STATUS.cause.next;
+            load_next_c = '1;
+        end
+        field_combo.XF_STATUS.cause.next = next_c;
+        field_combo.XF_STATUS.cause.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.XF_STATUS.cause.value <= 4'h0;
+        end else begin
+            if(field_combo.XF_STATUS.cause.load_next) begin
+                field_storage.XF_STATUS.cause.value <= field_combo.XF_STATUS.cause.next;
+            end
+        end
+    end
+    // Field: nvme_regs.CQE_DW0.value
+    always_comb begin
+        automatic logic [31:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.CQE_DW0.value.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.CQE_DW0 && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.CQE_DW0.value.value & ~decoded_wr_biten[31:0]) | (decoded_wr_data[31:0] & decoded_wr_biten[31:0]);
+            load_next_c = '1;
+        end
+        field_combo.CQE_DW0.value.next = next_c;
+        field_combo.CQE_DW0.value.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.CQE_DW0.value.value <= 32'h0;
+        end else begin
+            if(field_combo.CQE_DW0.value.load_next) begin
+                field_storage.CQE_DW0.value.value <= field_combo.CQE_DW0.value.next;
+            end
+        end
+    end
+    assign hwif_out.CQE_DW0.value.value = field_storage.CQE_DW0.value.value;
+    // Field: nvme_regs.CQE_INFO.cid
+    always_comb begin
+        automatic logic [15:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.CQE_INFO.cid.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.CQE_INFO && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.CQE_INFO.cid.value & ~decoded_wr_biten[15:0]) | (decoded_wr_data[15:0] & decoded_wr_biten[15:0]);
+            load_next_c = '1;
+        end
+        field_combo.CQE_INFO.cid.next = next_c;
+        field_combo.CQE_INFO.cid.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.CQE_INFO.cid.value <= 16'h0;
+        end else begin
+            if(field_combo.CQE_INFO.cid.load_next) begin
+                field_storage.CQE_INFO.cid.value <= field_combo.CQE_INFO.cid.next;
+            end
+        end
+    end
+    assign hwif_out.CQE_INFO.cid.value = field_storage.CQE_INFO.cid.value;
+    // Field: nvme_regs.CQE_INFO.sqid
+    always_comb begin
+        automatic logic [2:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.CQE_INFO.sqid.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.CQE_INFO && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.CQE_INFO.sqid.value & ~decoded_wr_biten[18:16]) | (decoded_wr_data[18:16] & decoded_wr_biten[18:16]);
+            load_next_c = '1;
+        end
+        field_combo.CQE_INFO.sqid.next = next_c;
+        field_combo.CQE_INFO.sqid.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.CQE_INFO.sqid.value <= 3'h0;
+        end else begin
+            if(field_combo.CQE_INFO.sqid.load_next) begin
+                field_storage.CQE_INFO.sqid.value <= field_combo.CQE_INFO.sqid.next;
+            end
+        end
+    end
+    assign hwif_out.CQE_INFO.sqid.value = field_storage.CQE_INFO.sqid.value;
+    // Field: nvme_regs.CQE_CTRL.cqid
+    always_comb begin
+        automatic logic [2:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.CQE_CTRL.cqid.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.CQE_CTRL && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.CQE_CTRL.cqid.value & ~decoded_wr_biten[2:0]) | (decoded_wr_data[2:0] & decoded_wr_biten[2:0]);
+            load_next_c = '1;
+        end
+        field_combo.CQE_CTRL.cqid.next = next_c;
+        field_combo.CQE_CTRL.cqid.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.CQE_CTRL.cqid.value <= 3'h0;
+        end else begin
+            if(field_combo.CQE_CTRL.cqid.load_next) begin
+                field_storage.CQE_CTRL.cqid.value <= field_combo.CQE_CTRL.cqid.next;
+            end
+        end
+    end
+    assign hwif_out.CQE_CTRL.cqid.value = field_storage.CQE_CTRL.cqid.value;
+    assign hwif_out.CQE_CTRL.cqid.swmod = decoded_reg_strb.CQE_CTRL && decoded_req_is_wr && |(decoded_wr_biten[2:0]);
+    // Field: nvme_regs.CQE_CTRL.status
+    always_comb begin
+        automatic logic [14:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.CQE_CTRL.status.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.CQE_CTRL && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.CQE_CTRL.status.value & ~decoded_wr_biten[31:17]) | (decoded_wr_data[31:17] & decoded_wr_biten[31:17]);
+            load_next_c = '1;
+        end
+        field_combo.CQE_CTRL.status.next = next_c;
+        field_combo.CQE_CTRL.status.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.CQE_CTRL.status.value <= 15'h0;
+        end else begin
+            if(field_combo.CQE_CTRL.status.load_next) begin
+                field_storage.CQE_CTRL.status.value <= field_combo.CQE_CTRL.status.next;
+            end
+        end
+    end
+    assign hwif_out.CQE_CTRL.status.value = field_storage.CQE_CTRL.status.value;
+    // Field: nvme_regs.CQE_STATUS.drop
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.CQE_STATUS.drop.value;
+        load_next_c = '0;
+        if(hwif_in.CQE_STATUS.drop.hwset) begin // HW Set
+            next_c = '1;
+            load_next_c = '1;
+        end else if(decoded_reg_strb.CQE_STATUS && decoded_req_is_wr) begin // SW write 1 clear
+            next_c = field_storage.CQE_STATUS.drop.value & ~(decoded_wr_data[8:8] & decoded_wr_biten[8:8]);
+            load_next_c = '1;
+        end
+        field_combo.CQE_STATUS.drop.next = next_c;
+        field_combo.CQE_STATUS.drop.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.CQE_STATUS.drop.value <= 1'h0;
+        end else begin
+            if(field_combo.CQE_STATUS.drop.load_next) begin
+                field_storage.CQE_STATUS.drop.value <= field_combo.CQE_STATUS.drop.next;
+            end
+        end
+    end
+    assign hwif_out.CQE_STATUS.drop.value = field_storage.CQE_STATUS.drop.value;
+    // Field: nvme_regs.CQE_STATUS.werr
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.CQE_STATUS.werr.value;
+        load_next_c = '0;
+        if(hwif_in.CQE_STATUS.werr.hwset) begin // HW Set
+            next_c = '1;
+            load_next_c = '1;
+        end else if(decoded_reg_strb.CQE_STATUS && decoded_req_is_wr) begin // SW write 1 clear
+            next_c = field_storage.CQE_STATUS.werr.value & ~(decoded_wr_data[9:9] & decoded_wr_biten[9:9]);
+            load_next_c = '1;
+        end
+        field_combo.CQE_STATUS.werr.next = next_c;
+        field_combo.CQE_STATUS.werr.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.CQE_STATUS.werr.value <= 1'h0;
+        end else begin
+            if(field_combo.CQE_STATUS.werr.load_next) begin
+                field_storage.CQE_STATUS.werr.value <= field_combo.CQE_STATUS.werr.next;
+            end
+        end
+    end
+    assign hwif_out.CQE_STATUS.werr.value = field_storage.CQE_STATUS.werr.value;
     for(genvar i0=0; i0<4; i0++) begin
         // Field: nvme_regs.IOQ[].SQB_LO.base
         always_comb begin
@@ -986,6 +1700,7 @@ module nvme_regs (
         readback_data_var = '0;
         if(rd_mux_addr == 12'h0) begin
             readback_data_var[0] = field_storage.CTRL.ien_cmd.value;
+            readback_data_var[1] = field_storage.CTRL.ien_xfer.value;
         end
         if(rd_mux_addr == 12'h4) begin
             readback_data_var[0] = hwif_in.STATUS.rdy.next;
@@ -1001,9 +1716,10 @@ module nvme_regs (
             readback_data_var[2] = field_storage.EVENT.shutdown.value;
             readback_data_var[3] = field_storage.EVENT.db_err.value;
             readback_data_var[4] = field_storage.EVENT.fetch_err.value;
+            readback_data_var[5] = field_storage.EVENT.cqe_err.value;
         end
         if(rd_mux_addr == 12'hc) begin
-            readback_data_var[4:0] = field_storage.EVENT_EN.en.value;
+            readback_data_var[5:0] = field_storage.EVENT_EN.en.value;
         end
         if(rd_mux_addr == 12'h10) begin
             readback_data_var[31:0] = hwif_in.CC.value.next;
@@ -1038,6 +1754,57 @@ module nvme_regs (
         end
         if(rd_mux_addr == 12'h40) begin
             readback_data_var[31:0] = hwif_in.ACQ_HI.value.next;
+        end
+        if(rd_mux_addr == 12'h50) begin
+            readback_data_var[31:0] = field_storage.XF_PRP1_LO.value.value;
+        end
+        if(rd_mux_addr == 12'h54) begin
+            readback_data_var[31:0] = field_storage.XF_PRP1_HI.value.value;
+        end
+        if(rd_mux_addr == 12'h58) begin
+            readback_data_var[31:0] = field_storage.XF_PRP2_LO.value.value;
+        end
+        if(rd_mux_addr == 12'h5c) begin
+            readback_data_var[31:0] = field_storage.XF_PRP2_HI.value.value;
+        end
+        if(rd_mux_addr == 12'h60) begin
+            readback_data_var[31:2] = field_storage.XF_LADDR.addr.value;
+        end
+        if(rd_mux_addr == 12'h64) begin
+            readback_data_var[17:2] = field_storage.XF_LEN.bytes.value;
+        end
+        if(rd_mux_addr == 12'h68) begin
+            readback_data_var[1] = field_storage.XF_CTRL.d2h.value;
+        end
+        if(rd_mux_addr == 12'h6c) begin
+            readback_data_var[0] = hwif_in.XF_STATUS.busy.next;
+            readback_data_var[1] = field_storage.XF_STATUS.done.value;
+            readback_data_var[2] = field_storage.XF_STATUS.err.value;
+            readback_data_var[11:8] = field_storage.XF_STATUS.cause.value;
+        end
+        if(rd_mux_addr == 12'h70) begin
+            readback_data_var[31:0] = hwif_in.XF_CYCLES.count.next;
+        end
+        if(rd_mux_addr == 12'h80) begin
+            readback_data_var[31:0] = field_storage.CQE_DW0.value.value;
+        end
+        if(rd_mux_addr == 12'h84) begin
+            readback_data_var[15:0] = field_storage.CQE_INFO.cid.value;
+            readback_data_var[18:16] = field_storage.CQE_INFO.sqid.value;
+        end
+        if(rd_mux_addr == 12'h88) begin
+            readback_data_var[2:0] = field_storage.CQE_CTRL.cqid.value;
+            readback_data_var[31:17] = field_storage.CQE_CTRL.status.value;
+        end
+        if(rd_mux_addr == 12'h8c) begin
+            readback_data_var[2:0] = hwif_in.CQE_STATUS.count.next;
+            readback_data_var[4] = hwif_in.CQE_STATUS.full.next;
+            readback_data_var[5] = hwif_in.CQE_STATUS.cq_full.next;
+            readback_data_var[8] = field_storage.CQE_STATUS.drop.value;
+            readback_data_var[9] = field_storage.CQE_STATUS.werr.value;
+        end
+        if(rd_mux_addr == 12'h90) begin
+            readback_data_var[31:0] = hwif_in.CQES.count.next;
         end
         for(int i0=0; i0<4; i0++) begin
             if(rd_mux_addr == 12'h100 + (12)'(i0) * 12'h20) begin

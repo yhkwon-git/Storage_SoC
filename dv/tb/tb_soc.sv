@@ -102,7 +102,7 @@ module tb_soc;
   // Protocol checkers on the nine crossbar ports, through monitor interfaces
   // ---------------------------------------------------------------------------
   axi4_if mon_m [4] (.clk(clk), .rst_n(rst_n));
-  axi4_if mon_s [5] (.clk(clk), .rst_n(rst_n));
+  axi4_if mon_s [6] (.clk(clk), .rst_n(rst_n));
 
   for (genvar g = 0; g < 4; g++) begin : g_mon_m
     assign mon_m[g].awid    = {2'b00, dut.s_awid[g]};
@@ -143,7 +143,7 @@ module tb_soc;
     axi4_checker #(.KIND("M"), .IDX(g)) u_chk (.a(mon_m[g]));
   end
 
-  for (genvar g = 0; g < 5; g++) begin : g_mon_s
+  for (genvar g = 0; g < 6; g++) begin : g_mon_s
     assign mon_s[g].awid    = dut.m_awid[g];
     assign mon_s[g].awaddr  = dut.m_awaddr[g];
     assign mon_s[g].awlen   = dut.m_awlen[g];
@@ -370,7 +370,7 @@ module tb_soc;
     force dut.u_pwr.u_host_if.u_tl.bar2_win = 17'h0_8000;   // 0x4000_0000
     // ID (0x000) and VERSION (0x004) in one QW read.
     host.mem_rd(BAR2, 8, b, st);
-    apb_expect(st == SC && qw(b, 0) == {32'h0002_0002, 32'h5353_4F43}, "QW read of ID and VERSION");
+    apb_expect(st == SC && qw(b, 0) == {32'h0002_0003, 32'h5353_4F43}, "QW read of ID and VERSION");
     // SCRATCH through a DW write, read back.
     host.mem_wr(BAR2 + 64'h8, le_bytes(64'h1234_5678, 4));
     host.mem_rd(BAR2 + 64'h8, 4, b, st);
@@ -431,18 +431,19 @@ module tb_soc;
 
   // ---------------------------------------------------------------------------
   // NVMe host (+test=nvme, fw/tests/nvme.c): enables the controller with an
-  // 8-entry admin queue pair, creates I/O queue pair 1 (16 entries) with two
-  // admin commands, submits 12 Read commands on it in two batches, then shuts
-  // the controller down. Completion queue entries come with step 2-3, so the
-  // host follows the controller's state inside the design instead: SQ1 enabled
-  // by the firmware, the SQ1 head at 12.
+  // 8-entry admin queue pair, creates I/O queue pair 1 (16 entries, vector 1)
+  // with two admin commands, runs 7 I/O commands on it against the
+  // firmware's 16-block namespace, then shuts the controller down. Every
+  // command is completed: the host takes the entries by phase and checks CID,
+  // SQID, status and the data it read back.
   // ---------------------------------------------------------------------------
   localparam bit [63:0] ASQ   = 64'h0000_0001_4000_0000;
   localparam bit [63:0] ACQ   = 64'h0000_0001_4001_0000;
   localparam bit [63:0] IOCQ1 = 64'h0000_0001_4002_0000;
   localparam bit [63:0] IOSQ1 = 64'h0000_0001_4003_0000;
-  localparam int        NV_IO = 12;
-  int nv_cycles_admin, nv_cycles_io;
+  localparam bit [63:0] NVPG  = 64'h0000_0001_5000_0000;   // data pages, 8 KiB apart
+  localparam bit [63:0] NVLP  = 64'h0000_0001_6000_0000;   // PRP list pages
+  int nv_cycles_admin, nv_cycles_io, nv_msi0, nv_msi1;
 
   task automatic nv_wr(int off, bit [31:0] v);
     host.mem_wr(BAR0 + 64'(off), le_bytes({32'd0, v}, 4));
@@ -456,8 +457,12 @@ module tb_soc;
     v = {b[3], b[2], b[1], b[0]};
   endtask
 
+  function automatic void nv_qw(bit [63:0] a, bit [63:0] v);
+    for (int k = 0; k < 8; k++) host.hmem[a + 64'(k)] = v[8*k +: 8];
+  endfunction
+
   function automatic void nv_sqe(bit [63:0] a, bit [7:0] opc, bit [15:0] cid, bit [31:0] nsid,
-                                 bit [63:0] prp1, bit [31:0] cdw10, bit [31:0] cdw11,
+                                 bit [63:0] prp1, bit [63:0] prp2, bit [31:0] cdw10, bit [31:0] cdw11,
                                  bit [31:0] cdw12);
     bit [31:0] dw [16];
     foreach (dw[i]) dw[i] = 32'd0;
@@ -465,6 +470,8 @@ module tb_soc;
     dw[1] = nsid;
     dw[6] = prp1[31:0];
     dw[7] = prp1[63:32];
+    dw[8] = prp2[31:0];
+    dw[9] = prp2[63:32];
     dw[10] = cdw10;
     dw[11] = cdw11;
     dw[12] = cdw12;
@@ -472,10 +479,54 @@ module tb_soc;
       for (int k = 0; k < 4; k++) host.hmem[a + 64'(4 * i + k)] = dw[i][8*k +: 8];
   endfunction
 
+  // The firmware's check pattern for byte b of its namespace.
+  function automatic bit [7:0] nv_wpat(int b);
+    return 8'(b) ^ 8'(b >> 8) ^ 8'hA5;
+  endfunction
+
+  // Data of an I/O command: page pg[i] holds bytes from offset off on.
+  function automatic bit [63:0] nv_addr(bit [63:0] pg[$], int off, int i);
+    int first = 4096 - off;
+    int j = i - first;
+    if (i < first) return pg[0] + 64'(off + i);
+    return pg[1 + j / 4096] + 64'(j % 4096);
+  endfunction
+
+  // Wait for the next entry of a completion queue (by phase) and check it.
+  int nv_head [2];
+  bit nv_ph [2];
+  task automatic nv_cqe(int q, bit [63:0] base, int size, bit [15:0] cid, int sqid, bit [14:0] st);
+    bit [31:0] d0, d2, d3;
+    int n = 0;
+    bit [63:0] a;
+    a = base + 64'(16 * nv_head[q]);
+    do begin
+      @(negedge clk);
+      d3 = host.hget_dw(a + 64'd12);
+      if (++n > 400000) begin herr($sformatf("no completion for CID %h", cid)); return; end
+    end while (d3[16] != nv_ph[q]);
+    d0 = host.hget_dw(a);
+    d2 = host.hget_dw(a + 64'd8);
+    if (d3[15:0] != cid || int'(d2[31:16]) != sqid || d3[31:17] != st || d0 != {16'hC0DE, cid})
+      herr($sformatf("completion %h %h %h for CID %h: CID %h SQID %0d status %h, expected status %h",
+                     d0, d2, d3, cid, d3[15:0], d2[31:16], d3[31:17], st));
+    nv_head[q] = (nv_head[q] + 1) % size;
+    if (nv_head[q] == 0) nv_ph[q] = !nv_ph[q];
+  endtask
+
+  function automatic int nv_msi(int v);
+    int n = 0;
+    foreach (host.msis[i]) if (host.msis[i].addr == MSI + 64'(16 * v)) n++;
+    return n;
+  endfunction
+
   task automatic nvme_host();
     bit [31:0] v;
-    int n = 0;
-    longint t0;
+    int        n = 0;
+    longint    t0;
+    bit [63:0] pw[$], pr[$], p1[$], pw2[$];
+    for (int i = 0; i < 16 * 8; i++)  host.hmem[ACQ + 64'(i)] = 8'h00;
+    for (int i = 0; i < 16 * 16; i++) host.hmem[IOCQ1 + 64'(i)] = 8'h00;
     nv_wr(32'h24, 32'h0007_0007);                        // AQA: 8 entries each
     host.mem_wr(BAR0 + 64'h28, le_bytes(ASQ, 8));
     host.mem_wr(BAR0 + 64'h30, le_bytes(ACQ, 8));
@@ -486,30 +537,59 @@ module tb_soc;
     end while (!v[0]);
     // Create I/O CQ 1: 16 entries, vector 1, interrupts on, contiguous.
     // Create I/O SQ 1: 16 entries on CQ 1, contiguous.
-    nv_sqe(ASQ,       8'h05, 16'h0001, 32'd0, IOCQ1, {16'd15, 16'd1}, {16'd1, 14'd0, 2'b11}, 32'd0);
-    nv_sqe(ASQ + 64,  8'h01, 16'h0002, 32'd0, IOSQ1, {16'd15, 16'd1}, {16'd1, 15'd0, 1'b1}, 32'd0);
+    nv_sqe(ASQ,      8'h05, 16'h0001, 32'd0, IOCQ1, 64'd0, {16'd15, 16'd1}, {16'd1, 14'd0, 2'b11}, 32'd0);
+    nv_sqe(ASQ + 64, 8'h01, 16'h0002, 32'd0, IOSQ1, 64'd0, {16'd15, 16'd1}, {16'd1, 15'd0, 1'b1}, 32'd0);
     t0 = $time;
     nv_wr(32'h1000, 32'd2);
-    n = 0;
-    while (dut.u_pwr.u_host_if.u_nvme.sq_en[1] !== 1'b1) begin
-      @(negedge clk);
-      if (++n > 400000) begin herr("I/O SQ 1 never created"); return; end
-    end
+    nv_head[0] = 0; nv_ph[0] = 1'b1; nv_head[1] = 0; nv_ph[1] = 1'b1;
+    nv_cqe(0, ACQ, 8, 16'h0001, 0, 15'h0);
+    nv_cqe(0, ACQ, 8, 16'h0002, 0, 15'h0);
+    nv_wr(32'h1004, 32'(nv_head[0]));
     nv_cycles_admin = int'(($time - t0) / 20);
-    // 12 Reads: CID 0x100 + i, NSID 1, PRP1 0x1_5000_0000 + 4 KiB x i,
-    // SLBA 8 x i, NLB 7; doorbell after the fifth and after the last.
+    // Data pages: the Write's 8 KiB from offset 0x200 (three pages, its PRP
+    // list in the last slot of a list page, so the list chains); the first
+    // Read's 4 KiB from offset 0x600 (two pages); one block in one page; the
+    // second Write's 1 KiB over a page end.
+    for (int i = 0; i < 3; i++) pw.push_back(NVPG + 64'(i) * 64'h2000);
+    for (int i = 0; i < 2; i++) pr.push_back(NVPG + 64'h10_0000 + 64'(i) * 64'h2000);
+    p1.push_back(NVPG + 64'h20_0000);
+    for (int i = 0; i < 2; i++) pw2.push_back(NVPG + 64'h30_0000 + 64'(i) * 64'h2000);
+    for (int i = 0; i < 8192; i++) host.hmem[nv_addr(pw, 32'h200, i)] = nv_wpat(i);
+    for (int i = 0; i < 1024; i++) host.hmem[nv_addr(pw2, 32'hE00, i)] = nv_wpat(1024 + i);
+    nv_qw(NVLP + 64'h0FF8, NVLP + 64'h2000);              // the list's only slot points on
+    nv_qw(NVLP + 64'h2000, pw[1]);
+    nv_qw(NVLP + 64'h2008, pw[2]);
+    nv_sqe(IOSQ1 + 64'd0,   8'h01, 16'h0100, 32'd1, pw[0] + 64'h200, NVLP + 64'h0FF8, 32'd0, 32'd0, 32'd15);
+    nv_sqe(IOSQ1 + 64'd64,  8'h02, 16'h0101, 32'd1, pr[0] + 64'h600, pr[1], 32'd4, 32'd0, 32'd7);
+    nv_sqe(IOSQ1 + 64'd128, 8'h02, 16'h0102, 32'd1, p1[0], 64'd0, 32'd0, 32'd0, 32'd0);
+    nv_sqe(IOSQ1 + 64'd192, 8'h01, 16'h0103, 32'd1, pw2[0] + 64'hE00, pw2[1], 32'd2, 32'd0, 32'd1);
+    nv_sqe(IOSQ1 + 64'd256, 8'h00, 16'h0104, 32'd1, 64'd0, 64'd0, 32'd0, 32'd0, 32'd0);
+    nv_sqe(IOSQ1 + 64'd320, 8'h7F, 16'h0105, 32'd1, 64'd0, 64'd0, 32'd0, 32'd0, 32'd0);
+    nv_sqe(IOSQ1 + 64'd384, 8'h01, 16'h0106, 32'd1, p1[0], 64'd0, 32'd15, 32'd0, 32'd1);
+    nv_msi0 = nv_msi(0);
     t0 = $time;
-    for (int i = 0; i < NV_IO; i++) begin
-      nv_sqe(IOSQ1 + 64'(64 * i), 8'h02, 16'(16'h0100 + i), 32'd1,
-             64'h0000_0001_5000_0000 + 64'(4096 * i), 32'(8 * i), 32'd0, 32'd7);
-      if (i == 4 || i == NV_IO - 1) nv_wr(32'h1008, 32'(i + 1));
-    end
-    n = 0;
-    while (dut.u_pwr.u_host_if.u_nvme.sq_head[1] != 12'(NV_IO)) begin
-      @(negedge clk);
-      if (++n > 400000) begin herr("I/O commands never all fetched"); return; end
-    end
+    nv_wr(32'h1008, 32'd3);
+    nv_wr(32'h1008, 32'd7);
+    nv_cqe(1, IOCQ1, 16, 16'h0100, 1, 15'h0000);
+    nv_cqe(1, IOCQ1, 16, 16'h0101, 1, 15'h0000);
+    nv_cqe(1, IOCQ1, 16, 16'h0102, 1, 15'h0000);
+    nv_cqe(1, IOCQ1, 16, 16'h0103, 1, 15'h0000);
+    nv_cqe(1, IOCQ1, 16, 16'h0104, 1, 15'h0000);
+    nv_cqe(1, IOCQ1, 16, 16'h0105, 1, 15'h4001);   // Invalid Command Opcode
+    nv_cqe(1, IOCQ1, 16, 16'h0106, 1, 15'h4080);   // LBA Out of Range
     nv_cycles_io = int'(($time - t0) / 20);
+    nv_wr(32'h100C, 32'(nv_head[1]));
+    // Read back: LBA 4-11 and LBA 0, as the first Write left them.
+    begin
+      int bad = 0;
+      for (int i = 0; i < 4096; i++) if (host.hget(nv_addr(pr, 32'h600, i)) !== nv_wpat(2048 + i)) bad++;
+      for (int i = 0; i < 512; i++)  if (host.hget(p1[0] + 64'(i)) !== nv_wpat(i)) bad++;
+      if (bad != 0) herr($sformatf("%0d bytes read back wrong", bad));
+    end
+    repeat (100) @(negedge clk);
+    nv_msi1 = nv_msi(1);
+    if (nv_msi(0) < 1 || nv_msi1 < 1 || nv_msi1 > 7)
+      herr($sformatf("MSI-X messages: vector 0 %0d, vector 1 %0d", nv_msi(0), nv_msi1));
     // Shutdown: SHN normal, until SHST reads complete.
     nv_wr(32'h14, 32'h0046_4001);
     n = 0;
@@ -518,8 +598,8 @@ module tb_soc;
       if (++n > 1000) begin herr("CSTS.SHST never complete"); return; end
     end while (v[3:2] != 2'b10);
     if (v[1]) herr("CSTS.CFS set");
-    $display("[SOC] nvme host: admin queue up, 2 admin commands to I/O SQ 1 in %0d clk_sys cycles, %0d I/O commands fetched in %0d, shutdown complete",
-             nv_cycles_admin, NV_IO, nv_cycles_io);
+    $display("[SOC] nvme host: 2 admin commands completed in %0d clk_sys cycles, 7 I/O commands (13,824 bytes moved) in %0d; read-back checked; MSI-X vector 0 %0d, vector 1 %0d; shutdown complete",
+             nv_cycles_admin, nv_cycles_io, nv_msi(0), nv_msi1);
   endtask
 
   // ---------------------------------------------------------------------------

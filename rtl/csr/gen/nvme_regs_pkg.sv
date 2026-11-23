@@ -61,11 +61,16 @@ package nvme_regs_pkg;
     } nvme_regs__EVENT__fetch_err__in_t;
 
     typedef struct {
+        logic hwset;
+    } nvme_regs__EVENT__cqe_err__in_t;
+
+    typedef struct {
         nvme_regs__EVENT__enable__in_t enable;
         nvme_regs__EVENT__reset__in_t reset;
         nvme_regs__EVENT__shutdown__in_t shutdown;
         nvme_regs__EVENT__db_err__in_t db_err;
         nvme_regs__EVENT__fetch_err__in_t fetch_err;
+        nvme_regs__EVENT__cqe_err__in_t cqe_err;
     } nvme_regs__EVENT__in_t;
 
     typedef struct {
@@ -164,6 +169,76 @@ package nvme_regs_pkg;
     } nvme_regs__ACQ_HI__in_t;
 
     typedef struct {
+        logic next;
+    } nvme_regs__XF_STATUS__busy__in_t;
+
+    typedef struct {
+        logic hwclr;
+        logic hwset;
+    } nvme_regs__XF_STATUS__done__in_t;
+
+    typedef struct {
+        logic hwclr;
+        logic hwset;
+    } nvme_regs__XF_STATUS__err__in_t;
+
+    typedef struct {
+        logic [3:0] next;
+        logic we;
+    } nvme_regs__XF_STATUS__cause__in_t;
+
+    typedef struct {
+        nvme_regs__XF_STATUS__busy__in_t busy;
+        nvme_regs__XF_STATUS__done__in_t done;
+        nvme_regs__XF_STATUS__err__in_t err;
+        nvme_regs__XF_STATUS__cause__in_t cause;
+    } nvme_regs__XF_STATUS__in_t;
+
+    typedef struct {
+        logic [31:0] next;
+    } nvme_regs__XF_CYCLES__count__in_t;
+
+    typedef struct {
+        nvme_regs__XF_CYCLES__count__in_t count;
+    } nvme_regs__XF_CYCLES__in_t;
+
+    typedef struct {
+        logic [2:0] next;
+    } nvme_regs__CQE_STATUS__count__in_t;
+
+    typedef struct {
+        logic next;
+    } nvme_regs__CQE_STATUS__full__in_t;
+
+    typedef struct {
+        logic next;
+    } nvme_regs__CQE_STATUS__cq_full__in_t;
+
+    typedef struct {
+        logic hwset;
+    } nvme_regs__CQE_STATUS__drop__in_t;
+
+    typedef struct {
+        logic hwset;
+    } nvme_regs__CQE_STATUS__werr__in_t;
+
+    typedef struct {
+        nvme_regs__CQE_STATUS__count__in_t count;
+        nvme_regs__CQE_STATUS__full__in_t full;
+        nvme_regs__CQE_STATUS__cq_full__in_t cq_full;
+        nvme_regs__CQE_STATUS__drop__in_t drop;
+        nvme_regs__CQE_STATUS__werr__in_t werr;
+    } nvme_regs__CQE_STATUS__in_t;
+
+    typedef struct {
+        logic [31:0] next;
+    } nvme_regs__CQES__count__in_t;
+
+    typedef struct {
+        nvme_regs__CQES__count__in_t count;
+    } nvme_regs__CQES__in_t;
+
+    typedef struct {
         logic hwclr;
     } nvme_regs__IOQ__SQ_CFG__en__in_t;
 
@@ -227,6 +302,10 @@ package nvme_regs_pkg;
         nvme_regs__ASQ_HI__in_t ASQ_HI;
         nvme_regs__ACQ_LO__in_t ACQ_LO;
         nvme_regs__ACQ_HI__in_t ACQ_HI;
+        nvme_regs__XF_STATUS__in_t XF_STATUS;
+        nvme_regs__XF_CYCLES__in_t XF_CYCLES;
+        nvme_regs__CQE_STATUS__in_t CQE_STATUS;
+        nvme_regs__CQES__in_t CQES;
         nvme_regs__IOQ__in_t IOQ[4];
         nvme_regs__SQ_PTR__in_t SQ_PTR[5];
         nvme_regs__CQ_PTR__in_t CQ_PTR[5];
@@ -237,7 +316,12 @@ package nvme_regs_pkg;
     } nvme_regs__CTRL__ien_cmd__out_t;
 
     typedef struct {
+        logic value;
+    } nvme_regs__CTRL__ien_xfer__out_t;
+
+    typedef struct {
         nvme_regs__CTRL__ien_cmd__out_t ien_cmd;
+        nvme_regs__CTRL__ien_xfer__out_t ien_xfer;
     } nvme_regs__CTRL__out_t;
 
     typedef struct {
@@ -261,15 +345,20 @@ package nvme_regs_pkg;
     } nvme_regs__EVENT__fetch_err__out_t;
 
     typedef struct {
+        logic value;
+    } nvme_regs__EVENT__cqe_err__out_t;
+
+    typedef struct {
         nvme_regs__EVENT__enable__out_t enable;
         nvme_regs__EVENT__reset__out_t reset;
         nvme_regs__EVENT__shutdown__out_t shutdown;
         nvme_regs__EVENT__db_err__out_t db_err;
         nvme_regs__EVENT__fetch_err__out_t fetch_err;
+        nvme_regs__EVENT__cqe_err__out_t cqe_err;
     } nvme_regs__EVENT__out_t;
 
     typedef struct {
-        logic [4:0] value;
+        logic [5:0] value;
     } nvme_regs__EVENT_EN__en__out_t;
 
     typedef struct {
@@ -300,6 +389,128 @@ package nvme_regs_pkg;
     typedef struct {
         nvme_regs__SLOT_FREE__slot__out_t slot;
     } nvme_regs__SLOT_FREE__out_t;
+
+    typedef struct {
+        logic [31:0] value;
+    } nvme_regs__XF_PRP1_LO__value__out_t;
+
+    typedef struct {
+        nvme_regs__XF_PRP1_LO__value__out_t value;
+    } nvme_regs__XF_PRP1_LO__out_t;
+
+    typedef struct {
+        logic [31:0] value;
+    } nvme_regs__XF_PRP1_HI__value__out_t;
+
+    typedef struct {
+        nvme_regs__XF_PRP1_HI__value__out_t value;
+    } nvme_regs__XF_PRP1_HI__out_t;
+
+    typedef struct {
+        logic [31:0] value;
+    } nvme_regs__XF_PRP2_LO__value__out_t;
+
+    typedef struct {
+        nvme_regs__XF_PRP2_LO__value__out_t value;
+    } nvme_regs__XF_PRP2_LO__out_t;
+
+    typedef struct {
+        logic [31:0] value;
+    } nvme_regs__XF_PRP2_HI__value__out_t;
+
+    typedef struct {
+        nvme_regs__XF_PRP2_HI__value__out_t value;
+    } nvme_regs__XF_PRP2_HI__out_t;
+
+    typedef struct {
+        logic [29:0] value;
+    } nvme_regs__XF_LADDR__addr__out_t;
+
+    typedef struct {
+        nvme_regs__XF_LADDR__addr__out_t addr;
+    } nvme_regs__XF_LADDR__out_t;
+
+    typedef struct {
+        logic [15:0] value;
+    } nvme_regs__XF_LEN__bytes__out_t;
+
+    typedef struct {
+        nvme_regs__XF_LEN__bytes__out_t bytes;
+    } nvme_regs__XF_LEN__out_t;
+
+    typedef struct {
+        logic value;
+    } nvme_regs__XF_CTRL__start__out_t;
+
+    typedef struct {
+        logic value;
+    } nvme_regs__XF_CTRL__d2h__out_t;
+
+    typedef struct {
+        nvme_regs__XF_CTRL__start__out_t start;
+        nvme_regs__XF_CTRL__d2h__out_t d2h;
+    } nvme_regs__XF_CTRL__out_t;
+
+    typedef struct {
+        logic value;
+    } nvme_regs__XF_STATUS__done__out_t;
+
+    typedef struct {
+        logic value;
+    } nvme_regs__XF_STATUS__err__out_t;
+
+    typedef struct {
+        nvme_regs__XF_STATUS__done__out_t done;
+        nvme_regs__XF_STATUS__err__out_t err;
+    } nvme_regs__XF_STATUS__out_t;
+
+    typedef struct {
+        logic [31:0] value;
+    } nvme_regs__CQE_DW0__value__out_t;
+
+    typedef struct {
+        nvme_regs__CQE_DW0__value__out_t value;
+    } nvme_regs__CQE_DW0__out_t;
+
+    typedef struct {
+        logic [15:0] value;
+    } nvme_regs__CQE_INFO__cid__out_t;
+
+    typedef struct {
+        logic [2:0] value;
+    } nvme_regs__CQE_INFO__sqid__out_t;
+
+    typedef struct {
+        nvme_regs__CQE_INFO__cid__out_t cid;
+        nvme_regs__CQE_INFO__sqid__out_t sqid;
+    } nvme_regs__CQE_INFO__out_t;
+
+    typedef struct {
+        logic [2:0] value;
+        logic swmod;
+    } nvme_regs__CQE_CTRL__cqid__out_t;
+
+    typedef struct {
+        logic [14:0] value;
+    } nvme_regs__CQE_CTRL__status__out_t;
+
+    typedef struct {
+        nvme_regs__CQE_CTRL__cqid__out_t cqid;
+        nvme_regs__CQE_CTRL__status__out_t status;
+    } nvme_regs__CQE_CTRL__out_t;
+
+    typedef struct {
+        logic value;
+    } nvme_regs__CQE_STATUS__drop__out_t;
+
+    typedef struct {
+        logic value;
+    } nvme_regs__CQE_STATUS__werr__out_t;
+
+    typedef struct {
+        nvme_regs__CQE_STATUS__drop__out_t drop;
+        nvme_regs__CQE_STATUS__werr__out_t werr;
+    } nvme_regs__CQE_STATUS__out_t;
 
     typedef struct {
         logic [19:0] value;
@@ -390,6 +601,18 @@ package nvme_regs_pkg;
         nvme_regs__CMDBUF__out_t CMDBUF;
         nvme_regs__CMD__out_t CMD;
         nvme_regs__SLOT_FREE__out_t SLOT_FREE;
+        nvme_regs__XF_PRP1_LO__out_t XF_PRP1_LO;
+        nvme_regs__XF_PRP1_HI__out_t XF_PRP1_HI;
+        nvme_regs__XF_PRP2_LO__out_t XF_PRP2_LO;
+        nvme_regs__XF_PRP2_HI__out_t XF_PRP2_HI;
+        nvme_regs__XF_LADDR__out_t XF_LADDR;
+        nvme_regs__XF_LEN__out_t XF_LEN;
+        nvme_regs__XF_CTRL__out_t XF_CTRL;
+        nvme_regs__XF_STATUS__out_t XF_STATUS;
+        nvme_regs__CQE_DW0__out_t CQE_DW0;
+        nvme_regs__CQE_INFO__out_t CQE_INFO;
+        nvme_regs__CQE_CTRL__out_t CQE_CTRL;
+        nvme_regs__CQE_STATUS__out_t CQE_STATUS;
         nvme_regs__IOQ__out_t IOQ[4];
     } nvme_regs__out_t;
 endpackage

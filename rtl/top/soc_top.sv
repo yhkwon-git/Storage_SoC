@@ -20,6 +20,9 @@
 //   S2 APB window             -> axi2apb: slot 0 SYS, 1 PMU, 2 INTC, 3 TIMER,
 //                                4 DMA, 5 HOST, 8 NVME
 //   S3, S4 NAND page buffers  -> axi_mem 4 KiB each until the NAND channels exist
+//   S5 NVMe local buffer      -> inside soc_pwr's host_if (nvme_lbuf, 0x5000_0000,
+//                                4 KiB window): PRP list entries and completion
+//                                queue entries on their way; host (M3) only
 //
 // Clocks clk_sys, clk_aon, clk_nand and pclk_in (the PHY PLL's frequency) are
 // inputs, and por_n is the power-on reset. soc_pwr holds the PMU, the reset
@@ -68,7 +71,15 @@ module soc_top (
 );
 
   localparam int NM = 4;
-  localparam int NS = 5;
+  localparam int NS = 6;
+
+  // Slaves: 0 ROM, 1 SRAM, 2 APB, 3 NAND0, 4 NAND1, 5 NVMe local buffer.
+  // Masters: 0 CPU instruction, 1 CPU data, 2 DMA, 3 host. Bit s = slave s.
+  localparam logic [NS-1:0][31:0] SLV_BASE = {32'h5000_0000, 32'h3001_0000, 32'h3000_0000,
+                                              32'h4000_0000, 32'h1000_0000, 32'h0000_0000};
+  localparam logic [NS-1:0][31:0] SLV_MASK = {32'hFFFF_F000, 32'hFFFF_F000, 32'hFFFF_F000,
+                                              32'hFFFF_0000, 32'hFFFF_0000, 32'hFFFF_C000};
+  localparam logic [NM-1:0][NS-1:0] CONN   = {6'b100110, 6'b011010, 6'b011111, 6'b000011};
 
   // Resets from soc_pwr (below): core, NAND, the core reset request for
   // further synchronizers, and the DMA's reset with its soft reset.
@@ -103,7 +114,9 @@ module soc_top (
 
   logic [NM-1:0]       stat_aw_id_stall, stat_ar_id_stall;
 
-  axi_xbar u_xbar (.clk(clk_sys), .rst_n(rst_sys_n), .*);
+  axi_xbar #(.NM(NM), .NS(NS), .SLV_BASE(SLV_BASE), .SLV_MASK(SLV_MASK), .CONN(CONN)) u_xbar (
+    .clk(clk_sys), .rst_n(rst_sys_n), .*
+  );
 
   // ---------------------------------------------------------------------------
   // CPU: Ibex and its two AXI ports (M0, M1)
@@ -243,6 +256,31 @@ module soc_top (
     .host_pwr_en   (host_pwr_en),
     .host_pwr_ack  (host_pwr_ack),
     .host_wake     (host_wake),
+    .nb_awid     (m_awid[5]),
+    .nb_awaddr   (m_awaddr[5]),
+    .nb_awlen    (m_awlen[5]),
+    .nb_awvalid  (m_awvalid[5]),
+    .nb_awready  (m_awready[5]),
+    .nb_wdata    (m_wdata[5]),
+    .nb_wstrb    (m_wstrb[5]),
+    .nb_wlast    (m_wlast[5]),
+    .nb_wvalid   (m_wvalid[5]),
+    .nb_wready   (m_wready[5]),
+    .nb_bid      (m_bid[5]),
+    .nb_bresp    (m_bresp[5]),
+    .nb_bvalid   (m_bvalid[5]),
+    .nb_bready   (m_bready[5]),
+    .nb_arid     (m_arid[5]),
+    .nb_araddr   (m_araddr[5]),
+    .nb_arlen    (m_arlen[5]),
+    .nb_arvalid  (m_arvalid[5]),
+    .nb_arready  (m_arready[5]),
+    .nb_rid      (m_rid[5]),
+    .nb_rdata    (m_rdata[5]),
+    .nb_rresp    (m_rresp[5]),
+    .nb_rlast    (m_rlast[5]),
+    .nb_rvalid   (m_rvalid[5]),
+    .nb_rready   (m_rready[5]),
     .host_rx_valid (host_rx_valid), .host_rx_ready (host_rx_ready), .host_rx_data (host_rx_data),
     .host_rx_sop   (host_rx_sop),   .host_rx_eop   (host_rx_eop),   .host_rx_ehalf (host_rx_ehalf),
     .host_tx_valid (host_tx_valid), .host_tx_ready (host_tx_ready), .host_tx_data (host_tx_data),
@@ -304,12 +342,13 @@ module soc_top (
   );
 
   // ---------------------------------------------------------------------------
-  // Memories: S0 ROM, S1 SRAM, S3/S4 NAND page buffers
+  // Memories: S0 ROM, S1 SRAM, S3/S4 NAND page buffers (S2 is the APB bridge,
+  // S5 the NVMe local buffer in soc_pwr)
   // ---------------------------------------------------------------------------
-  localparam int MEM_WORDS [NS] = '{2048, 8192, 0, 512, 512};
+  localparam int MEM_WORDS [NS] = '{2048, 8192, 0, 512, 512, 0};
 
   for (genvar s = 0; s < NS; s++) begin : g_mem
-    if (s != 2) begin : g_m
+    if (s != 2 && s != 5) begin : g_m
       axi_mem #(
         .WORDS        (MEM_WORDS[s]),
         .READ_ONLY    (s == 0),
