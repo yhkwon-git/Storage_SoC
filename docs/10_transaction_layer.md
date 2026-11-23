@@ -4,6 +4,8 @@ Step 2-1 builds the host interface's transaction layer, in both directions: the 
 
 The structure follows the PCI Express Base Specification's transaction layer as far as this document says. Compliance is not claimed.
 
+> **Changed in step 2-2** ([11_nvme_queues.md](11_nvme_queues.md)): BAR0 `0x0000`–`0x1FFF` no longer goes to AXI. It is a register port inside the transaction layer that the NVMe controller's registers sit on, with writes and reads of up to 2 DWs like the MSI-X table, and HOST BAR0_WIN is gone. The bus master takes requests from the NVMe controller too, alternating with HOST-register transfers when both wait; a START that finds the bus master on an NVMe fetch waits for it, with BM_STATUS.BUSY set and BM_CYCLES counting. The rest of this document describes step 2-1 as measured at `4a8e515`, with one correction: its power mutation result below (11 of 11) did not count, because every mutant failed to build and the script took that as a catch ([11_nvme_queues.md](11_nvme_queues.md), Findings; fixed and rerun there).
+
 ## Blocks
 
 | Block | File | Role |

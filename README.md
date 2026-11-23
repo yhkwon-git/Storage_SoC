@@ -12,8 +12,8 @@ A RISC-V CPU, an AXI4 interconnect, DMA, SystemRDL-generated CSRs and always-on 
 
 | Item | Value |
 | --- | --- |
-| Current phase | Phase 2, host interface and NVMe front-end: step 2-1 (transaction layer) done. Next: 2-2 (NVMe registers and queues). Phase 1 is done; setup at the ss corner is not met (docs/09, docs/10) |
-| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 5 AXI4 crossbar, with SRAM, a descriptor-based DMA, and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; an always-on PMU that orders the resets and switches the PD_HOST domain with isolation and retention (UPF); a CPU clock gate; a PCIe-style transaction layer on the host link (inbound BARs, bus master, configuration space, MSI-X); dual-clock FIFO, 2-flop synchronizer, channel register slice |
+| Current phase | Phase 2, host interface and NVMe front-end: steps 2-1 (transaction layer) and 2-2 (NVMe registers and queues) done. Next: 2-3 (PRP data, completions, MSI-X per completion queue). Phase 1 is done; setup at the ss corner is not met (docs/09 to docs/11) |
+| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 5 AXI4 crossbar, with SRAM, a descriptor-based DMA, and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; an always-on PMU that orders the resets and switches the PD_HOST domain with isolation and retention (UPF); a CPU clock gate; a PCIe-style transaction layer on the host link (inbound BARs, bus master, configuration space, MSI-X); NVMe-style controller registers, doorbells and round-robin command fetch into SRAM for firmware; dual-clock FIFO, 2-flop synchronizer, channel register slice |
 | Verification tools | Vivado simulator 2019.2 (UVM 1.2), Verilator 5.052 |
 | Register generation | PeakRDL 1.5.0: register RTL, C header, UVM register model and register document from one source |
 | Implementation tools | sv2v 0.0.13, Yosys 0.52, OpenSTA 3.1.0, Sky130 HD from lambdapdk v0.2.9 (ss/tt/ff corners) |
@@ -72,7 +72,7 @@ flowchart LR
 | --- | --- | --- |
 | 0 | Toolchain checks, repository layout, CI, RISC-V GCC | Done |
 | 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | Done: 1-1 to 1-9; setup at ss not met (docs/09) |
-| 2 | Host interface: transaction layer and NVMe front-end (steps 2-1 to 2-5), then data link layer, PHY with a PIPE-style boundary and link training (steps 2-6 to 2-9) | In progress: 2-1 done |
+| 2 | Host interface: transaction layer and NVMe front-end (steps 2-1 to 2-5), then data link layer, PHY with a PIPE-style boundary and link training (steps 2-6 to 2-9) | In progress: 2-1 and 2-2 done |
 | 3 | Storage datapath: NAND channel controllers, NAND model, BCH, NVMe reads and writes through to NAND | Planned |
 | 4 | SoC-level UVM, verification plan, coverage closure | Planned |
 | 5 | Full-chip synthesis and multi-corner STA, documentation | Planned |
@@ -200,6 +200,15 @@ Transaction layer (commit 4a8e515, details in [docs/10_transaction_layer.md](doc
 - **Synthesis and timing.** tt meets every clock; the transaction layer is 61% of the 1.32 mm² of standard cells, mostly three 64-beat buffers in flops. CDC check PASS.
 - **Found on the way.** A zero-length read's Lower Address; an arbiter choice that changed under VALID; the first TLP after a power-up lost while the FIFO was still in reset; logic in front of a synchronizer; and an imported register slice whose data registers turned the reset net into a data input (−131 ns at tt until fixed).
 
+NVMe registers and queues (commit 883242d, details in [docs/11_nvme_queues.md](docs/11_nvme_queues.md)):
+
+- **Design.** CAP, VS, CC, CSTS, AQA, ASQ, ACQ and the doorbells of the admin queue and four I/O queue pairs sit on a register port inside the transaction layer (BAR0), with no AXI on the way. CC.EN enables and resets the controller, CC.SHN shuts it down, and bad doorbells are reported to firmware. The controller fetches commands round robin through the transaction layer's bus master into 16 command slots in SRAM and hands {queue, slot} to firmware through a FIFO. Firmware creates the I/O queues from the admin commands.
+- **Block testbench.** The host model as an NVMe host against eight directed tests and a random test with controller resets and shutdowns; every command checked for queue, order and content. Over 10 seeds: 20,008 commands submitted, 15,395 fetched and checked through 50 controller resets, 0 errors, 49 of 49 covergroup bins. Mutation check: 14 of 14.
+- **Fetch rate.** 40 clocks per command with a fast host, one fetch at a time: 1.25 million commands per second at 50 MHz.
+- **SoC.** A new firmware test takes Create I/O Completion Queue and Create I/O Submission Queue from the host, sets up the queue pair, and receives 12 Read commands on it, alone and with host traffic in the background. The APB bridge now has 16 slots.
+- **Synthesis and timing.** The controller is 3.6% of the standard-cell area; tt meets every clock; CDC check PASS with no new crossings.
+- **Found on the way.** A 16-slot APB bridge whose range check truncated 16 to 0, caught by lint; and the power mutation check, which had been counting build failures as catches since step 2-1.
+
 ## How to run
 
 ```bash
@@ -213,11 +222,12 @@ powershell -ExecutionPolicy Bypass -File flow\tools\check_xsim.ps1   # [TOOLS] x
 ```
 
 ```bash
-# Block and SoC checks (Linux or WSL): lint, UPF check, dual-clock FIFO, register slice, crossbar, DMA, transaction layer, power, firmware on soc_top
-make -C dv                                                           # [LINT] [ISO] PASS ... [XBAR] [DMA] [TL] [PWR] [SOC] all runs PASS
+# Block and SoC checks (Linux or WSL): lint, UPF check, dual-clock FIFO, register slice, crossbar, DMA, transaction layer, NVMe queues, power, firmware on soc_top
+make -C dv                                                           # [LINT] [ISO] PASS ... [XBAR] [DMA] [TL] [NVME] [PWR] [SOC] all runs PASS
 make -C dv xbar-mut                                                  # [MUT] 7 of 7 mutants caught
 make -C dv dma-mut                                                   # [MUT] 10 of 10 mutants caught
-make -C dv tl-mut                                                    # [MUT] 13 of 13 mutants caught
+make -C dv tl-mut                                                    # [MUT] 16 of 16 mutants caught
+make -C dv nvme-mut                                                  # [MUT] 14 of 14 mutants caught
 make -C dv power-mut                                                 # [MUT] 11 of 11 mutants caught
 make -C dv power-x                                                   # [PWR] X run PASS: power testbench on xsim (WSL calls Windows)
 make -C fw images                                                    # rebuild fw/images (needs riscv-none-elf-gcc on PATH)
@@ -252,6 +262,7 @@ rtl/csr/             SystemRDL source (rdl/) and the register blocks generated f
 rtl/dma/             descriptor-based DMA
 rtl/host/            PD_HOST boundary, its placeholder logic, core side (HOST registers, FIFOs), PLL model
 rtl/host/tl/         transaction layer: receive buffer, pack and unpack, dispatcher, configuration space, MSI-X, completer, bus master, link-side port
+rtl/host/nvme/       NVMe controller: host registers and doorbells, queue pointers, round-robin fetch, command slots and FIFO
 rtl/mem/             AXI4 ROM and SRAM
 rtl/periph/          APB SYS, interrupt controller, timer around the generated registers
 rtl/pmu/             PMU, APB clock-domain crossing, isolation cell, retention register
@@ -275,6 +286,7 @@ rtl/vendor/ibex/     Ibex v2.1.0, unchanged (VENDOR.md)
 | [docs/08_firmware.md](docs/08_firmware.md) | Driver layer, interrupt dispatch and race-free sleep, soc_app's phases and results, CPU and DMA together, clock counts of every program |
 | [docs/09_timing.md](docs/09_timing.md) | Synthesis flow, SRAM macro models, constraints, area by block, timing at three corners and the critical paths, the CDC check and what it found |
 | [docs/10_transaction_layer.md](docs/10_transaction_layer.md) | Transaction layer: what the host and the SoC see (configuration space, BARs, request handling, HOST registers, link hold), design decisions, host model and tests, throughput, mutation check, SoC tests, area, timing and CDC, findings |
+| [docs/11_nvme_queues.md](docs/11_nvme_queues.md) | NVMe registers and queues: what the host and the firmware see, enable, reset and shutdown, doorbells, round-robin fetch, design decisions, block tests, throughput, mutation check, SoC firmware test, area, timing and CDC, findings |
 | [docs/regs/soc_apb.md](docs/regs/soc_apb.md) | Generated register reference: every register and field with offset, access and reset value |
 
 ## Limitations
@@ -296,7 +308,7 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
 - **Storage path.** NAND channel controller 2개와 BCH ECC, NVMe Read·Write를 SRAM을 거쳐 NAND까지 처리하는 firmware입니다.
 - **진행 순서.** Phase 1 → 2-1~2-5(transaction 수준 host 모델로 NVMe) → Phase 3 → 2-6~2-9(link · PHY) → Phase 4, 5. NVMe 명령이 NAND까지 가는 경로를 serial link보다 먼저 완성합니다.
 - **검증과 구현.** IP별 TB를 먼저 만들고, SoC 전체는 UVM(Vivado simulator 2019.2)으로 sign-off합니다. lint, 빠른 regression, coverage는 Verilator 5.052, 합성과 multi-corner STA는 Yosys, OpenSTA, Sky130으로 합니다.
-- **현재 상태.** Phase 0(도구 확인, repo 구조, CI, RISC-V GCC)과 Phase 1(SoC platform, 1-1~1-9)이 끝났고, ss corner의 setup 미충족은 docs/09에 기록했습니다. Phase 2는 2-1(transaction layer)을 마쳤고, 다음은 2-2(NVMe register와 queue)입니다.
+- **현재 상태.** Phase 0(도구 확인, repo 구조, CI, RISC-V GCC)과 Phase 1(SoC platform, 1-1~1-9)이 끝났고, ss corner의 setup 미충족은 docs/09에 기록했습니다. Phase 2는 2-1(transaction layer)과 2-2(NVMe register와 queue)를 마쳤고, 다음은 2-3(PRP 데이터, completion, completion queue별 MSI-X)입니다.
   - 1-1 아키텍처 사양([docs/01_soc_architecture.md](docs/01_soc_architecture.md)): clock 5개와 crossing 규칙, reset 해제 순서, PD_HOST의 isolation·retention·power sequence, AXI4 규칙, address·interrupt map, 목표 주파수를 정했습니다.
   - 1-2 공통 블록([docs/02_common_blocks.md](docs/02_common_blocks.md)): 이전 프로젝트의 2-FF synchronizer와 register slice는 로직을 그대로 가져왔습니다. dual-clock FIFO는 같은 TB로 측정한 결과 처리량이 상한의 12.5~24.8%(4:1 비율만 50~68%)에 그쳐서 새로 설계했고, 새 FIFO는 12개 run 모두 데이터 오류 0, 상한의 97.9~101.0%를 냈습니다(commit 8ce1fac).
   - 1-3 AXI4 crossbar([docs/03_axi_crossbar.md](docs/03_axi_crossbar.md)): 4×5 sparse 구조이고, 같은 ID가 outstanding인 동안 다른 slave로 넘어가지 않게 해서 reorder buffer 없이 응답 순서를 지킵니다. master마다 DECERR slave를 두고, W는 master와 slave 양쪽의 AW 순서를 따르게 했습니다(commit 76fd272).
@@ -352,5 +364,11 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
     - **성능.** 막힘이 없을 때 inbound 256 byte write 7.05 B/clock, 4 KiB read 동시 처리 6.70, 64 KiB bus master 7.07(host→SoC)·7.28(SoC→host)이고, 1 DW read는 13 clock입니다.
     - **SoC 테스트.** host 모델이 모든 firmware test에서 enumeration을 하고, 배경 트래픽과 APB 검사가 BAR2·BAR0를 거칩니다. 새 firmware test는 host memory에서 8 KiB를 1,444 clock에 가져오고 1,188 clock에 돌려보냅니다. host link를 쓰지 않는 기존 test의 clock 수는 모두 그대로입니다.
     - **찾은 문제.** zero-length read의 Lower Address, VALID 중에 바뀌던 arbiter 선택, 전원 복귀 직후 FIFO reset 해제 전에 받아 잃어버린 첫 TLP, synchronizer 앞의 logic, 그리고 data register 때문에 reset net이 data 입력이 되어 tt에서 −131 ns가 났던 register slice를 찾아 고쳤습니다(commit 4a8e515).
+  - 2-2 NVMe register와 queue([docs/11_nvme_queues.md](docs/11_nvme_queues.md)):
+    - **구조.** CAP, VS, CC, CSTS, AQA, ASQ, ACQ와 admin queue·I/O queue 4쌍의 doorbell을 transaction layer 안의 register port(BAR0)에 두어 AXI를 거치지 않습니다. CC.EN으로 enable·reset, CC.SHN으로 shutdown을 처리하고, 잘못된 doorbell은 firmware에 알립니다. 명령은 transaction layer의 bus master로 round robin fetch해 SRAM의 command slot 16개에 넣고, {queue, slot}을 FIFO로 firmware에 넘깁니다. I/O queue는 firmware가 admin 명령을 보고 만듭니다.
+    - **검증.** host 모델이 NVMe host 역할을 하며 directed 8종과 controller reset·shutdown이 섞인 random을 돌렸고, 모든 명령의 queue·순서·내용을 확인합니다. 10 seed에서 명령 20,008개를 제출해 15,395개를 fetch·확인했고(controller reset 50회), 오류 0, covergroup 49/49입니다. mutation 14/14입니다.
+    - **성능.** 빠른 host에서 명령 하나 fetch에 40 clock이고 한 번에 하나씩 처리하므로, 50 MHz에서 초당 125만 개입니다.
+    - **SoC 테스트.** 새 firmware test가 host의 Create I/O Completion Queue·Create I/O Submission Queue를 받아 queue 쌍을 만들고, 그 queue로 Read 명령 12개를 받습니다. 배경 host 트래픽이 있을 때도 통과합니다. APB bridge는 slot 16개가 되었습니다.
+    - **찾은 문제.** slot 수 16을 4 bit로 잘라 0과 비교하던 APB bridge의 범위 검사를 lint가 잡았고, 2-1부터 build 실패를 검출로 세던 power mutation 검사를 고쳤습니다(commit 883242d).
 - **범위.** 공개 자료만으로 구성하며 PCIe, NVMe, M-PHY, UniPro 규격 준수를 주장하지 않습니다. NVMe는 공개된 Base Specification의 register · queue · PRP 구조 일부만 따릅니다.
 - **LLM 사용.** 코드, 테스트, 문서 초안에 LLM(Claude)을 쓰고, repo 안의 regression과 검사를 통과한 결과만 반영합니다.

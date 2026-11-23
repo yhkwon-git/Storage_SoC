@@ -156,7 +156,7 @@ In both, retained state must come back after power-up, and non-retained state mu
 | M0 | CPU instruction | Ibex OBI-style, 32 bit | AXI4 read-only, upsized to 64 bit |
 | M1 | CPU data | Ibex OBI-style, 32 bit | AXI4, upsized to 64 bit |
 | M2 | DMA | AXI4, 64 bit | AXI4 |
-| M3 | Transaction layer (step 2-1): inbound BAR windows and the bus master's local reads and writes | AXI4, 64 bit | AXI4 |
+| M3 | Transaction layer (step 2-1): inbound BAR2 window and the bus master's local reads and writes, which also carry the NVMe controller's command fetches (step 2-2) | AXI4, 64 bit | AXI4 |
 | S0 | Boot ROM | | Read-only, writes get SLVERR |
 | S1 | SRAM | | |
 | S2 | AXI to APB bridge | APB4, 32 bit | Downsized; one APB transfer per 32-bit word |
@@ -198,7 +198,7 @@ The ID-ordering rule is the usual deadlock-free choice for a crossbar without re
 | `0x1000_0000` – `0x1000_FFFF` | 64 KiB | SRAM |
 | `0x3000_0000` – `0x3000_0FFF` | 4 KiB | NAND0 page buffer |
 | `0x3001_0000` – `0x3001_0FFF` | 4 KiB | NAND1 page buffer |
-| `0x4000_0000` – `0x4000_FFFF` | 64 KiB | APB, 4 KiB per block, below |
+| `0x4000_0000` – `0x4000_FFFF` | 64 KiB | APB, 4 KiB per block (16 slots), below |
 | Everything else | | DECERR |
 
 | APB block | Base | Contents |
@@ -211,22 +211,25 @@ The ID-ordering rule is the usual deadlock-free choice for a crossbar without re
 | HOST | `0x4000_5000` | Link hold and status, BAR window bases, bus master, MSI-X requests, error status, TLP counts |
 | NAND0 | `0x4000_6000` | Channel timing, command queue, status, ECC counters |
 | NAND1 | `0x4000_7000` | Same as NAND0 |
+| NVME | `0x4000_8000` | NVMe controller, firmware side: controller state and events, command FIFO, command-buffer slots, I/O queue setup, queue pointers |
 
-A slot without a peripheral, and an undefined offset inside one, answer SLVERR (PSLVERR on the APB side). As of step 2-1, SYS, PMU, INTC, TIMER, DMA and HOST exist ([06_dma.md](06_dma.md) for the DMA, [07_clock_reset_power.md](07_clock_reset_power.md) for the PMU, [10_transaction_layer.md](10_transaction_layer.md) for HOST, which still holds the PD_HOST placeholder's command registers too). The PMU is in PD_AON and is reached through an APB clock-domain crossing. Their register files are generated from one SystemRDL source, `rtl/csr/rdl/soc_apb.rdl` ([05_csr.md](05_csr.md)), and every register and field is listed in [regs/soc_apb.md](regs/soc_apb.md). Blocks added later put their registers in the same source.
+A slot without a peripheral, and an undefined offset inside one, answer SLVERR (PSLVERR on the APB side). As of step 2-2, SYS, PMU, INTC, TIMER, DMA, HOST and NVME exist ([06_dma.md](06_dma.md) for the DMA, [07_clock_reset_power.md](07_clock_reset_power.md) for the PMU, [10_transaction_layer.md](10_transaction_layer.md) for HOST, which still holds the PD_HOST placeholder's command registers too, [11_nvme_queues.md](11_nvme_queues.md) for NVME). The PMU is in PD_AON and is reached through an APB clock-domain crossing. Their register files are generated from one SystemRDL source, `rtl/csr/rdl/soc_apb.rdl` ([05_csr.md](05_csr.md)), and every register and field is listed in [regs/soc_apb.md](regs/soc_apb.md). Blocks added later put their registers in the same source.
 
 The host sees two memory BARs (step 2-1; the plan of one 64 KiB window was split for NVMe):
-- **BAR0**, 16 KiB, 64-bit: offsets `0x0000`–`0x1FFF` go to AXI at HOST BAR0_WIN (`0x4000_8000` at reset, the APB slots the NVMe registers take in step 2-2); `0x2000` holds the MSI-X table and `0x3000` its Pending Bit Array, both inside the transaction layer.
+- **BAR0**, 16 KiB, 64-bit: offsets `0x0000`–`0x1FFF` are the NVMe controller's registers (CAP, VS, CC, CSTS, AQA, ASQ, ACQ, doorbells at `0x1000`), reached through the transaction layer's register port without AXI (step 2-2, [11_nvme_queues.md](11_nvme_queues.md)); `0x2000` holds the MSI-X table and `0x3000` its Pending Bit Array, both inside the transaction layer.
 - **BAR2**, 32 KiB, 64-bit prefetchable: goes to AXI at HOST BAR2_WIN, the upper half of SRAM (`0x1000_8000`) at reset.
+
+The NVMe controller fetches submission queue entries with the transaction layer's bus master into a command buffer of 16 slots of 64 bytes in SRAM, `0x1000_BC00`–`0x1000_BFFF` at reset (NVME CMDBUF).
 
 ## 7. Interrupts
 
-Ibex has dedicated timer and external interrupt inputs. The timer drives `irq_timer`, and everything else goes through the INTC to `irq_external`. Sources are levels: a source in another clock domain sets a sticky status bit in its CSR block, and the INTC sees status AND enable. As of step 2-1, sources 1 and 2 (the DMA's STATUS.DONE and STATUS.ERR), 5 (HOST ERR_STATUS), 10 (the PMU's PWR_IRQ) and 12 (HOST BM_STATUS.DONE or ERR) are wired; the others follow with their blocks.
+Ibex has dedicated timer and external interrupt inputs. The timer drives `irq_timer`, and everything else goes through the INTC to `irq_external`. Sources are levels: a source in another clock domain sets a sticky status bit in its CSR block, and the INTC sees status AND enable. As of step 2-2, sources 1 and 2 (the DMA's STATUS.DONE and STATUS.ERR), 3 (NVME: a command waiting, or a controller event), 5 (HOST ERR_STATUS), 10 (the PMU's PWR_IRQ) and 12 (HOST BM_STATUS.DONE or ERR) are wired; the others follow with their blocks.
 
 | ID | Source |
 | --- | --- |
 | 1 | DMA done |
 | 2 | DMA error |
-| 3 | Host doorbell |
+| 3 | NVMe: a fetched command waiting (CTRL.IEN_CMD), or a controller event (EVENT and EVENT_EN: enable, reset, shutdown, bad doorbell, failed fetch) |
 | 4 | Host link state change |
 | 5 | Host error: unsupported request, malformed or poisoned TLP, completion error or timeout, AXI error (LCRC and sequence errors from step 2-6) |
 | 6 | NAND0 ready |

@@ -105,7 +105,11 @@ The numbers above are those of `7a0d727`. Step 2-1 (`4a8e515`, [10_transaction_l
 - **Fanout buffering.** `buffer_fanout.py` writes an escaped name with brackets in it (from an unpacked array) with its terminating space.
 - **Register slice.** Its data registers moved out of its reset process; in it, synthesis turned the reset net into a data input.
 
-The results after step 2-1 are in docs/10.
+Step 2-2 ([11_nvme_queues.md](11_nvme_queues.md)) added to the flow:
+- **STA summary.** `summary_<corner>.txt` also gives the worst setup slack of the paths that start in the transaction layer (`u_pwr.u_host_if.u_tl`) and in the NVMe controller (`u_pwr.u_host_if.u_nvme`).
+- **Area by block.** The NVMe controller is a block of its own.
+
+The results after step 2-1 are in docs/10, and those after step 2-2 in docs/11.
 
 ## Limits
 
