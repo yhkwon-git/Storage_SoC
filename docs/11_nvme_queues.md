@@ -1,6 +1,6 @@
 # NVMe registers and queues
 
-Step 2-2 builds the NVMe-style controller's register interface and its submission side. The host enables the controller, rings doorbells, and the controller fetches its commands from host memory into SRAM, round robin across the admin queue and four I/O queues. Firmware takes the fetched commands from a FIFO, handles the admin commands that create I/O queues, and returns each command buffer slot. Completion queue entries, PRP data transfers and per-queue MSI-X come in step 2-3. RTL, testbenches, firmware and scripts are at commit `883242d`, and every result below was measured there.
+Step 2-2 builds the NVMe-style controller's register interface and its submission side. The host enables the controller, rings doorbells, and the controller fetches its commands from host memory into SRAM, round robin across the admin queue and four I/O queues. Firmware takes the fetched commands from a FIFO, handles the admin commands that create I/O queues, and returns each command buffer slot. Completion queue entries, PRP data transfers and per-queue MSI-X come in step 2-3. The step's RTL, firmware and scripts are in commit `883242d`, and `d3a786e` makes the block testbench's directed tests cover every bin (Findings). Every result below was measured at `d3a786e`, whose RTL is that of `883242d`.
 
 The registers and queues follow the NVM Express Base Specification's layout as far as this document says. Compliance is not claimed.
 
@@ -101,12 +101,12 @@ The firmware's part of a command's life, as `fw/tests/nvme.c` does it: on the in
 | --- | --- |
 | `regs` | CAP fields, VS, write masks of CC and AQA, ASQ and ACQ low bits, CSTS read-only, INTMS, NSSR, doorbells and reserved space read 0; firmware mirrors; STATUS and CMDBUF at reset; PSLVERR for unmapped firmware addresses |
 | `enable` | CC.EN to RDY and back, EVENT.ENABLE and RESET, an event interrupt through EVENT_EN, a second enable from a clean state |
-| `fetch` | 30 admin commands through a 4-entry queue, so the head wraps many times; firmware pace random; the command interrupt |
+| `fetch` | 30 admin commands through a 4-entry queue, then 32 commands through four 3-entry I/O queues, so every head wraps many times; firmware pace random; the command interrupt |
 | `rr` | All 16 slots taken, then six commands in each of the five queues: the fetch order cycles through the queues; the command interrupt follows CTRL.IEN_CMD |
 | `doorbell` | Tail equal to the size, a queue not created, a head beyond the queue (SQ and CQ): ignored, reported in DB_ERR and EVENT.DB_ERR; a good CQ head doorbell taken |
 | `ferr` | A fetch answered with UR: CSTS.CFS, EVENT.FETCH_ERR, the slot back, no command; cleared by a reset |
-| `shutdown` | SHN right behind a doorbell, with a fetch in flight: SHST reads "complete" only after it, and nothing is fetched afterwards |
-| `reset` | A controller reset with commands waiting and a fetch in flight: no command, 16 free slots, all pointers 0, I/O queues disabled; after the next enable only new commands arrive |
+| `shutdown` | SHN right behind a doorbell, with the host answering after 300 clocks so a fetch is in flight: SHST reads "complete" only after it, and nothing is fetched afterwards |
+| `reset` | A controller reset with commands waiting and a fetch in flight (the host answers after 300 clocks); firmware takes a command and returns its slot while the reset waits. Then no command, 16 free slots, all pointers 0, I/O queues disabled; after the next enable only new commands arrive |
 
 **Random test** (`+test=random`): queues of 2 to 40 entries, commands into random queues in random batches, firmware taking commands at a random pace, and now and then a controller reset (half of them after a shutdown, with firmware still popping while the reset runs) followed by new queue sizes. Commands that firmware has not taken before a reset are dropped, as a host that resets its controller expects.
 
@@ -120,7 +120,7 @@ Over 10 seeds of 2,000 commands (`make -C dv nvme`), in all 0 errors:
 | Line, branch, expression (`rtl/host/nvme/`) | 40 of 51, 54 of 54, 93 of 98 |
 | Toggle (`rtl/host/nvme/`) | 49.2% |
 
-The 11 lines not hit are the cases of the host-register read function, which Verilator does not count when a continuous assignment calls it; `regs` checks every value it returns. CI runs 3 seeds of 1,000 commands.
+The 11 lines not hit are the cases of the host-register read function, which Verilator does not count when a continuous assignment calls it; `regs` checks every value it returns. CI runs 3 seeds of 1,000 commands. The directed tests alone hit all 49 bins.
 
 **Throughput and latency** (`+test=perf`: the host answers after 2 clocks and takes every beat, the memory never stalls):
 
@@ -146,10 +146,10 @@ A fetch is a round trip through the whole transaction layer: request, MRd out, t
 | `db_range` | Submission doorbell beyond the queue size taken | `doorbell`: SQ0 tail moved |
 | `db_event` | Bad doorbell not reported | `doorbell`: EVENT.DB_ERR |
 | `cfs` | Failed fetch does not set CFS | `ferr` |
-| `flush` | Controller reset leaves commands in the FIFO | `reset`: STATUS shows 13 commands |
+| `flush` | Controller reset leaves commands in the FIFO | `reset`: STATUS shows 12 commands |
 | `ioq_clr` | Controller reset leaves I/O queues enabled | `reset`: SQ1 still enabled |
 | `shut_wait` | SHST complete with a fetch in flight | `shutdown`: a fetch counted after it |
-| `shut_stop` | Fetching goes on after a shutdown | `shutdown`: four more fetches |
+| `shut_stop` | Fetching goes on after a shutdown | `shutdown`: one more fetch |
 | `irq_en` | Command interrupt ignores CTRL.IEN_CMD | `rr`: interrupt with IEN_CMD clear |
 
 ### Transaction layer
@@ -192,7 +192,7 @@ A new firmware test, `fw/tests/nvme.c`, receives NVMe commands from the host mod
 
 ### Synthesis, timing and CDC
 
-`make -C flow` at `883242d`, pre-layout as in [09_timing.md](09_timing.md).
+`make -C flow` at `d3a786e`, pre-layout as in [09_timing.md](09_timing.md).
 
 **Area.** 104,160 cells and 1,387,894 µm² of standard cells, SRAM macros not counted: 67,899 µm² (5.1%) more than at `4a8e515`. By block (`flow/syn/area_by_block.py`, total 1,392,863 µm² with the fanout buffers):
 
@@ -223,7 +223,7 @@ A new firmware test, `fw/tests/nvme.c`, receives NVMe commands from the host mod
 - **A 16-slot APB bridge would have selected nothing.** `axi2apb` checked a slot number against `4'(NSLOT)`. At NSLOT 16 that is 0, so every APB access would have failed. Lint caught it as a constant comparison when NVME moved the bridge to 16 slots; the range check is now left out at 16 slots.
 - **The power mutation check had been counting build failures as catches.** At `4a8e515`, `run_power.sh` started taking the transaction layer and the register slice from the mutant's RTL copy, but `dv/mutate_power.sh` did not copy those directories. Every mutant then failed to build, and the script counted that as caught, so the "11 of 11" in [10_transaction_layer.md](10_transaction_layer.md) was not a real result. The script now copies every directory the power testbench builds from, and stops when a mutant does not build. After the fix, all 11 mutants are caught by the testbench's own checks.
 - **A shutdown notification with the controller off started a shutdown.** Found while writing `regs`, which writes every CC bit with EN clear. SHN now acts only while the controller is on, and a controller reset clears SHST.
-- **Testbench issues on the way:** the firmware model gave up after 30 empty polls, less than one fetch at the host model's latency; a CQ_CFG field was packed one bit off; and the random test's resets were too rare in short runs to catch reset bugs, so the `reset` test was added.
+- **Testbench issues on the way:** the firmware model gave up after 30 empty polls, less than one fetch at the host model's latency; a CQ_CFG field was packed one bit off; and the random test's resets were too rare in short runs to catch reset bugs, so the `reset` test was added. CI's first run at `883242d` failed on coverage: with its 3 seeds of 1,000 commands, no random reset met a SLOT_FREE, so one bin stayed empty. The `reset` and `shutdown` tests now hold the fetch in flight with a slow host, and `fetch` wraps the I/O queues, so the directed tests hit every bin on their own.
 
 ## Limits
 

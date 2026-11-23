@@ -200,7 +200,7 @@ Transaction layer (commit 4a8e515, details in [docs/10_transaction_layer.md](doc
 - **Synthesis and timing.** tt meets every clock; the transaction layer is 61% of the 1.32 mm² of standard cells, mostly three 64-beat buffers in flops. CDC check PASS.
 - **Found on the way.** A zero-length read's Lower Address; an arbiter choice that changed under VALID; the first TLP after a power-up lost while the FIFO was still in reset; logic in front of a synchronizer; and an imported register slice whose data registers turned the reset net into a data input (−131 ns at tt until fixed).
 
-NVMe registers and queues (commit 883242d, details in [docs/11_nvme_queues.md](docs/11_nvme_queues.md)):
+NVMe registers and queues (commits 883242d and d3a786e, details in [docs/11_nvme_queues.md](docs/11_nvme_queues.md)):
 
 - **Design.** CAP, VS, CC, CSTS, AQA, ASQ, ACQ and the doorbells of the admin queue and four I/O queue pairs sit on a register port inside the transaction layer (BAR0), with no AXI on the way. CC.EN enables and resets the controller, CC.SHN shuts it down, and bad doorbells are reported to firmware. The controller fetches commands round robin through the transaction layer's bus master into 16 command slots in SRAM and hands {queue, slot} to firmware through a FIFO. Firmware creates the I/O queues from the admin commands.
 - **Block testbench.** The host model as an NVMe host against eight directed tests and a random test with controller resets and shutdowns; every command checked for queue, order and content. Over 10 seeds: 20,008 commands submitted, 15,395 fetched and checked through 50 controller resets, 0 errors, 49 of 49 covergroup bins. Mutation check: 14 of 14.
@@ -369,6 +369,6 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
     - **검증.** host 모델이 NVMe host 역할을 하며 directed 8종과 controller reset·shutdown이 섞인 random을 돌렸고, 모든 명령의 queue·순서·내용을 확인합니다. 10 seed에서 명령 20,008개를 제출해 15,395개를 fetch·확인했고(controller reset 50회), 오류 0, covergroup 49/49입니다. mutation 14/14입니다.
     - **성능.** 빠른 host에서 명령 하나 fetch에 40 clock이고 한 번에 하나씩 처리하므로, 50 MHz에서 초당 125만 개입니다.
     - **SoC 테스트.** 새 firmware test가 host의 Create I/O Completion Queue·Create I/O Submission Queue를 받아 queue 쌍을 만들고, 그 queue로 Read 명령 12개를 받습니다. 배경 host 트래픽이 있을 때도 통과합니다. APB bridge는 slot 16개가 되었습니다.
-    - **찾은 문제.** slot 수 16을 4 bit로 잘라 0과 비교하던 APB bridge의 범위 검사를 lint가 잡았고, 2-1부터 build 실패를 검출로 세던 power mutation 검사를 고쳤습니다(commit 883242d).
+    - **찾은 문제.** slot 수 16을 4 bit로 잘라 0과 비교하던 APB bridge의 범위 검사를 lint가 잡았고, 2-1부터 build 실패를 검출로 세던 power mutation 검사를 고쳤습니다(commit 883242d, d3a786e).
 - **범위.** 공개 자료만으로 구성하며 PCIe, NVMe, M-PHY, UniPro 규격 준수를 주장하지 않습니다. NVMe는 공개된 Base Specification의 register · queue · PRP 구조 일부만 따릅니다.
 - **LLM 사용.** 코드, 테스트, 문서 초안에 LLM(Claude)을 쓰고, repo 안의 regression과 검사를 통과한 결과만 반영합니다.
