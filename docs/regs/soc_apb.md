@@ -60,11 +60,11 @@ Don't override. Generated from: soc_apb
 - Base Offset: 0x4
 - Size: 0x4
 
-<p>Register map version: 0x0002_0003 is the map of step 2-3 (NVMe data transfers by PRP and completion queue entries).</p>
+<p>Register map version: 0x0002_0005 is the map of step 2-5 (NVMe controller epochs).</p>
 
 |Bits|Identifier|Access| Reset |Name|
 |----|----------|------|-------|----|
-|31:0|   value  |   r  |0x20003|  — |
+|31:0|   value  |   r  |0x20005|  — |
 
 ### SCRATCH register
 
@@ -1009,7 +1009,7 @@ Don't override. Generated from: soc_apb
 - Base Offset: 0x8000
 - Size: 0x234
 
-<p>Firmware side of the NVMe controller (rtl/host/nvme/nvme_ctrl.sv, docs/11_nvme_queues.md, docs/12_nvme_data.md). The host side (CAP, CC, CSTS, AQA, ASQ, ACQ, doorbells) is in BAR0 and is mirrored here read-only.</p>
+<p>Firmware side of the NVMe controller (rtl/host/nvme/nvme_ctrl.sv, docs/11_nvme_queues.md, docs/12_nvme_data.md, docs/14_nvme_host_verification.md). The host side (CAP, CC, CSTS, AQA, ASQ, ACQ, doorbells) is in BAR0 and is mirrored here read-only. The epoch counts controller resets: CMD gives the epoch a command was fetched in, and a transfer start (XF_CTRL), a completion post (CQE_CTRL) or an I/O queue enable (SQ_CFG, CQ_CFG) carrying another epoch does nothing.</p>
 
 |Offset|Identifier|   Name   |
 |------|----------|----------|
@@ -1042,6 +1042,7 @@ Don't override. Generated from: soc_apb
 | 0x088| CQE_CTRL | CQE_CTRL |
 | 0x08C|CQE_STATUS|CQE_STATUS|
 | 0x090|   CQES   |   CQES   |
+| 0x094|   STALE  |   STALE  |
 | 0x100|  IOQ[0]  |     —    |
 | 0x120|  IOQ[1]  |     —    |
 | 0x140|  IOQ[2]  |     —    |
@@ -1090,6 +1091,7 @@ Don't override. Generated from: soc_apb
 | 5:4 |   shst   |   r  |  —  |  — |
 | 12:8|   cmds   |   r  |  —  |  — |
 |20:16|   free   |   r  |  —  |  — |
+|27:24|   epoch  |   r  |  —  |  — |
 
 #### rdy field
 
@@ -1114,6 +1116,10 @@ Don't override. Generated from: soc_apb
 #### free field
 
 <p>Free command buffer slots.</p>
+
+#### epoch field
+
+<p>Epoch: controller resets since power-on, modulo 16.</p>
 
 ### EVENT register
 
@@ -1202,11 +1208,16 @@ Don't override. Generated from: soc_apb
 |-----|----------|------|-----|----|
 | 3:0 |   slot   |   r  |  —  |  — |
 |18:16|   sqid   |   r  |  —  |  — |
+|27:24|   epoch  |   r  |  —  |  — |
 |  31 |   valid  |   r  |  —  |  — |
 
 #### sqid field
 
 <p>Submission queue it came from.</p>
+
+#### epoch field
+
+<p>Epoch it was fetched in; firmware writes it back with the command's transfer and completion.</p>
 
 ### SLOT_FREE register
 
@@ -1214,11 +1225,16 @@ Don't override. Generated from: soc_apb
 - Base Offset: 0x1C
 - Size: 0x4
 
-<p>A write returns the slot it names to the free list.</p>
+<p>A write returns the slot it names to the free list, if EPOCH is the controller's and the controller is on (a controller reset has freed every slot already).</p>
 
 |Bits|Identifier|Access|Reset|Name|
 |----|----------|------|-----|----|
 | 3:0|   slot   |   w  | 0x0 |  — |
+| 7:4|   epoch  |   w  | 0x0 |  — |
+
+#### epoch field
+
+<p>The command's epoch (CMD.EPOCH).</p>
 
 ### DB_ERR register
 
@@ -1408,6 +1424,7 @@ Don't override. Generated from: soc_apb
 |----|----------|------|-----|----|
 |  0 |   start  |   w  | 0x0 |  — |
 |  1 |    d2h   |  rw  | 0x0 |  — |
+| 7:4|   epoch  |  rw  | 0x0 |  — |
 
 #### start field
 
@@ -1416,6 +1433,10 @@ Don't override. Generated from: soc_apb
 #### d2h field
 
 <p>1: SRAM to host (a read command); 0: host to SRAM (a write command).</p>
+
+#### epoch field
+
+<p>The command's epoch (CMD.EPOCH). A START with another epoch, or while the controller is not on, moves nothing and ends with ERR, cause 11.</p>
 
 ### XF_STATUS register
 
@@ -1434,7 +1455,7 @@ Don't override. Generated from: soc_apb
 
 #### cause field
 
-<p>Why the transfer failed: 1 to 7 the bus master's cause, 8 a length out of range, 9 a PRP entry with a bad offset, 10 aborted by a controller reset.</p>
+<p>Why the transfer failed: 1 to 7 the bus master's cause, 8 a length out of range, 9 a PRP entry with a bad offset, 10 aborted by a controller reset, 11 not started: stale epoch or controller not on.</p>
 
 ### XF_CYCLES register
 
@@ -1492,11 +1513,16 @@ Don't override. Generated from: soc_apb
 | Bits|Identifier|Access|Reset|Name|
 |-----|----------|------|-----|----|
 | 2:0 |   cqid   |  rw  | 0x0 |  — |
+| 7:4 |   epoch  |  rw  | 0x0 |  — |
 |31:17|  status  |  rw  | 0x0 |  — |
 
 #### cqid field
 
 <p>Completion queue, 0 to 4.</p>
+
+#### epoch field
+
+<p>The command's epoch (CMD.EPOCH). A post with another epoch, or while the controller is not on, is discarded (CQE_STATUS.STALE).</p>
 
 #### status field
 
@@ -1515,6 +1541,7 @@ Don't override. Generated from: soc_apb
 |  5 |  cq_full |    r    |  —  |  — |
 |  8 |   drop   |rw, woclr| 0x0 |  — |
 |  9 |   werr   |rw, woclr| 0x0 |  — |
+| 10 |   stale  |rw, woclr| 0x0 |  — |
 
 #### count field
 
@@ -1536,6 +1563,10 @@ Don't override. Generated from: soc_apb
 
 <p>An entry's write to the host failed.</p>
 
+#### stale field
+
+<p>A post was discarded: its epoch was not the controller's, or the controller was not on. Not an error: the command was dropped by a controller reset.</p>
+
 ### CQES register
 
 - Absolute Address: 0x8090
@@ -1547,6 +1578,27 @@ Don't override. Generated from: soc_apb
 |Bits|Identifier|Access|Reset|Name|
 |----|----------|------|-----|----|
 |31:0|   count  |   r  |  —  |  — |
+
+### STALE register
+
+- Absolute Address: 0x8094
+- Base Offset: 0x94
+- Size: 0x4
+
+<p>Firmware actions refused for a stale epoch or with the controller not on, since power-on (each count wraps).</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 15:0|    cqe   |   r  |  —  |  — |
+|31:16|    xf    |   r  |  —  |  — |
+
+#### cqe field
+
+<p>Completion posts discarded.</p>
+
+#### xf field
+
+<p>Transfer starts refused.</p>
 
 ## IOQ register file
 
@@ -1600,6 +1652,7 @@ Don't override. Generated from: soc_apb
 |-----|----------|------|-----|----|
 | 11:0|   size   |  rw  | 0x0 |  — |
 |18:16|   cqid   |  rw  | 0x0 |  — |
+|29:26|   epoch  |  rw  | 0x0 |  — |
 |  31 |    en    |  rw  | 0x0 |  — |
 
 #### size field
@@ -1609,6 +1662,10 @@ Don't override. Generated from: soc_apb
 #### cqid field
 
 <p>Completion queue for this submission queue.</p>
+
+#### epoch field
+
+<p>Epoch of the command that created the queue; the queue is enabled only while it is the controller's.</p>
 
 #### en field
 
@@ -1649,6 +1706,7 @@ Don't override. Generated from: soc_apb
 | 11:0|   size   |  rw  | 0x0 |  — |
 |18:16|    iv    |  rw  | 0x0 |  — |
 |  24 |    ien   |  rw  | 0x0 |  — |
+|29:26|   epoch  |  rw  | 0x0 |  — |
 |  31 |    en    |  rw  | 0x0 |  — |
 
 #### size field
@@ -1662,6 +1720,10 @@ Don't override. Generated from: soc_apb
 #### ien field
 
 <p>Interrupts enabled.</p>
+
+#### epoch field
+
+<p>Epoch of the command that created the queue; the queue is enabled only while it is the controller's.</p>
 
 #### en field
 
@@ -1719,6 +1781,7 @@ Don't override. Generated from: soc_apb
 |-----|----------|------|-----|----|
 | 11:0|   size   |  rw  | 0x0 |  — |
 |18:16|   cqid   |  rw  | 0x0 |  — |
+|29:26|   epoch  |  rw  | 0x0 |  — |
 |  31 |    en    |  rw  | 0x0 |  — |
 
 #### size field
@@ -1728,6 +1791,10 @@ Don't override. Generated from: soc_apb
 #### cqid field
 
 <p>Completion queue for this submission queue.</p>
+
+#### epoch field
+
+<p>Epoch of the command that created the queue; the queue is enabled only while it is the controller's.</p>
 
 #### en field
 
@@ -1768,6 +1835,7 @@ Don't override. Generated from: soc_apb
 | 11:0|   size   |  rw  | 0x0 |  — |
 |18:16|    iv    |  rw  | 0x0 |  — |
 |  24 |    ien   |  rw  | 0x0 |  — |
+|29:26|   epoch  |  rw  | 0x0 |  — |
 |  31 |    en    |  rw  | 0x0 |  — |
 
 #### size field
@@ -1781,6 +1849,10 @@ Don't override. Generated from: soc_apb
 #### ien field
 
 <p>Interrupts enabled.</p>
+
+#### epoch field
+
+<p>Epoch of the command that created the queue; the queue is enabled only while it is the controller's.</p>
 
 #### en field
 
@@ -1838,6 +1910,7 @@ Don't override. Generated from: soc_apb
 |-----|----------|------|-----|----|
 | 11:0|   size   |  rw  | 0x0 |  — |
 |18:16|   cqid   |  rw  | 0x0 |  — |
+|29:26|   epoch  |  rw  | 0x0 |  — |
 |  31 |    en    |  rw  | 0x0 |  — |
 
 #### size field
@@ -1847,6 +1920,10 @@ Don't override. Generated from: soc_apb
 #### cqid field
 
 <p>Completion queue for this submission queue.</p>
+
+#### epoch field
+
+<p>Epoch of the command that created the queue; the queue is enabled only while it is the controller's.</p>
 
 #### en field
 
@@ -1887,6 +1964,7 @@ Don't override. Generated from: soc_apb
 | 11:0|   size   |  rw  | 0x0 |  — |
 |18:16|    iv    |  rw  | 0x0 |  — |
 |  24 |    ien   |  rw  | 0x0 |  — |
+|29:26|   epoch  |  rw  | 0x0 |  — |
 |  31 |    en    |  rw  | 0x0 |  — |
 
 #### size field
@@ -1900,6 +1978,10 @@ Don't override. Generated from: soc_apb
 #### ien field
 
 <p>Interrupts enabled.</p>
+
+#### epoch field
+
+<p>Epoch of the command that created the queue; the queue is enabled only while it is the controller's.</p>
 
 #### en field
 
@@ -1957,6 +2039,7 @@ Don't override. Generated from: soc_apb
 |-----|----------|------|-----|----|
 | 11:0|   size   |  rw  | 0x0 |  — |
 |18:16|   cqid   |  rw  | 0x0 |  — |
+|29:26|   epoch  |  rw  | 0x0 |  — |
 |  31 |    en    |  rw  | 0x0 |  — |
 
 #### size field
@@ -1966,6 +2049,10 @@ Don't override. Generated from: soc_apb
 #### cqid field
 
 <p>Completion queue for this submission queue.</p>
+
+#### epoch field
+
+<p>Epoch of the command that created the queue; the queue is enabled only while it is the controller's.</p>
 
 #### en field
 
@@ -2006,6 +2093,7 @@ Don't override. Generated from: soc_apb
 | 11:0|   size   |  rw  | 0x0 |  — |
 |18:16|    iv    |  rw  | 0x0 |  — |
 |  24 |    ien   |  rw  | 0x0 |  — |
+|29:26|   epoch  |  rw  | 0x0 |  — |
 |  31 |    en    |  rw  | 0x0 |  — |
 
 #### size field
@@ -2019,6 +2107,10 @@ Don't override. Generated from: soc_apb
 #### ien field
 
 <p>Interrupts enabled.</p>
+
+#### epoch field
+
+<p>Epoch of the command that created the queue; the queue is enabled only while it is the controller's.</p>
 
 #### en field
 

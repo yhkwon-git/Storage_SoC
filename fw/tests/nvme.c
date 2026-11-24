@@ -69,7 +69,7 @@ static uint32_t wpat(uint32_t b)
 }
 
 /* One PRP transfer; returns XF_STATUS.CAUSE (0: done). */
-static uint32_t xfer(int d2h, const volatile uint32_t *c, uint32_t laddr, uint32_t len)
+static uint32_t xfer(int d2h, const volatile uint32_t *c, uint32_t laddr, uint32_t len, uint32_t ep)
 {
   uint32_t st;
   NVME_XF_PRP1_LO = c[6];
@@ -78,7 +78,7 @@ static uint32_t xfer(int d2h, const volatile uint32_t *c, uint32_t laddr, uint32
   NVME_XF_PRP2_HI = c[9];
   NVME_XF_LADDR = laddr;
   NVME_XF_LEN = len;
-  NVME_XF_CTRL = NVME_XF_START | (d2h ? NVME_XF_D2H : 0u);
+  NVME_XF_CTRL = NVME_XF_START | (d2h ? NVME_XF_D2H : 0u) | NVME_XF_EPOCH(ep);
   do {
     st = NVME_XF_STATUS;
   } while (!(st & (NVME_XF_DONE | NVME_XF_ERR)));
@@ -101,17 +101,17 @@ static uint32_t xfer_status(uint32_t cause)
   return ST_XFER;
 }
 
-static void post(uint32_t cq, uint32_t cid, uint32_t sq, uint32_t status)
+static void post(uint32_t cq, uint32_t cid, uint32_t sq, uint32_t status, uint32_t ep)
 {
   while (NVME_CQE_STATUS & NVME_CQE_FULL) {
   }
   NVME_CQE_DW0 = 0xC0DE0000u | cid;
   NVME_CQE_INFO = (sq << 16) | cid;
-  NVME_CQE_CTRL = (status << 17) | cq;
+  NVME_CQE_CTRL = (status << 17) | NVME_CQE_EPOCH(ep) | cq;
 }
 
 /* Create I/O Completion Queue (0x05) and Create I/O Submission Queue (0x01). */
-static uint32_t admin(const volatile uint32_t *c)
+static uint32_t admin(const volatile uint32_t *c, uint32_t ep)
 {
   uint32_t opc = c[0] & 0xFFu;
   uint32_t qid = c[10] & 0xFFFFu;
@@ -126,19 +126,19 @@ static uint32_t admin(const volatile uint32_t *c)
     if (iv > 7u) return ST_FIELD;
     NVME_IOQ(qid, CQB_LO) = c[6];
     NVME_IOQ(qid, CQB_HI) = c[7];
-    NVME_IOQ(qid, CQ_CFG) = NVME_Q_EN | ((c[11] & 2u) ? NVME_CQ_IEN : 0u) | (iv << 16) | qsize;
+    NVME_IOQ(qid, CQ_CFG) = NVME_Q_EN | NVME_Q_EPOCH(ep) | ((c[11] & 2u) ? NVME_CQ_IEN : 0u) | (iv << 16) | qsize;
   } else {
     uint32_t cqid = c[11] >> 16;
     if (cqid < 1u || cqid > 4u || !(NVME_IOQ(cqid, CQ_CFG) & NVME_Q_EN)) return ST_FIELD;
     NVME_IOQ(qid, SQB_LO) = c[6];
     NVME_IOQ(qid, SQB_HI) = c[7];
-    NVME_IOQ(qid, SQ_CFG) = NVME_Q_EN | (cqid << 16) | qsize;
+    NVME_IOQ(qid, SQ_CFG) = NVME_Q_EN | NVME_Q_EPOCH(ep) | (cqid << 16) | qsize;
   }
   return ST_OK;
 }
 
 /* Read (0x02), Write (0x01), Flush (0x00) on the SRAM namespace. */
-static uint32_t io(const volatile uint32_t *c)
+static uint32_t io(const volatile uint32_t *c, uint32_t ep)
 {
   uint32_t opc = c[0] & 0xFFu;
   uint32_t slba = c[10];
@@ -150,7 +150,7 @@ static uint32_t io(const volatile uint32_t *c)
   if (opc == 0x00u) return ST_OK;
   if (opc != 0x01u && opc != 0x02u) return ST_OPC;
   if (c[11] != 0u || slba >= NS_BLOCKS || nblk > NS_BLOCKS - slba) return ST_LBA;
-  st = xfer_status(xfer(opc == 0x02u, c, NS_BASE + 512u * slba, len));
+  st = xfer_status(xfer(opc == 0x02u, c, NS_BASE + 512u * slba, len, ep));
   if (opc == 0x01u && st == ST_OK) {
     const volatile uint8_t *d = (const volatile uint8_t *)(uintptr_t)(NS_BASE + 512u * slba);
     for (uint32_t i = 0; i < len; i++) {
@@ -164,7 +164,8 @@ static uint32_t io(const volatile uint32_t *c)
 }
 
 /* Take every waiting command: copy its entry, return its slot, handle it,
- * complete it on the completion queue of the same number. */
+ * complete it on the completion queue of the same number. Everything done
+ * for a command carries the epoch it was fetched in (CMD.EPOCH). */
 static void take_commands(void)
 {
   uint32_t c;
@@ -172,11 +173,12 @@ static void take_commands(void)
     const volatile uint32_t *e = (const volatile uint32_t *)(uintptr_t)(NVME_CMDBUF + 64u * NVME_CMD_SLOT(c));
     uint32_t sqe[16];
     uint32_t q = NVME_CMD_SQID(c);
+    uint32_t ep = NVME_CMD_EPOCH(c);
     uint32_t st;
     for (int i = 0; i < 16; i++) sqe[i] = e[i];
-    NVME_SLOT_FREE = NVME_CMD_SLOT(c);
-    st = (q == 0u) ? admin(sqe) : io(sqe);
-    post(q, sqe[0] >> 16, q, st);
+    NVME_SLOT_FREE = NVME_CMD_SLOT(c) | NVME_FREE_EPOCH(ep);
+    st = (q == 0u) ? admin(sqe, ep) : io(sqe, ep);
+    post(q, sqe[0] >> 16, q, st, ep);
   }
 }
 

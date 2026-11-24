@@ -168,6 +168,19 @@
 #define NVME_XF_CAUSE(s)   (((s) & NVME_REGS__XF_STATUS__CAUSE_bm) >> NVME_REGS__XF_STATUS__CAUSE_bp)
 #define NVME_CQE_FULL      NVME_REGS__CQE_STATUS__FULL_bm
 
+/* Epochs (step 2-5): the epoch a command was fetched in, and where firmware
+ * writes it back: XF_CTRL, CQE_CTRL, SQ_CFG and CQ_CFG. */
+#define NVME_STALE         APB_REG(NVME.STALE)
+#define NVME_CMD_EPOCH(c)  (((c) & NVME_REGS__CMD__EPOCH_bm) >> NVME_REGS__CMD__EPOCH_bp)
+#define NVME_ST_EPOCH(s)   (((s) & NVME_REGS__STATUS__EPOCH_bm) >> NVME_REGS__STATUS__EPOCH_bp)
+#define NVME_XF_EPOCH(e)   ((uint32_t)(e) << NVME_REGS__XF_CTRL__EPOCH_bp)
+#define NVME_CQE_EPOCH(e)  ((uint32_t)(e) << NVME_REGS__CQE_CTRL__EPOCH_bp)
+#define NVME_FREE_EPOCH(e) ((uint32_t)(e) << NVME_REGS__SLOT_FREE__EPOCH_bp)
+#define NVME_Q_EPOCH(e)    ((uint32_t)(e) << 26)   /* SQ_CFG.EPOCH, CQ_CFG.EPOCH */
+#define NVME_Q_EPOCH_OF(v) (((v) >> 26) & 0xFu)
+#define NVME_CQE_STALE     NVME_REGS__CQE_STATUS__STALE_bm
+#define NVME_XF_STALE      11u                     /* XF_STATUS.CAUSE: not started */
+
 #define INTC_PENDING   APB_REG(INTC.PENDING)
 #define INTC_ENABLE    APB_REG(INTC.ENABLE)
 #define INTC_CLAIM     APB_REG(INTC.CLAIM)

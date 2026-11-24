@@ -56,6 +56,12 @@ int main(void)
   stat(", bytes ", nvme_stats.bytes);
   stat(", controller resets ", nvme_stats.resets);
   sys_putc('\n');
+  /* Commands that predated a controller reset: found stale by firmware, and
+   * the posts and starts the hardware refused for a stale epoch. */
+  stat("nvme_app: stale commands ", nvme_stats.stale);
+  stat(", stale posts discarded ", NVME_STALE & 0xFFFFu);
+  stat(", stale transfer starts refused ", NVME_STALE >> 16);
+  sys_putc('\n');
   stat("nvme_app: firmware clocks per command ", nvme_stats.cmds ? nvme_stats.fw_clocks / nvme_stats.cmds : 0u);
   stat(", spinning on transfers in all ", nvme_stats.spin_clocks);
   stat(", transfer clocks in all ", nvme_stats.xfer_clocks);

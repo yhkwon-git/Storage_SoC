@@ -20,7 +20,7 @@ extern "C" {
 #define SYS_REGS__VERSION__VALUE_bm 0xffffffff
 #define SYS_REGS__VERSION__VALUE_bp 0
 #define SYS_REGS__VERSION__VALUE_bw 32
-#define SYS_REGS__VERSION__VALUE_reset 0x20003
+#define SYS_REGS__VERSION__VALUE_reset 0x20005
 
 // reg - sys_regs::SCRATCH
 #define SYS_REGS__SCRATCH__VALUE_bm 0xffffffff
@@ -545,6 +545,9 @@ typedef struct __attribute__ ((__packed__)) {
 #define NVME_REGS__STATUS__FREE_bm 0x1f0000
 #define NVME_REGS__STATUS__FREE_bp 16
 #define NVME_REGS__STATUS__FREE_bw 5
+#define NVME_REGS__STATUS__EPOCH_bm 0xf000000
+#define NVME_REGS__STATUS__EPOCH_bp 24
+#define NVME_REGS__STATUS__EPOCH_bw 4
 
 // reg - nvme_regs::EVENT
 #define NVME_REGS__EVENT__ENABLE_bm 0x1
@@ -596,6 +599,9 @@ typedef struct __attribute__ ((__packed__)) {
 #define NVME_REGS__CMD__SQID_bm 0x70000
 #define NVME_REGS__CMD__SQID_bp 16
 #define NVME_REGS__CMD__SQID_bw 3
+#define NVME_REGS__CMD__EPOCH_bm 0xf000000
+#define NVME_REGS__CMD__EPOCH_bp 24
+#define NVME_REGS__CMD__EPOCH_bw 4
 #define NVME_REGS__CMD__VALID_bm 0x80000000
 #define NVME_REGS__CMD__VALID_bp 31
 #define NVME_REGS__CMD__VALID_bw 1
@@ -605,6 +611,10 @@ typedef struct __attribute__ ((__packed__)) {
 #define NVME_REGS__SLOT_FREE__SLOT_bp 0
 #define NVME_REGS__SLOT_FREE__SLOT_bw 4
 #define NVME_REGS__SLOT_FREE__SLOT_reset 0x0
+#define NVME_REGS__SLOT_FREE__EPOCH_bm 0xf0
+#define NVME_REGS__SLOT_FREE__EPOCH_bp 4
+#define NVME_REGS__SLOT_FREE__EPOCH_bw 4
+#define NVME_REGS__SLOT_FREE__EPOCH_reset 0x0
 
 // reg - nvme_regs::DB_ERR
 #define NVME_REGS__DB_ERR__QID_bm 0x7
@@ -695,6 +705,10 @@ typedef struct __attribute__ ((__packed__)) {
 #define NVME_REGS__XF_CTRL__D2H_bp 1
 #define NVME_REGS__XF_CTRL__D2H_bw 1
 #define NVME_REGS__XF_CTRL__D2H_reset 0x0
+#define NVME_REGS__XF_CTRL__EPOCH_bm 0xf0
+#define NVME_REGS__XF_CTRL__EPOCH_bp 4
+#define NVME_REGS__XF_CTRL__EPOCH_bw 4
+#define NVME_REGS__XF_CTRL__EPOCH_reset 0x0
 
 // reg - nvme_regs::XF_STATUS
 #define NVME_REGS__XF_STATUS__BUSY_bm 0x1
@@ -739,6 +753,10 @@ typedef struct __attribute__ ((__packed__)) {
 #define NVME_REGS__CQE_CTRL__CQID_bp 0
 #define NVME_REGS__CQE_CTRL__CQID_bw 3
 #define NVME_REGS__CQE_CTRL__CQID_reset 0x0
+#define NVME_REGS__CQE_CTRL__EPOCH_bm 0xf0
+#define NVME_REGS__CQE_CTRL__EPOCH_bp 4
+#define NVME_REGS__CQE_CTRL__EPOCH_bw 4
+#define NVME_REGS__CQE_CTRL__EPOCH_reset 0x0
 #define NVME_REGS__CQE_CTRL__STATUS_bm 0xfffe0000
 #define NVME_REGS__CQE_CTRL__STATUS_bp 17
 #define NVME_REGS__CQE_CTRL__STATUS_bw 15
@@ -762,11 +780,23 @@ typedef struct __attribute__ ((__packed__)) {
 #define NVME_REGS__CQE_STATUS__WERR_bp 9
 #define NVME_REGS__CQE_STATUS__WERR_bw 1
 #define NVME_REGS__CQE_STATUS__WERR_reset 0x0
+#define NVME_REGS__CQE_STATUS__STALE_bm 0x400
+#define NVME_REGS__CQE_STATUS__STALE_bp 10
+#define NVME_REGS__CQE_STATUS__STALE_bw 1
+#define NVME_REGS__CQE_STATUS__STALE_reset 0x0
 
 // reg - nvme_regs::CQES
 #define NVME_REGS__CQES__COUNT_bm 0xffffffff
 #define NVME_REGS__CQES__COUNT_bp 0
 #define NVME_REGS__CQES__COUNT_bw 32
+
+// reg - nvme_regs::STALE
+#define NVME_REGS__STALE__CQE_bm 0xffff
+#define NVME_REGS__STALE__CQE_bp 0
+#define NVME_REGS__STALE__CQE_bw 16
+#define NVME_REGS__STALE__XF_bm 0xffff0000
+#define NVME_REGS__STALE__XF_bp 16
+#define NVME_REGS__STALE__XF_bw 16
 
 // reg - nvme_regs::IOQ::SQB_LO
 #define NVME_REGS__IOQ__SQB_LO__BASE_bm 0xfffff000
@@ -789,6 +819,10 @@ typedef struct __attribute__ ((__packed__)) {
 #define NVME_REGS__IOQ__SQ_CFG__CQID_bp 16
 #define NVME_REGS__IOQ__SQ_CFG__CQID_bw 3
 #define NVME_REGS__IOQ__SQ_CFG__CQID_reset 0x0
+#define NVME_REGS__IOQ__SQ_CFG__EPOCH_bm 0x3c000000
+#define NVME_REGS__IOQ__SQ_CFG__EPOCH_bp 26
+#define NVME_REGS__IOQ__SQ_CFG__EPOCH_bw 4
+#define NVME_REGS__IOQ__SQ_CFG__EPOCH_reset 0x0
 #define NVME_REGS__IOQ__SQ_CFG__EN_bm 0x80000000
 #define NVME_REGS__IOQ__SQ_CFG__EN_bp 31
 #define NVME_REGS__IOQ__SQ_CFG__EN_bw 1
@@ -819,6 +853,10 @@ typedef struct __attribute__ ((__packed__)) {
 #define NVME_REGS__IOQ__CQ_CFG__IEN_bp 24
 #define NVME_REGS__IOQ__CQ_CFG__IEN_bw 1
 #define NVME_REGS__IOQ__CQ_CFG__IEN_reset 0x0
+#define NVME_REGS__IOQ__CQ_CFG__EPOCH_bm 0x3c000000
+#define NVME_REGS__IOQ__CQ_CFG__EPOCH_bp 26
+#define NVME_REGS__IOQ__CQ_CFG__EPOCH_bw 4
+#define NVME_REGS__IOQ__CQ_CFG__EPOCH_reset 0x0
 #define NVME_REGS__IOQ__CQ_CFG__EN_bm 0x80000000
 #define NVME_REGS__IOQ__CQ_CFG__EN_bp 31
 #define NVME_REGS__IOQ__CQ_CFG__EN_bw 1
@@ -888,7 +926,8 @@ typedef struct __attribute__ ((__packed__)) {
     uint32_t CQE_CTRL;
     uint32_t CQE_STATUS;
     uint32_t CQES;
-    uint8_t RESERVED_94_ff[0x6c];
+    uint32_t STALE;
+    uint8_t RESERVED_98_ff[0x68];
     nvme_regs__IOQ__stride20_t IOQ[4];
     uint8_t RESERVED_180_1ff[0x80];
     uint32_t SQ_PTR[5];

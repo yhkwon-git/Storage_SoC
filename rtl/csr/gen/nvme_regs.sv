@@ -116,6 +116,7 @@ module nvme_regs (
         logic CQE_CTRL;
         logic CQE_STATUS;
         logic CQES;
+        logic STALE;
         struct {
             logic SQB_LO;
             logic SQB_HI;
@@ -198,6 +199,8 @@ module nvme_regs (
         is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h8c);
         decoded_reg_strb.CQES = cpuif_req_masked & (cpuif_addr == 12'h90) & !cpuif_req_is_wr;
         is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h90);
+        decoded_reg_strb.STALE = cpuif_req_masked & (cpuif_addr == 12'h94) & !cpuif_req_is_wr;
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h94);
         for(int i0=0; i0<4; i0++) begin
             decoded_reg_strb.IOQ[i0].SQB_LO = cpuif_req_masked & (cpuif_addr == 12'h100 + (12)'(i0) * 12'h20);
             is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h100 + (12)'(i0) * 12'h20);
@@ -287,6 +290,10 @@ module nvme_regs (
                 logic [3:0] next;
                 logic load_next;
             } slot;
+            struct {
+                logic [3:0] next;
+                logic load_next;
+            } epoch;
         } SLOT_FREE;
         struct {
             struct {
@@ -347,6 +354,10 @@ module nvme_regs (
                 logic next;
                 logic load_next;
             } d2h;
+            struct {
+                logic [3:0] next;
+                logic load_next;
+            } epoch;
         } XF_CTRL;
         struct {
             struct {
@@ -384,6 +395,10 @@ module nvme_regs (
                 logic load_next;
             } cqid;
             struct {
+                logic [3:0] next;
+                logic load_next;
+            } epoch;
+            struct {
                 logic [14:0] next;
                 logic load_next;
             } status;
@@ -397,6 +412,10 @@ module nvme_regs (
                 logic next;
                 logic load_next;
             } werr;
+            struct {
+                logic next;
+                logic load_next;
+            } stale;
         } CQE_STATUS;
         struct {
             struct {
@@ -420,6 +439,10 @@ module nvme_regs (
                     logic [2:0] next;
                     logic load_next;
                 } cqid;
+                struct {
+                    logic [3:0] next;
+                    logic load_next;
+                } epoch;
                 struct {
                     logic next;
                     logic load_next;
@@ -450,6 +473,10 @@ module nvme_regs (
                     logic next;
                     logic load_next;
                 } ien;
+                struct {
+                    logic [3:0] next;
+                    logic load_next;
+                } epoch;
                 struct {
                     logic next;
                     logic load_next;
@@ -502,6 +529,9 @@ module nvme_regs (
             struct {
                 logic [3:0] value;
             } slot;
+            struct {
+                logic [3:0] value;
+            } epoch;
         } SLOT_FREE;
         struct {
             struct {
@@ -551,6 +581,9 @@ module nvme_regs (
             struct {
                 logic value;
             } d2h;
+            struct {
+                logic [3:0] value;
+            } epoch;
         } XF_CTRL;
         struct {
             struct {
@@ -581,6 +614,9 @@ module nvme_regs (
                 logic [2:0] value;
             } cqid;
             struct {
+                logic [3:0] value;
+            } epoch;
+            struct {
                 logic [14:0] value;
             } status;
         } CQE_CTRL;
@@ -591,6 +627,9 @@ module nvme_regs (
             struct {
                 logic value;
             } werr;
+            struct {
+                logic value;
+            } stale;
         } CQE_STATUS;
         struct {
             struct {
@@ -610,6 +649,9 @@ module nvme_regs (
                 struct {
                     logic [2:0] value;
                 } cqid;
+                struct {
+                    logic [3:0] value;
+                } epoch;
                 struct {
                     logic value;
                 } en;
@@ -634,6 +676,9 @@ module nvme_regs (
                 struct {
                     logic value;
                 } ien;
+                struct {
+                    logic [3:0] value;
+                } epoch;
                 struct {
                     logic value;
                 } en;
@@ -915,6 +960,29 @@ module nvme_regs (
     end
     assign hwif_out.SLOT_FREE.slot.value = field_storage.SLOT_FREE.slot.value;
     assign hwif_out.SLOT_FREE.slot.swmod = decoded_reg_strb.SLOT_FREE && decoded_req_is_wr && |(decoded_wr_biten[3:0]);
+    // Field: nvme_regs.SLOT_FREE.epoch
+    always_comb begin
+        automatic logic [3:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.SLOT_FREE.epoch.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.SLOT_FREE && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.SLOT_FREE.epoch.value & ~decoded_wr_biten[7:4]) | (decoded_wr_data[7:4] & decoded_wr_biten[7:4]);
+            load_next_c = '1;
+        end
+        field_combo.SLOT_FREE.epoch.next = next_c;
+        field_combo.SLOT_FREE.epoch.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.SLOT_FREE.epoch.value <= 4'h0;
+        end else begin
+            if(field_combo.SLOT_FREE.epoch.load_next) begin
+                field_storage.SLOT_FREE.epoch.value <= field_combo.SLOT_FREE.epoch.next;
+            end
+        end
+    end
+    assign hwif_out.SLOT_FREE.epoch.value = field_storage.SLOT_FREE.epoch.value;
     // Field: nvme_regs.DB_ERR.qid
     always_comb begin
         automatic logic [2:0] next_c;
@@ -1168,6 +1236,29 @@ module nvme_regs (
         end
     end
     assign hwif_out.XF_CTRL.d2h.value = field_storage.XF_CTRL.d2h.value;
+    // Field: nvme_regs.XF_CTRL.epoch
+    always_comb begin
+        automatic logic [3:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.XF_CTRL.epoch.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.XF_CTRL && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.XF_CTRL.epoch.value & ~decoded_wr_biten[7:4]) | (decoded_wr_data[7:4] & decoded_wr_biten[7:4]);
+            load_next_c = '1;
+        end
+        field_combo.XF_CTRL.epoch.next = next_c;
+        field_combo.XF_CTRL.epoch.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.XF_CTRL.epoch.value <= 4'h0;
+        end else begin
+            if(field_combo.XF_CTRL.epoch.load_next) begin
+                field_storage.XF_CTRL.epoch.value <= field_combo.XF_CTRL.epoch.next;
+            end
+        end
+    end
+    assign hwif_out.XF_CTRL.epoch.value = field_storage.XF_CTRL.epoch.value;
     // Field: nvme_regs.XF_STATUS.done
     always_comb begin
         automatic logic [0:0] next_c;
@@ -1341,6 +1432,29 @@ module nvme_regs (
     end
     assign hwif_out.CQE_CTRL.cqid.value = field_storage.CQE_CTRL.cqid.value;
     assign hwif_out.CQE_CTRL.cqid.swmod = decoded_reg_strb.CQE_CTRL && decoded_req_is_wr && |(decoded_wr_biten[2:0]);
+    // Field: nvme_regs.CQE_CTRL.epoch
+    always_comb begin
+        automatic logic [3:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.CQE_CTRL.epoch.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.CQE_CTRL && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.CQE_CTRL.epoch.value & ~decoded_wr_biten[7:4]) | (decoded_wr_data[7:4] & decoded_wr_biten[7:4]);
+            load_next_c = '1;
+        end
+        field_combo.CQE_CTRL.epoch.next = next_c;
+        field_combo.CQE_CTRL.epoch.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.CQE_CTRL.epoch.value <= 4'h0;
+        end else begin
+            if(field_combo.CQE_CTRL.epoch.load_next) begin
+                field_storage.CQE_CTRL.epoch.value <= field_combo.CQE_CTRL.epoch.next;
+            end
+        end
+    end
+    assign hwif_out.CQE_CTRL.epoch.value = field_storage.CQE_CTRL.epoch.value;
     // Field: nvme_regs.CQE_CTRL.status
     always_comb begin
         automatic logic [14:0] next_c;
@@ -1416,6 +1530,32 @@ module nvme_regs (
         end
     end
     assign hwif_out.CQE_STATUS.werr.value = field_storage.CQE_STATUS.werr.value;
+    // Field: nvme_regs.CQE_STATUS.stale
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.CQE_STATUS.stale.value;
+        load_next_c = '0;
+        if(hwif_in.CQE_STATUS.stale.hwset) begin // HW Set
+            next_c = '1;
+            load_next_c = '1;
+        end else if(decoded_reg_strb.CQE_STATUS && decoded_req_is_wr) begin // SW write 1 clear
+            next_c = field_storage.CQE_STATUS.stale.value & ~(decoded_wr_data[10:10] & decoded_wr_biten[10:10]);
+            load_next_c = '1;
+        end
+        field_combo.CQE_STATUS.stale.next = next_c;
+        field_combo.CQE_STATUS.stale.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.CQE_STATUS.stale.value <= 1'h0;
+        end else begin
+            if(field_combo.CQE_STATUS.stale.load_next) begin
+                field_storage.CQE_STATUS.stale.value <= field_combo.CQE_STATUS.stale.next;
+            end
+        end
+    end
+    assign hwif_out.CQE_STATUS.stale.value = field_storage.CQE_STATUS.stale.value;
     for(genvar i0=0; i0<4; i0++) begin
         // Field: nvme_regs.IOQ[].SQB_LO.base
         always_comb begin
@@ -1509,6 +1649,29 @@ module nvme_regs (
             end
         end
         assign hwif_out.IOQ[i0].SQ_CFG.cqid.value = field_storage.IOQ[i0].SQ_CFG.cqid.value;
+        // Field: nvme_regs.IOQ[].SQ_CFG.epoch
+        always_comb begin
+            automatic logic [3:0] next_c;
+            automatic logic load_next_c;
+            next_c = field_storage.IOQ[i0].SQ_CFG.epoch.value;
+            load_next_c = '0;
+            if(decoded_reg_strb.IOQ[i0].SQ_CFG && decoded_req_is_wr) begin // SW write
+                next_c = (field_storage.IOQ[i0].SQ_CFG.epoch.value & ~decoded_wr_biten[29:26]) | (decoded_wr_data[29:26] & decoded_wr_biten[29:26]);
+                load_next_c = '1;
+            end
+            field_combo.IOQ[i0].SQ_CFG.epoch.next = next_c;
+            field_combo.IOQ[i0].SQ_CFG.epoch.load_next = load_next_c;
+        end
+        always_ff @(posedge clk or negedge arst_n) begin
+            if(~arst_n) begin
+                field_storage.IOQ[i0].SQ_CFG.epoch.value <= 4'h0;
+            end else begin
+                if(field_combo.IOQ[i0].SQ_CFG.epoch.load_next) begin
+                    field_storage.IOQ[i0].SQ_CFG.epoch.value <= field_combo.IOQ[i0].SQ_CFG.epoch.next;
+                end
+            end
+        end
+        assign hwif_out.IOQ[i0].SQ_CFG.epoch.value = field_storage.IOQ[i0].SQ_CFG.epoch.value;
         // Field: nvme_regs.IOQ[].SQ_CFG.en
         always_comb begin
             automatic logic [0:0] next_c;
@@ -1650,6 +1813,29 @@ module nvme_regs (
             end
         end
         assign hwif_out.IOQ[i0].CQ_CFG.ien.value = field_storage.IOQ[i0].CQ_CFG.ien.value;
+        // Field: nvme_regs.IOQ[].CQ_CFG.epoch
+        always_comb begin
+            automatic logic [3:0] next_c;
+            automatic logic load_next_c;
+            next_c = field_storage.IOQ[i0].CQ_CFG.epoch.value;
+            load_next_c = '0;
+            if(decoded_reg_strb.IOQ[i0].CQ_CFG && decoded_req_is_wr) begin // SW write
+                next_c = (field_storage.IOQ[i0].CQ_CFG.epoch.value & ~decoded_wr_biten[29:26]) | (decoded_wr_data[29:26] & decoded_wr_biten[29:26]);
+                load_next_c = '1;
+            end
+            field_combo.IOQ[i0].CQ_CFG.epoch.next = next_c;
+            field_combo.IOQ[i0].CQ_CFG.epoch.load_next = load_next_c;
+        end
+        always_ff @(posedge clk or negedge arst_n) begin
+            if(~arst_n) begin
+                field_storage.IOQ[i0].CQ_CFG.epoch.value <= 4'h0;
+            end else begin
+                if(field_combo.IOQ[i0].CQ_CFG.epoch.load_next) begin
+                    field_storage.IOQ[i0].CQ_CFG.epoch.value <= field_combo.IOQ[i0].CQ_CFG.epoch.next;
+                end
+            end
+        end
+        assign hwif_out.IOQ[i0].CQ_CFG.epoch.value = field_storage.IOQ[i0].CQ_CFG.epoch.value;
         // Field: nvme_regs.IOQ[].CQ_CFG.en
         always_comb begin
             automatic logic [0:0] next_c;
@@ -1709,6 +1895,7 @@ module nvme_regs (
             readback_data_var[5:4] = hwif_in.STATUS.shst.next;
             readback_data_var[12:8] = hwif_in.STATUS.cmds.next;
             readback_data_var[20:16] = hwif_in.STATUS.free.next;
+            readback_data_var[27:24] = hwif_in.STATUS.epoch.next;
         end
         if(rd_mux_addr == 12'h8) begin
             readback_data_var[0] = field_storage.EVENT.enable.value;
@@ -1730,6 +1917,7 @@ module nvme_regs (
         if(rd_mux_addr == 12'h18) begin
             readback_data_var[3:0] = hwif_in.CMD.slot.next;
             readback_data_var[18:16] = hwif_in.CMD.sqid.next;
+            readback_data_var[27:24] = hwif_in.CMD.epoch.next;
             readback_data_var[31] = hwif_in.CMD.valid.next;
         end
         if(rd_mux_addr == 12'h20) begin
@@ -1775,6 +1963,7 @@ module nvme_regs (
         end
         if(rd_mux_addr == 12'h68) begin
             readback_data_var[1] = field_storage.XF_CTRL.d2h.value;
+            readback_data_var[7:4] = field_storage.XF_CTRL.epoch.value;
         end
         if(rd_mux_addr == 12'h6c) begin
             readback_data_var[0] = hwif_in.XF_STATUS.busy.next;
@@ -1794,6 +1983,7 @@ module nvme_regs (
         end
         if(rd_mux_addr == 12'h88) begin
             readback_data_var[2:0] = field_storage.CQE_CTRL.cqid.value;
+            readback_data_var[7:4] = field_storage.CQE_CTRL.epoch.value;
             readback_data_var[31:17] = field_storage.CQE_CTRL.status.value;
         end
         if(rd_mux_addr == 12'h8c) begin
@@ -1802,9 +1992,14 @@ module nvme_regs (
             readback_data_var[5] = hwif_in.CQE_STATUS.cq_full.next;
             readback_data_var[8] = field_storage.CQE_STATUS.drop.value;
             readback_data_var[9] = field_storage.CQE_STATUS.werr.value;
+            readback_data_var[10] = field_storage.CQE_STATUS.stale.value;
         end
         if(rd_mux_addr == 12'h90) begin
             readback_data_var[31:0] = hwif_in.CQES.count.next;
+        end
+        if(rd_mux_addr == 12'h94) begin
+            readback_data_var[15:0] = hwif_in.STALE.cqe.next;
+            readback_data_var[31:16] = hwif_in.STALE.xf.next;
         end
         for(int i0=0; i0<4; i0++) begin
             if(rd_mux_addr == 12'h100 + (12)'(i0) * 12'h20) begin
@@ -1816,6 +2011,7 @@ module nvme_regs (
             if(rd_mux_addr == 12'h108 + (12)'(i0) * 12'h20) begin
                 readback_data_var[11:0] = field_storage.IOQ[i0].SQ_CFG.size.value;
                 readback_data_var[18:16] = field_storage.IOQ[i0].SQ_CFG.cqid.value;
+                readback_data_var[29:26] = field_storage.IOQ[i0].SQ_CFG.epoch.value;
                 readback_data_var[31] = field_storage.IOQ[i0].SQ_CFG.en.value;
             end
             if(rd_mux_addr == 12'h10c + (12)'(i0) * 12'h20) begin
@@ -1828,6 +2024,7 @@ module nvme_regs (
                 readback_data_var[11:0] = field_storage.IOQ[i0].CQ_CFG.size.value;
                 readback_data_var[18:16] = field_storage.IOQ[i0].CQ_CFG.iv.value;
                 readback_data_var[24] = field_storage.IOQ[i0].CQ_CFG.ien.value;
+                readback_data_var[29:26] = field_storage.IOQ[i0].CQ_CFG.epoch.value;
                 readback_data_var[31] = field_storage.IOQ[i0].CQ_CFG.en.value;
             end
         end

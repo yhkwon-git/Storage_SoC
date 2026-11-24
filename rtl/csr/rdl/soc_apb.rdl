@@ -24,8 +24,8 @@ addrmap sys_regs {
 
   reg {
     name = "VERSION";
-    desc = "Register map version: 0x0002_0003 is the map of step 2-3 (NVMe data transfers by PRP and completion queue entries).";
-    field { sw = r; hw = na; } value[31:0] = 32'h0002_0003;
+    desc = "Register map version: 0x0002_0005 is the map of step 2-5 (NVMe controller epochs).";
+    field { sw = r; hw = na; } value[31:0] = 32'h0002_0005;
   } VERSION @ 0x004;
 
   reg {
@@ -394,7 +394,7 @@ addrmap dma_regs {
 
 addrmap nvme_regs {
   name = "NVME";
-  desc = "Firmware side of the NVMe controller (rtl/host/nvme/nvme_ctrl.sv, docs/11_nvme_queues.md, docs/12_nvme_data.md). The host side (CAP, CC, CSTS, AQA, ASQ, ACQ, doorbells) is in BAR0 and is mirrored here read-only.";
+  desc = "Firmware side of the NVMe controller (rtl/host/nvme/nvme_ctrl.sv, docs/11_nvme_queues.md, docs/12_nvme_data.md, docs/14_nvme_host_verification.md). The host side (CAP, CC, CSTS, AQA, ASQ, ACQ, doorbells) is in BAR0 and is mirrored here read-only. The epoch counts controller resets: CMD gives the epoch a command was fetched in, and a transfer start (XF_CTRL), a completion post (CQE_CTRL) or an I/O queue enable (SQ_CFG, CQ_CFG) carrying another epoch does nothing.";
   default regwidth = 32;
   default accesswidth = 32;
 
@@ -412,6 +412,7 @@ addrmap nvme_regs {
     field { sw = r; hw = w; desc = "CSTS.SHST."; } shst[5:4];
     field { sw = r; hw = w; desc = "Commands waiting in CMD."; } cmds[12:8];
     field { sw = r; hw = w; desc = "Free command buffer slots."; } free[20:16];
+    field { sw = r; hw = w; desc = "Epoch: controller resets since power-on, modulo 16."; } epoch[27:24];
   } STATUS @ 0x004;
 
   reg {
@@ -447,13 +448,15 @@ addrmap nvme_regs {
     desc = "Oldest fetched command; reading it removes it. VALID 0 when none waits. The command is at CMDBUF + 64 x SLOT until SLOT_FREE returns the slot.";
     field { sw = r; hw = w; swacc; } slot[3:0];
     field { sw = r; hw = w; desc = "Submission queue it came from."; } sqid[18:16];
+    field { sw = r; hw = w; desc = "Epoch it was fetched in; firmware writes it back with the command's transfer and completion."; } epoch[27:24];
     field { sw = r; hw = w; } valid[31:31];
   } CMD @ 0x018;
 
   reg {
     name = "SLOT_FREE";
-    desc = "A write returns the slot it names to the free list.";
+    desc = "A write returns the slot it names to the free list, if EPOCH is the controller's and the controller is on (a controller reset has freed every slot already).";
     field { sw = w; hw = r; swmod; } slot[3:0] = 4'h0;
+    field { sw = w; hw = r; desc = "The command's epoch (CMD.EPOCH)."; } epoch[7:4] = 4'h0;
   } SLOT_FREE @ 0x01C;
 
   reg {
@@ -532,6 +535,7 @@ addrmap nvme_regs {
     desc = "START while XF_STATUS.BUSY is ignored.";
     field { sw = w; hw = r; singlepulse; desc = "Start the transfer."; } start[0:0] = 1'b0;
     field { sw = rw; hw = r; desc = "1: SRAM to host (a read command); 0: host to SRAM (a write command)."; } d2h[1:1] = 1'b0;
+    field { sw = rw; hw = r; desc = "The command's epoch (CMD.EPOCH). A START with another epoch, or while the controller is not on, moves nothing and ends with ERR, cause 11."; } epoch[7:4] = 4'h0;
   } XF_CTRL @ 0x068;
 
   reg {
@@ -540,7 +544,7 @@ addrmap nvme_regs {
     field { sw = r; hw = w; } busy[0:0];
     field { sw = rw; onwrite = woclr; hw = r; hwset; hwclr; precedence = hw; } done[1:1] = 1'b0;
     field { sw = rw; onwrite = woclr; hw = r; hwset; hwclr; precedence = hw; } err[2:2] = 1'b0;
-    field { sw = r; hw = w; we; desc = "Why the transfer failed: 1 to 7 the bus master's cause, 8 a length out of range, 9 a PRP entry with a bad offset, 10 aborted by a controller reset."; } cause[11:8] = 4'h0;
+    field { sw = r; hw = w; we; desc = "Why the transfer failed: 1 to 7 the bus master's cause, 8 a length out of range, 9 a PRP entry with a bad offset, 10 aborted by a controller reset, 11 not started: stale epoch or controller not on."; } cause[11:8] = 4'h0;
   } XF_STATUS @ 0x06C;
 
   reg {
@@ -566,6 +570,7 @@ addrmap nvme_regs {
     name = "CQE_CTRL";
     desc = "A write queues the entry.";
     field { sw = rw; hw = r; swmod; desc = "Completion queue, 0 to 4."; } cqid[2:0] = 3'h0;
+    field { sw = rw; hw = r; desc = "The command's epoch (CMD.EPOCH). A post with another epoch, or while the controller is not on, is discarded (CQE_STATUS.STALE)."; } epoch[7:4] = 4'h0;
     field { sw = rw; hw = r; desc = "Status field of DW3 (bits 31:17: SC, SCT, CRD, M, DNR); 0 for success."; } status[31:17] = 15'h0;
   } CQE_CTRL @ 0x088;
 
@@ -576,6 +581,7 @@ addrmap nvme_regs {
     field { sw = r; hw = w; desc = "The oldest entry waits for room in its completion queue."; } cq_full[5:5];
     field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "An entry was dropped: posted while 4 waited, or to a completion queue that is not enabled."; } drop[8:8] = 1'b0;
     field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "An entry's write to the host failed."; } werr[9:9] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "A post was discarded: its epoch was not the controller's, or the controller was not on. Not an error: the command was dropped by a controller reset."; } stale[10:10] = 1'b0;
   } CQE_STATUS @ 0x08C;
 
   reg {
@@ -583,6 +589,13 @@ addrmap nvme_regs {
     desc = "Completion queue entries written since reset (wraps).";
     field { sw = r; hw = w; } count[31:0];
   } CQES @ 0x090;
+
+  reg {
+    name = "STALE";
+    desc = "Firmware actions refused for a stale epoch or with the controller not on, since power-on (each count wraps).";
+    field { sw = r; hw = w; desc = "Completion posts discarded."; } cqe[15:0];
+    field { sw = r; hw = w; desc = "Transfer starts refused."; } xf[31:16];
+  } STALE @ 0x094;
 
   // I/O queue pairs 1 to 4, written by firmware when it handles the admin
   // commands that create and delete them. A controller reset clears EN.
@@ -599,6 +612,7 @@ addrmap nvme_regs {
       name = "SQ_CFG";
       field { sw = rw; hw = r; desc = "Entries - 1."; } size[11:0] = 12'h0;
       field { sw = rw; hw = r; desc = "Completion queue for this submission queue."; } cqid[18:16] = 3'h0;
+      field { sw = rw; hw = r; desc = "Epoch of the command that created the queue; the queue is enabled only while it is the controller's."; } epoch[29:26] = 4'h0;
       field { sw = rw; hw = r; hwclr; desc = "Queue enabled; enabling sets its head and tail to 0."; } en[31:31] = 1'b0;
     } SQ_CFG @ 0x08;
     reg {
@@ -614,6 +628,7 @@ addrmap nvme_regs {
       field { sw = rw; hw = r; desc = "Entries - 1."; } size[11:0] = 12'h0;
       field { sw = rw; hw = r; desc = "MSI-X vector."; } iv[18:16] = 3'h0;
       field { sw = rw; hw = r; desc = "Interrupts enabled."; } ien[24:24] = 1'b0;
+      field { sw = rw; hw = r; desc = "Epoch of the command that created the queue; the queue is enabled only while it is the controller's."; } epoch[29:26] = 4'h0;
       field { sw = rw; hw = r; hwclr; desc = "Queue enabled; enabling sets head and tail to 0 and the phase to 1."; } en[31:31] = 1'b0;
     } CQ_CFG @ 0x14;
   } IOQ[4] @ 0x100 += 0x20;

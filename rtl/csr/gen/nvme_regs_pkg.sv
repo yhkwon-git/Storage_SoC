@@ -32,12 +32,17 @@ package nvme_regs_pkg;
     } nvme_regs__STATUS__free__in_t;
 
     typedef struct {
+        logic [3:0] next;
+    } nvme_regs__STATUS__epoch__in_t;
+
+    typedef struct {
         nvme_regs__STATUS__rdy__in_t rdy;
         nvme_regs__STATUS__cfs__in_t cfs;
         nvme_regs__STATUS__en__in_t en;
         nvme_regs__STATUS__shst__in_t shst;
         nvme_regs__STATUS__cmds__in_t cmds;
         nvme_regs__STATUS__free__in_t free;
+        nvme_regs__STATUS__epoch__in_t epoch;
     } nvme_regs__STATUS__in_t;
 
     typedef struct {
@@ -90,12 +95,17 @@ package nvme_regs_pkg;
     } nvme_regs__CMD__sqid__in_t;
 
     typedef struct {
+        logic [3:0] next;
+    } nvme_regs__CMD__epoch__in_t;
+
+    typedef struct {
         logic next;
     } nvme_regs__CMD__valid__in_t;
 
     typedef struct {
         nvme_regs__CMD__slot__in_t slot;
         nvme_regs__CMD__sqid__in_t sqid;
+        nvme_regs__CMD__epoch__in_t epoch;
         nvme_regs__CMD__valid__in_t valid;
     } nvme_regs__CMD__in_t;
 
@@ -223,11 +233,16 @@ package nvme_regs_pkg;
     } nvme_regs__CQE_STATUS__werr__in_t;
 
     typedef struct {
+        logic hwset;
+    } nvme_regs__CQE_STATUS__stale__in_t;
+
+    typedef struct {
         nvme_regs__CQE_STATUS__count__in_t count;
         nvme_regs__CQE_STATUS__full__in_t full;
         nvme_regs__CQE_STATUS__cq_full__in_t cq_full;
         nvme_regs__CQE_STATUS__drop__in_t drop;
         nvme_regs__CQE_STATUS__werr__in_t werr;
+        nvme_regs__CQE_STATUS__stale__in_t stale;
     } nvme_regs__CQE_STATUS__in_t;
 
     typedef struct {
@@ -237,6 +252,19 @@ package nvme_regs_pkg;
     typedef struct {
         nvme_regs__CQES__count__in_t count;
     } nvme_regs__CQES__in_t;
+
+    typedef struct {
+        logic [15:0] next;
+    } nvme_regs__STALE__cqe__in_t;
+
+    typedef struct {
+        logic [15:0] next;
+    } nvme_regs__STALE__xf__in_t;
+
+    typedef struct {
+        nvme_regs__STALE__cqe__in_t cqe;
+        nvme_regs__STALE__xf__in_t xf;
+    } nvme_regs__STALE__in_t;
 
     typedef struct {
         logic hwclr;
@@ -306,6 +334,7 @@ package nvme_regs_pkg;
         nvme_regs__XF_CYCLES__in_t XF_CYCLES;
         nvme_regs__CQE_STATUS__in_t CQE_STATUS;
         nvme_regs__CQES__in_t CQES;
+        nvme_regs__STALE__in_t STALE;
         nvme_regs__IOQ__in_t IOQ[4];
         nvme_regs__SQ_PTR__in_t SQ_PTR[5];
         nvme_regs__CQ_PTR__in_t CQ_PTR[5];
@@ -387,7 +416,12 @@ package nvme_regs_pkg;
     } nvme_regs__SLOT_FREE__slot__out_t;
 
     typedef struct {
+        logic [3:0] value;
+    } nvme_regs__SLOT_FREE__epoch__out_t;
+
+    typedef struct {
         nvme_regs__SLOT_FREE__slot__out_t slot;
+        nvme_regs__SLOT_FREE__epoch__out_t epoch;
     } nvme_regs__SLOT_FREE__out_t;
 
     typedef struct {
@@ -447,8 +481,13 @@ package nvme_regs_pkg;
     } nvme_regs__XF_CTRL__d2h__out_t;
 
     typedef struct {
+        logic [3:0] value;
+    } nvme_regs__XF_CTRL__epoch__out_t;
+
+    typedef struct {
         nvme_regs__XF_CTRL__start__out_t start;
         nvme_regs__XF_CTRL__d2h__out_t d2h;
+        nvme_regs__XF_CTRL__epoch__out_t epoch;
     } nvme_regs__XF_CTRL__out_t;
 
     typedef struct {
@@ -491,11 +530,16 @@ package nvme_regs_pkg;
     } nvme_regs__CQE_CTRL__cqid__out_t;
 
     typedef struct {
+        logic [3:0] value;
+    } nvme_regs__CQE_CTRL__epoch__out_t;
+
+    typedef struct {
         logic [14:0] value;
     } nvme_regs__CQE_CTRL__status__out_t;
 
     typedef struct {
         nvme_regs__CQE_CTRL__cqid__out_t cqid;
+        nvme_regs__CQE_CTRL__epoch__out_t epoch;
         nvme_regs__CQE_CTRL__status__out_t status;
     } nvme_regs__CQE_CTRL__out_t;
 
@@ -508,8 +552,13 @@ package nvme_regs_pkg;
     } nvme_regs__CQE_STATUS__werr__out_t;
 
     typedef struct {
+        logic value;
+    } nvme_regs__CQE_STATUS__stale__out_t;
+
+    typedef struct {
         nvme_regs__CQE_STATUS__drop__out_t drop;
         nvme_regs__CQE_STATUS__werr__out_t werr;
+        nvme_regs__CQE_STATUS__stale__out_t stale;
     } nvme_regs__CQE_STATUS__out_t;
 
     typedef struct {
@@ -537,12 +586,17 @@ package nvme_regs_pkg;
     } nvme_regs__IOQ__SQ_CFG__cqid__out_t;
 
     typedef struct {
+        logic [3:0] value;
+    } nvme_regs__IOQ__SQ_CFG__epoch__out_t;
+
+    typedef struct {
         logic value;
     } nvme_regs__IOQ__SQ_CFG__en__out_t;
 
     typedef struct {
         nvme_regs__IOQ__SQ_CFG__size__out_t size;
         nvme_regs__IOQ__SQ_CFG__cqid__out_t cqid;
+        nvme_regs__IOQ__SQ_CFG__epoch__out_t epoch;
         nvme_regs__IOQ__SQ_CFG__en__out_t en;
     } nvme_regs__IOQ__SQ_CFG__out_t;
 
@@ -575,6 +629,10 @@ package nvme_regs_pkg;
     } nvme_regs__IOQ__CQ_CFG__ien__out_t;
 
     typedef struct {
+        logic [3:0] value;
+    } nvme_regs__IOQ__CQ_CFG__epoch__out_t;
+
+    typedef struct {
         logic value;
     } nvme_regs__IOQ__CQ_CFG__en__out_t;
 
@@ -582,6 +640,7 @@ package nvme_regs_pkg;
         nvme_regs__IOQ__CQ_CFG__size__out_t size;
         nvme_regs__IOQ__CQ_CFG__iv__out_t iv;
         nvme_regs__IOQ__CQ_CFG__ien__out_t ien;
+        nvme_regs__IOQ__CQ_CFG__epoch__out_t epoch;
         nvme_regs__IOQ__CQ_CFG__en__out_t en;
     } nvme_regs__IOQ__CQ_CFG__out_t;
 

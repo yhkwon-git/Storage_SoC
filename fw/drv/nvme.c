@@ -33,6 +33,16 @@
  * first command's completion. Commands are still completed in the order
  * they were taken.
  *
+ * Epochs (step 2-5): CMD gives the epoch a command was fetched in. Firmware
+ * writes it back with everything it does for the command (SLOT_FREE, the
+ * transfer start, the completion post, the I/O queue registers), and the
+ * hardware ignores those of a command fetched before a controller reset. A
+ * command that changes state (queue creation and deletion, Set Features)
+ * first compares its epoch with STATUS.EPOCH, with interrupts masked, so a
+ * stale one touches nothing: the few register accesses between that check
+ * and the writes are far fewer than a host needs to reset the controller,
+ * enable it again and send another admin command.
+ *
  * Accounting: firmware clocks are the clocks spent in drain() minus the
  * clocks spent spinning on a transfer; transfer clocks are the sum of
  * XF_CYCLES.
@@ -57,12 +67,16 @@
 #define ST_QSIZE     ST(1, 0x02, 1)
 #define ST_IV        ST(1, 0x08, 1)
 #define ST_QDEL      ST(1, 0x0C, 1)
+/* Not a status: the command came before a controller reset (its epoch is
+ * not the controller's). Nothing is posted for it. */
+#define ST_STALE     0x80000000u
 
 nvme_stats_t nvme_stats;
 
 static volatile uint32_t events;
 static volatile uint32_t wake;
 static uint32_t overlap;
+static uint32_t sq_cq[5];               /* each submission queue's completion queue; 0 for admin */
 static uint8_t id_buf[4096] __attribute__((aligned(8)));
 
 static void nvme_isr(uint32_t id)
@@ -103,9 +117,9 @@ static void xf_load(const uint32_t *c, uint32_t laddr, uint32_t len)
   NVME_XF_LEN = len;
 }
 
-static void xf_start(int d2h, uint32_t len)
+static void xf_start(int d2h, uint32_t len, uint32_t ep)
 {
-  NVME_XF_CTRL = NVME_XF_START | (d2h ? NVME_XF_D2H : 0u);
+  NVME_XF_CTRL = NVME_XF_START | (d2h ? NVME_XF_D2H : 0u) | NVME_XF_EPOCH(ep);
   nvme_stats.bytes += len;
 }
 
@@ -123,16 +137,17 @@ static uint32_t xf_wait(void)
 }
 
 /* One PRP transfer from the command's PRP1 and PRP2; returns the cause. */
-static uint32_t xfer(int d2h, const uint32_t *c, uint32_t laddr, uint32_t len)
+static uint32_t xfer(int d2h, const uint32_t *c, uint32_t laddr, uint32_t len, uint32_t ep)
 {
   xf_load(c, laddr, len);
-  xf_start(d2h, len);
+  xf_start(d2h, len, ep);
   return xf_wait();
 }
 
 static uint32_t xfer_status(uint32_t cause)
 {
   if (cause == 0u) return ST_OK;
+  if (cause == NVME_XF_STALE) return ST_STALE;
   if (cause == 8u) return ST_FIELD;
   if (cause == 9u) return ST_PRP;
   return ST_XFER;
@@ -156,7 +171,7 @@ static void put_str(uint32_t at, uint32_t len, const char *s)
 }
 
 /* Identify: CNS 1 controller, 0 namespace 1, 2 active namespace list. */
-static uint32_t identify(const uint32_t *c, uint32_t *dw0)
+static uint32_t identify(const uint32_t *c, uint32_t *dw0, uint32_t ep)
 {
   uint32_t cns = c[10] & 0xFFu;
   uint32_t *w = (uint32_t *)id_buf;
@@ -189,57 +204,83 @@ static uint32_t identify(const uint32_t *c, uint32_t *dw0)
   } else {
     return ST_FIELD;
   }
-  return xfer_status(xfer(1, c, (uint32_t)(uintptr_t)id_buf, 4096u));
+  return xfer_status(xfer(1, c, (uint32_t)(uintptr_t)id_buf, 4096u, ep));
 }
 
-static int cq_used(uint32_t cq)
+/* A queue the hardware has enabled in epoch ep. */
+static int q_live(uint32_t cfg, uint32_t ep)
+{
+  return (cfg & NVME_Q_EN) && NVME_Q_EPOCH_OF(cfg) == ep;
+}
+
+static int cq_used(uint32_t cq, uint32_t ep)
 {
   for (uint32_t q = 1; q <= 4u; q++) {
     uint32_t cfg = NVME_IOQ(q, SQ_CFG);
-    if ((cfg & NVME_Q_EN) && ((cfg >> 16) & 7u) == cq) return 1;
+    if (q_live(cfg, ep) && ((cfg >> 16) & 7u) == cq) return 1;
   }
   return 0;
 }
 
-static uint32_t admin(const uint32_t *c, uint32_t *dw0)
+static uint32_t queue_cmd(const uint32_t *c, uint32_t ep)
 {
   uint32_t opc = c[0] & 0xFFu;
   uint32_t qid = c[10] & 0xFFFFu;
   uint32_t qsize = c[10] >> 16;
 
-  nvme_stats.admin++;
   switch (opc) {
-  case 0x06u:
-    return identify(c, dw0);
   case 0x05u:                           /* Create I/O Completion Queue */
-    if (qid < 1u || qid > 4u || (NVME_IOQ(qid, CQ_CFG) & NVME_Q_EN)) return ST_QID;
+    if (qid < 1u || qid > 4u || q_live(NVME_IOQ(qid, CQ_CFG), ep)) return ST_QID;
     if (qsize < 1u || qsize > 0xFFFu) return ST_QSIZE;
     if (!(c[11] & 1u) || (c[6] & 0xFFFu)) return ST_FIELD;
     if ((c[11] >> 16) > 7u) return ST_IV;
     NVME_IOQ(qid, CQB_LO) = c[6];
     NVME_IOQ(qid, CQB_HI) = c[7];
-    NVME_IOQ(qid, CQ_CFG) = NVME_Q_EN | ((c[11] & 2u) ? NVME_CQ_IEN : 0u) | ((c[11] >> 16) << 16) | qsize;
+    NVME_IOQ(qid, CQ_CFG) = NVME_Q_EN | NVME_Q_EPOCH(ep) | ((c[11] & 2u) ? NVME_CQ_IEN : 0u) |
+                            ((c[11] >> 16) << 16) | qsize;
     return ST_OK;
   case 0x01u: {                         /* Create I/O Submission Queue */
     uint32_t cqid = c[11] >> 16;
-    if (qid < 1u || qid > 4u || (NVME_IOQ(qid, SQ_CFG) & NVME_Q_EN)) return ST_QID;
+    if (qid < 1u || qid > 4u || q_live(NVME_IOQ(qid, SQ_CFG), ep)) return ST_QID;
     if (qsize < 1u || qsize > 0xFFFu) return ST_QSIZE;
     if (!(c[11] & 1u) || (c[6] & 0xFFFu)) return ST_FIELD;
-    if (cqid < 1u || cqid > 4u || !(NVME_IOQ(cqid, CQ_CFG) & NVME_Q_EN)) return ST_CQ_INVAL;
+    if (cqid < 1u || cqid > 4u || !q_live(NVME_IOQ(cqid, CQ_CFG), ep)) return ST_CQ_INVAL;
     NVME_IOQ(qid, SQB_LO) = c[6];
     NVME_IOQ(qid, SQB_HI) = c[7];
-    NVME_IOQ(qid, SQ_CFG) = NVME_Q_EN | (cqid << 16) | qsize;
+    sq_cq[qid] = cqid;
+    NVME_IOQ(qid, SQ_CFG) = NVME_Q_EN | NVME_Q_EPOCH(ep) | (cqid << 16) | qsize;
     return ST_OK;
   }
   case 0x00u:                           /* Delete I/O Submission Queue */
-    if (qid < 1u || qid > 4u || !(NVME_IOQ(qid, SQ_CFG) & NVME_Q_EN)) return ST_QID;
+    if (qid < 1u || qid > 4u || !q_live(NVME_IOQ(qid, SQ_CFG), ep)) return ST_QID;
     NVME_IOQ(qid, SQ_CFG) = NVME_IOQ(qid, SQ_CFG) & ~NVME_Q_EN;
     return ST_OK;
-  case 0x04u:                           /* Delete I/O Completion Queue */
-    if (qid < 1u || qid > 4u || !(NVME_IOQ(qid, CQ_CFG) & NVME_Q_EN)) return ST_QID;
-    if (cq_used(qid)) return ST_QDEL;
+  default:                              /* 0x04: Delete I/O Completion Queue */
+    if (qid < 1u || qid > 4u || !q_live(NVME_IOQ(qid, CQ_CFG), ep)) return ST_QID;
+    if (cq_used(qid, ep)) return ST_QDEL;
     NVME_IOQ(qid, CQ_CFG) = NVME_IOQ(qid, CQ_CFG) & ~NVME_Q_EN;
     return ST_OK;
+  }
+}
+
+static uint32_t admin(const uint32_t *c, uint32_t *dw0, uint32_t ep)
+{
+  uint32_t opc = c[0] & 0xFFu;
+  uint32_t st;
+
+  nvme_stats.admin++;
+  switch (opc) {
+  case 0x06u:
+    return identify(c, dw0, ep);
+  case 0x05u:
+  case 0x01u:
+  case 0x00u:
+  case 0x04u:
+    /* Check the epoch and write the queue registers with interrupts masked. */
+    clear_csr(mstatus, 1u << 3);
+    st = (ep == NVME_ST_EPOCH(NVME_STATUS)) ? queue_cmd(c, ep) : ST_STALE;
+    set_csr(mstatus, 1u << 3);
+    return st;
   case 0x09u:                           /* Set Features */
   case 0x0Au:                           /* Get Features */
     if ((c[10] & 0xFFu) == 0x07u) {
@@ -247,7 +288,10 @@ static uint32_t admin(const uint32_t *c, uint32_t *dw0)
       return ST_OK;
     }
     if ((c[10] & 0xFFu) == 0xC0u) {     /* vendor specific: transfer overlap */
-      if (opc == 0x09u) overlap = c[11] & 1u;
+      if (opc == 0x09u) {
+        if (ep != NVME_ST_EPOCH(NVME_STATUS)) return ST_STALE;
+        overlap = c[11] & 1u;
+      }
       *dw0 = overlap;
       return ST_OK;
     }
@@ -280,26 +324,31 @@ static uint32_t io_check(const uint32_t *c, uint32_t *laddr, uint32_t *len)
   return ST_OK;
 }
 
-static void post(uint32_t cq, uint32_t cid, uint32_t sq, uint32_t status, uint32_t dw0)
+/* Post the completion of a command from submission queue sq to that queue's
+ * completion queue, or count the command if it was found stale. */
+static void post(uint32_t sq, uint32_t cid, uint32_t status, uint32_t dw0, uint32_t ep)
 {
+  if (status == ST_STALE) {
+    nvme_stats.stale++;
+    return;
+  }
+  if (status != ST_OK) nvme_stats.errors++;
   while (NVME_CQE_STATUS & NVME_CQE_FULL) {
   }
   NVME_CQE_DW0 = dw0;
   NVME_CQE_INFO = (sq << 16) | cid;
-  NVME_CQE_CTRL = (status << 17) | cq;
+  NVME_CQE_CTRL = (status << 17) | NVME_CQE_EPOCH(ep) | sq_cq[sq];
 }
 
 /* A command whose transfer is running (overlap mode). */
 static struct {
-  uint32_t on, q, cid;
+  uint32_t on, q, cid, ep;
 } pend;
 
 static void pend_finish(void)
 {
   if (!pend.on) return;
-  uint32_t st = xfer_status(xf_wait());
-  post(pend.q, pend.cid, pend.q, st, 0u);
-  if (st != ST_OK) nvme_stats.errors++;
+  post(pend.q, pend.cid, xfer_status(xf_wait()), 0u, pend.ep);
   pend.on = 0u;
 }
 
@@ -313,13 +362,14 @@ static void drain(void)
     const volatile uint32_t *e = (const volatile uint32_t *)(uintptr_t)(NVME_CMDBUF + 64u * NVME_CMD_SLOT(c));
     uint32_t sqe[16];
     uint32_t q = NVME_CMD_SQID(c);
+    uint32_t ep = NVME_CMD_EPOCH(c);
     uint32_t st, dw0 = 0u, laddr = 0u, len = 0u;
     for (int i = 0; i < 16; i++) sqe[i] = e[i];
-    NVME_SLOT_FREE = NVME_CMD_SLOT(c);
+    NVME_SLOT_FREE = NVME_CMD_SLOT(c) | NVME_FREE_EPOCH(ep);
     nvme_stats.cmds++;
     if (q == 0u) {
       pend_finish();
-      st = admin(sqe, &dw0);
+      st = admin(sqe, &dw0, ep);
     } else {
       st = io_check(sqe, &laddr, &len);
       if (st == ST_OK && len != 0u) {
@@ -330,24 +380,23 @@ static void drain(void)
           xf_load(sqe, laddr, len);
           if (pend.on) {
             uint32_t pst = xfer_status(xf_wait());
-            xf_start(d2h, len);
-            post(pend.q, pend.cid, pend.q, pst, 0u);
-            if (pst != ST_OK) nvme_stats.errors++;
+            xf_start(d2h, len, ep);
+            post(pend.q, pend.cid, pst, 0u, pend.ep);
           } else {
-            xf_start(d2h, len);
+            xf_start(d2h, len, ep);
           }
           pend.on = 1u;
           pend.q = q;
           pend.cid = sqe[0] >> 16;
+          pend.ep = ep;
           continue;
         }
-        st = xfer_status(xfer(d2h, sqe, laddr, len));
+        st = xfer_status(xfer(d2h, sqe, laddr, len, ep));
       } else {
         pend_finish();
       }
     }
-    post(q, sqe[0] >> 16, q, st, dw0);
-    if (st != ST_OK) nvme_stats.errors++;
+    post(q, sqe[0] >> 16, st, dw0, ep);
   }
   pend_finish();
   nvme_stats.fw_clocks += (timer_cycles() - t0) - (nvme_stats.spin_clocks - s0);

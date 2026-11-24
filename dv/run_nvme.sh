@@ -30,7 +30,7 @@ src=(
   "$t/tl_cfg.sv" "$t/tl_msix.sv" "$t/tl_wr.sv" "$t/tl_rd.sv" "$t/tl_bm.sv" "$t/tl_core.sv"
   "$root/rtl/csr/gen/nvme_regs_pkg.sv" "$root/rtl/csr/gen/nvme_regs.sv"
   "$rtl/host/nvme/nvme_lbuf.sv" "$rtl/host/nvme/nvme_prp.sv" "$rtl/host/nvme/nvme_cqe.sv"
-  "$rtl/host/nvme/nvme_ctrl.sv"
+  "$rtl/host/nvme/nvme_ctrl.sv" "$here/sva/nvme_checker.sv" "$here/sva/nvme_bind.sv"
   "$here/uvm/apb_if.sv" "$here/tb/axi4_if.sv" "$here/sva/axi4_checker.sv" "$here/tb/dma_tb_pkg.sv"
   "$here/tb/tlp_if.sv" "$here/tb/tlp_tb_pkg.sv" "$here/tb/tb_nvme.sv"
 )
@@ -51,7 +51,7 @@ run() {
   grep -E '^\[NVME\]|^\[HOST\]|^\[DMA\]|%Error|Assertion' "$out/$name.log" | sed "s/^/$name: /" | head -60
 }
 
-for t in regs enable fetch rr doorbell ferr shutdown reset perf data cqe xerr; do
+for t in regs enable fetch rr doorbell ferr shutdown reset perf data cqe xerr stale; do
   run "$t" +test="$t" +verilator+seed+1
 done
 for s in $(seq 1 "$seeds"); do

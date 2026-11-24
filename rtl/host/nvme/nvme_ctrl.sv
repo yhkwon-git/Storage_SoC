@@ -50,6 +50,16 @@
 // entry being posted pass through the local buffer (nvme_lbuf, an AXI slave
 // on the crossbar). The fetch engine, the PRP engine and the poster share the
 // transaction layer's NVMe bus-master port, round robin.
+//
+// Epochs (step 2-5, docs/14_nvme_host_verification.md): a 4-bit epoch counts
+// controller resets. CMD returns it with each command, and firmware writes it
+// back with what it does for the command: a transfer start (XF_CTRL), a
+// completion post (CQE_CTRL), an I/O queue it creates (SQ_CFG, CQ_CFG). A
+// start or a post with another epoch, or while the controller is not on, does
+// nothing and is counted (STALE); an I/O queue is enabled only while its epoch
+// is the controller's. So a command that firmware still holds when the host
+// resets the controller can never move data or write an entry, nor create a
+// queue, after the host has enabled the controller again.
 // -----------------------------------------------------------------------------
 
 module nvme_ctrl #(
@@ -212,6 +222,7 @@ module nvme_ctrl #(
 
   typedef enum logic [1:0] {C_OFF, C_ON, C_RESET} cst_t;
   cst_t c_st;
+  logic [3:0] epoch;         // controller resets, modulo 16
 
   logic [NQ-1:0] sq_en, cq_en;
   logic [11:0]   sq_size [NQ];
@@ -225,8 +236,10 @@ module nvme_ctrl #(
     cq_size[0] = adm_cqs;
     sq_base[0] = adm_sqb;
     for (int i = 1; i < NQ; i++) begin
-      sq_en[i]   = (c_st == C_ON) && hwif_out.IOQ[i-1].SQ_CFG.en.value;
-      cq_en[i]   = (c_st == C_ON) && hwif_out.IOQ[i-1].CQ_CFG.en.value;
+      sq_en[i]   = (c_st == C_ON) && hwif_out.IOQ[i-1].SQ_CFG.en.value &&
+                   (hwif_out.IOQ[i-1].SQ_CFG.epoch.value == epoch);
+      cq_en[i]   = (c_st == C_ON) && hwif_out.IOQ[i-1].CQ_CFG.en.value &&
+                   (hwif_out.IOQ[i-1].CQ_CFG.epoch.value == epoch);
       sq_size[i] = hwif_out.IOQ[i-1].SQ_CFG.size.value;
       cq_size[i] = hwif_out.IOQ[i-1].CQ_CFG.size.value;
       sq_base[i] = {hwif_out.IOQ[i-1].SQB_HI.base.value, hwif_out.IOQ[i-1].SQB_LO.base.value};
@@ -360,7 +373,12 @@ module nvme_ctrl #(
   logic [31:2] p_laddr;
   logic [17:0] p_len;
   logic [3:0]  p_cause;
-  wire         xf_start = hwif_out.XF_CTRL.start.value && !p_busy;
+  // A START is taken only with the command's epoch and the controller on;
+  // otherwise it ends at once with ERR, cause 11.
+  wire         xf_req   = hwif_out.XF_CTRL.start.value && !p_busy;
+  wire         xf_ok    = (hwif_out.XF_CTRL.epoch.value == epoch) && (c_st == C_ON);
+  wire         xf_start = xf_req && xf_ok;
+  wire         xf_stale = xf_req && !xf_ok;
 
   nvme_prp #(.LBUF_BASE(LBUF_BASE)) u_prp (
     .clk (clk), .rst_n (rst_n),
@@ -374,11 +392,25 @@ module nvme_ctrl #(
     .e_raddr (lb_raddr), .e_rdata (lb_rdata)
   );
 
-  // CQE_CTRL, like SLOT_FREE, is used one clock after its write.
-  logic c_post;
+  // CQE_CTRL, like SLOT_FREE, is used one clock after its write. A post with
+  // another epoch, or with the controller not on, is discarded.
+  logic c_wr;
   always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) c_post <= 1'b0;
-    else        c_post <= hwif_out.CQE_CTRL.cqid.swmod;
+    if (!rst_n) c_wr <= 1'b0;
+    else        c_wr <= hwif_out.CQE_CTRL.cqid.swmod;
+  end
+  wire c_post  = c_wr && (hwif_out.CQE_CTRL.epoch.value == epoch) && (c_st == C_ON);
+  wire c_stale = c_wr && !c_post;
+
+  logic [15:0] n_stale_cqe, n_stale_xf;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      n_stale_cqe <= 16'd0;
+      n_stale_xf  <= 16'd0;
+    end else begin
+      if (c_stale)  n_stale_cqe <= n_stale_cqe + 16'd1;
+      if (xf_stale) n_stale_xf  <= n_stale_xf + 16'd1;
+    end
   end
 
   logic        c_valid, c_ready, c_done, c_adv, c_drop, c_werr, c_active, c_wait, c_full;
@@ -525,11 +557,17 @@ module nvme_ctrl #(
   logic ev_enable, ev_reset, ev_shut, ev_fetch_err, ev_db;
   logic clr_ioq;
 
+  // The command FIFO empties in the clock the reset completes, with the slots
+  // and the epoch: a command fetched before the reset is never offered in CMD
+  // with the new epoch.
+  assign cf_flush = (c_st == C_RESET) && !f_busy && !p_busy && !c_active;
+
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       cc <= 32'd0; aqa <= 32'd0; asq_lo <= 32'd0; asq_hi <= 32'd0; acq_lo <= 32'd0; acq_hi <= 32'd0;
       rdy <= 1'b0; cfs <= 1'b0; shst <= 2'b00;
       c_st <= C_OFF;
+      epoch <= 4'd0;
       adm_sqb <= '0; adm_cqb <= '0; adm_sqs <= 12'd0; adm_cqs <= 12'd0;
       for (int i = 0; i < NQ; i++) begin
         sq_head[i] <= 12'd0; sq_tail[i] <= 12'd0;
@@ -542,11 +580,9 @@ module nvme_ctrl #(
       n_cqes  <= 32'd0;
       ev_enable <= 1'b0; ev_reset <= 1'b0; ev_shut <= 1'b0; ev_fetch_err <= 1'b0; ev_db <= 1'b0;
       clr_ioq <= 1'b0;
-      cf_flush <= 1'b0;
     end else begin
       ev_enable <= 1'b0; ev_reset <= 1'b0; ev_shut <= 1'b0; ev_fetch_err <= 1'b0; ev_db <= 1'b0;
       clr_ioq  <= 1'b0;
-      cf_flush <= 1'b0;
 
       // Host register writes
       if (reg_we) begin
@@ -596,10 +632,10 @@ module nvme_ctrl #(
             cq_head[i] <= 12'd0; cq_tail[i] <= 12'd0; cq_phase[i] <= 1'b1;
           end
           slot_free <= '1;
-          cf_flush  <= 1'b1;
           clr_ioq   <= 1'b1;
           rdy <= 1'b0; cfs <= 1'b0; shst <= 2'b00;
           ev_reset <= 1'b1;
+          epoch    <= epoch + 4'd1;
           c_st     <= C_OFF;
         end
       endcase
@@ -636,7 +672,7 @@ module nvme_ctrl #(
           end
         end
       end
-      if (free_wr && c_st != C_RESET) slot_free[free_slot] <= 1'b1;
+      if (free_wr && c_st == C_ON && hwif_out.SLOT_FREE.epoch.value == epoch) slot_free[free_slot] <= 1'b1;
 
       // A completion queue entry written: the tail moves on, and the phase
       // toggles at the wrap. A failed write is a controller fatal status.
@@ -672,6 +708,7 @@ module nvme_ctrl #(
     hwif_in.STATUS.shst.next = shst;
     hwif_in.STATUS.cmds.next = 5'(cf_count);
     hwif_in.STATUS.free.next = 5'(n_free);
+    hwif_in.STATUS.epoch.next = epoch;
 
     hwif_in.EVENT.enable.hwset    = ev_enable;
     hwif_in.EVENT.reset.hwset     = ev_reset;
@@ -689,6 +726,7 @@ module nvme_ctrl #(
     hwif_in.CMD.slot.next  = cf_empty ? 4'd0 : 4'(cf_dout[SW-1:0]);
     hwif_in.CMD.sqid.next  = cf_empty ? 3'd0 : cf_dout[SW+2:SW];
     hwif_in.CMD.valid.next = !cf_empty;
+    hwif_in.CMD.epoch.next = epoch;     // the FIFO holds only this epoch's commands
 
     hwif_in.DB_ERR.qid.next   = db_q;
     hwif_in.DB_ERR.qid.we     = db_w && !db_ok;
@@ -701,11 +739,11 @@ module nvme_ctrl #(
 
     hwif_in.XF_STATUS.busy.next  = p_busy;
     hwif_in.XF_STATUS.done.hwset = p_fin && (p_cause == 4'd0);
-    hwif_in.XF_STATUS.done.hwclr = xf_start;
-    hwif_in.XF_STATUS.err.hwset  = p_fin && (p_cause != 4'd0);
-    hwif_in.XF_STATUS.err.hwclr  = xf_start;
-    hwif_in.XF_STATUS.cause.next = p_cause;
-    hwif_in.XF_STATUS.cause.we   = p_fin;
+    hwif_in.XF_STATUS.done.hwclr = xf_req;
+    hwif_in.XF_STATUS.err.hwset  = (p_fin && (p_cause != 4'd0)) || xf_stale;
+    hwif_in.XF_STATUS.err.hwclr  = xf_req;
+    hwif_in.XF_STATUS.cause.next = xf_stale ? 4'd11 : p_cause;
+    hwif_in.XF_STATUS.cause.we   = p_fin || xf_stale;
     hwif_in.XF_CYCLES.count.next = xf_cyc;
 
     hwif_in.CQE_STATUS.count.next   = c_count;
@@ -713,7 +751,10 @@ module nvme_ctrl #(
     hwif_in.CQE_STATUS.cq_full.next = c_wait;
     hwif_in.CQE_STATUS.drop.hwset   = c_drop;
     hwif_in.CQE_STATUS.werr.hwset   = c_werr;
+    hwif_in.CQE_STATUS.stale.hwset  = c_stale;
     hwif_in.CQES.count.next         = n_cqes;
+    hwif_in.STALE.cqe.next          = n_stale_cqe;
+    hwif_in.STALE.xf.next           = n_stale_xf;
     hwif_in.EVENT.cqe_err.hwset     = c_drop || c_werr;
 
     for (int i = 0; i < NQ - 1; i++) begin

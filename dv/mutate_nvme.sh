@@ -23,7 +23,7 @@ mutants=(
   "db_range@nvme_ctrl.sv@s/: (sq_en\[db_q\] \&\& (db_val <= {4'd0, sq_size\[db_q\]}));/: (sq_en[db_q]);/@submission doorbell beyond the queue size taken"
   "db_event@nvme_ctrl.sv@s/        if (!db_ok)      ev_db <= 1'b1;/        if (!db_ok)      ev_db <= 1'b0;/@bad doorbell not reported"
   "cfs@nvme_ctrl.sv@s/            cfs          <= 1'b1;/            cfs          <= 1'b0;/@failed fetch does not set CFS"
-  "flush@nvme_ctrl.sv@s/          cf_flush  <= 1'b1;/          cf_flush  <= 1'b0;/@controller reset leaves commands in the FIFO"
+  "flush@nvme_ctrl.sv@s/  assign cf_flush = (c_st == C_RESET) \&\& !f_busy/  assign cf_flush = 1'b0 \&\& !f_busy/@controller reset leaves commands in the FIFO"
   "ioq_clr@nvme_ctrl.sv@s/      hwif_in.IOQ\[i\].SQ_CFG.en.hwclr = clr_ioq;/      hwif_in.IOQ[i].SQ_CFG.en.hwclr = 1'b0;/@controller reset leaves I/O submission queues enabled"
   "shut_wait@nvme_ctrl.sv@s/      if (shst == 2'b01 \&\& !f_busy \&\& !p_busy \&\& !c_active) shst <= 2'b10;/      if (shst == 2'b01) shst <= 2'b10;/@shutdown complete with a fetch in flight"
   "shut_stop@nvme_ctrl.sv@s/wire can_fetch = (c_st == C_ON) \&\& !cfs \&\& (shst == 2'b00) \&\& any/wire can_fetch = (c_st == C_ON) \&\& !cfs \&\& any/@fetching goes on after a shutdown"
@@ -42,6 +42,12 @@ mutants=(
   "tail_wrap@nvme_ctrl.sv@s/            cq_tail\[i\] <= (cq_tail\[i\] == cq_size\[i\]) ? 12'd0 : cq_tail\[i\] + 12'd1;/            cq_tail[i] <= cq_tail[i] + 12'd1;/@completion queue tail does not wrap"
   "f_done@nvme_ctrl.sv@s/  wire f_done_w  = bm_done \&\& own_busy \&\& (own == 2'd0);/  wire f_done_w  = bm_done \&\& own_busy;/@the fetch engine takes another requester's done as its own"
   "werr_cfs@nvme_ctrl.sv@s/      if (c_werr) cfs <= 1'b1;/      if (1'b0) cfs <= 1'b1;/@a failed entry write does not set CSTS.CFS"
+  "ep_xf@nvme_ctrl.sv@s/  wire         xf_ok    = (hwif_out.XF_CTRL.epoch.value == epoch) \&\& (c_st == C_ON);/  wire         xf_ok    = (c_st == C_ON);/@a transfer start with a stale epoch taken"
+  "off_xf@nvme_ctrl.sv@s/  wire         xf_ok    = (hwif_out.XF_CTRL.epoch.value == epoch) \&\& (c_st == C_ON);/  wire         xf_ok    = (hwif_out.XF_CTRL.epoch.value == epoch);/@a transfer start taken with the controller off"
+  "ep_post@nvme_ctrl.sv@s/  wire c_post  = c_wr \&\& (hwif_out.CQE_CTRL.epoch.value == epoch) \&\& (c_st == C_ON);/  wire c_post  = c_wr \&\& (c_st == C_ON);/@a post with a stale epoch written"
+  "ep_free@nvme_ctrl.sv@s/      if (free_wr \&\& c_st == C_ON \&\& hwif_out.SLOT_FREE.epoch.value == epoch) slot_free/      if (free_wr \&\& c_st == C_ON) slot_free/@a stale SLOT_FREE frees a slot in use"
+  "ep_ioq@nvme_ctrl.sv@s/                   (hwif_out.IOQ\[i-1\].SQ_CFG.epoch.value == epoch);/                   1'b1;/@an I/O submission queue created with a stale epoch enabled"
+  "ep_inc@nvme_ctrl.sv@s/          epoch    <= epoch + 4'd1;/          epoch    <= epoch;/@the epoch does not change at a controller reset"
 )
 
 caught=0
@@ -67,7 +73,7 @@ for entry in "${mutants[@]}"; do
     "$tl/tl_pkg.sv" "$tl/tl_dw_align.sv" "$tl/tl_rx_buf.sv" "$tl/tl_rx_unpack.sv" "$tl/tl_tx_pack.sv"
     "$tl/tl_cfg.sv" "$tl/tl_msix.sv" "$tl/tl_wr.sv" "$tl/tl_rd.sv" "$tl/tl_bm.sv" "$tl/tl_core.sv"
     "$root/rtl/csr/gen/nvme_regs_pkg.sv" "$root/rtl/csr/gen/nvme_regs.sv"
-    "$t/nvme_lbuf.sv" "$t/nvme_prp.sv" "$t/nvme_cqe.sv" "$t/nvme_ctrl.sv"
+    "$t/nvme_lbuf.sv" "$t/nvme_prp.sv" "$t/nvme_cqe.sv" "$t/nvme_ctrl.sv" "$here/sva/nvme_checker.sv" "$here/sva/nvme_bind.sv"
     "$here/uvm/apb_if.sv" "$here/tb/axi4_if.sv" "$here/sva/axi4_checker.sv" "$here/tb/dma_tb_pkg.sv"
     "$here/tb/tlp_if.sv" "$here/tb/tlp_tb_pkg.sv" "$here/tb/tb_nvme.sv"
   )
@@ -77,7 +83,7 @@ for entry in "${mutants[@]}"; do
     || { echo "[MUT] $name: build failed"; cat "$dir/build.log"; exit 1; }
   first=""
   for args in "+test=regs" "+test=enable" "+test=fetch" "+test=rr" "+test=doorbell" "+test=ferr" \
-              "+test=shutdown" "+test=reset" "+test=data" "+test=cqe" "+test=xerr" \
+              "+test=shutdown" "+test=reset" "+test=data" "+test=cqe" "+test=xerr" "+test=stale" \
               "+test=random +n=600" "+test=io +n=150"; do
     # shellcheck disable=SC2086
     if ! (cd "$dir" && timeout 900 "$base/obj/Vtb_nvme" $args +verilator+seed+1) > "$dir/run.log" 2>&1; then

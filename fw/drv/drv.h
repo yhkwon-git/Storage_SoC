@@ -73,6 +73,7 @@ uint32_t crc32(const void *p, uint32_t len);
  * shutdown. */
 typedef struct {
   uint32_t cmds, admin, reads, writes, flushes, errors, resets;
+  uint32_t stale;         /* commands found to predate a controller reset: nothing posted */
   uint32_t fw_clocks;     /* clocks in the command loop, spinning on transfers left out */
   uint32_t spin_clocks;   /* clocks spinning on a transfer's end */
   uint32_t xfer_clocks;   /* summed XF_CYCLES of the PRP transfers */

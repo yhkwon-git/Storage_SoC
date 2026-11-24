@@ -28,7 +28,7 @@ package soc_apb_ral_pkg;
 
         virtual function void build();
             this.value = new("value");
-            this.value.configure(this, 32, 0, "RO", 0, 'h20003, 1, 1, 0);
+            this.value.configure(this, 32, 0, "RO", 0, 'h20005, 1, 1, 0);
         endfunction : build
     endclass : sys_regs__VERSION
 
@@ -1249,6 +1249,7 @@ package soc_apb_ral_pkg;
         rand uvm_reg_field shst;
         rand uvm_reg_field cmds;
         rand uvm_reg_field free;
+        rand uvm_reg_field epoch;
 
         function new(string name = "nvme_regs__STATUS");
             super.new(name, 32, UVM_NO_COVERAGE);
@@ -1267,6 +1268,8 @@ package soc_apb_ral_pkg;
             this.cmds.configure(this, 5, 8, "RO", 1, 'h0, 0, 1, 0);
             this.free = new("free");
             this.free.configure(this, 5, 16, "RO", 1, 'h0, 0, 1, 0);
+            this.epoch = new("epoch");
+            this.epoch.configure(this, 4, 24, "RO", 1, 'h0, 0, 1, 0);
         endfunction : build
     endclass : nvme_regs__STATUS
 
@@ -1345,6 +1348,7 @@ package soc_apb_ral_pkg;
     class nvme_regs__CMD extends uvm_reg;
         rand uvm_reg_field slot;
         rand uvm_reg_field sqid;
+        rand uvm_reg_field epoch;
         rand uvm_reg_field valid;
 
         function new(string name = "nvme_regs__CMD");
@@ -1356,6 +1360,8 @@ package soc_apb_ral_pkg;
             this.slot.configure(this, 4, 0, "RO", 1, 'h0, 0, 1, 0);
             this.sqid = new("sqid");
             this.sqid.configure(this, 3, 16, "RO", 1, 'h0, 0, 1, 0);
+            this.epoch = new("epoch");
+            this.epoch.configure(this, 4, 24, "RO", 1, 'h0, 0, 1, 0);
             this.valid = new("valid");
             this.valid.configure(this, 1, 31, "RO", 1, 'h0, 0, 1, 0);
         endfunction : build
@@ -1364,6 +1370,7 @@ package soc_apb_ral_pkg;
     // reg - nvme_regs::SLOT_FREE
     class nvme_regs__SLOT_FREE extends uvm_reg;
         rand uvm_reg_field slot;
+        rand uvm_reg_field epoch;
 
         function new(string name = "nvme_regs__SLOT_FREE");
             super.new(name, 32, UVM_NO_COVERAGE);
@@ -1372,6 +1379,8 @@ package soc_apb_ral_pkg;
         virtual function void build();
             this.slot = new("slot");
             this.slot.configure(this, 4, 0, "WO", 0, 'h0, 1, 1, 0);
+            this.epoch = new("epoch");
+            this.epoch.configure(this, 4, 4, "WO", 0, 'h0, 1, 1, 0);
         endfunction : build
     endclass : nvme_regs__SLOT_FREE
 
@@ -1567,6 +1576,7 @@ package soc_apb_ral_pkg;
     class nvme_regs__XF_CTRL extends uvm_reg;
         rand uvm_reg_field start;
         rand uvm_reg_field d2h;
+        rand uvm_reg_field epoch;
 
         function new(string name = "nvme_regs__XF_CTRL");
             super.new(name, 32, UVM_NO_COVERAGE);
@@ -1577,6 +1587,8 @@ package soc_apb_ral_pkg;
             this.start.configure(this, 1, 0, "WO", 1, 'h0, 1, 1, 0);
             this.d2h = new("d2h");
             this.d2h.configure(this, 1, 1, "RW", 0, 'h0, 1, 1, 0);
+            this.epoch = new("epoch");
+            this.epoch.configure(this, 4, 4, "RW", 0, 'h0, 1, 1, 0);
         endfunction : build
     endclass : nvme_regs__XF_CTRL
 
@@ -1651,6 +1663,7 @@ package soc_apb_ral_pkg;
     // reg - nvme_regs::CQE_CTRL
     class nvme_regs__CQE_CTRL extends uvm_reg;
         rand uvm_reg_field cqid;
+        rand uvm_reg_field epoch;
         rand uvm_reg_field status;
 
         function new(string name = "nvme_regs__CQE_CTRL");
@@ -1660,6 +1673,8 @@ package soc_apb_ral_pkg;
         virtual function void build();
             this.cqid = new("cqid");
             this.cqid.configure(this, 3, 0, "RW", 0, 'h0, 1, 1, 0);
+            this.epoch = new("epoch");
+            this.epoch.configure(this, 4, 4, "RW", 0, 'h0, 1, 1, 0);
             this.status = new("status");
             this.status.configure(this, 15, 17, "RW", 0, 'h0, 1, 1, 0);
         endfunction : build
@@ -1672,6 +1687,7 @@ package soc_apb_ral_pkg;
         rand uvm_reg_field cq_full;
         rand uvm_reg_field drop;
         rand uvm_reg_field werr;
+        rand uvm_reg_field stale;
 
         function new(string name = "nvme_regs__CQE_STATUS");
             super.new(name, 32, UVM_NO_COVERAGE);
@@ -1688,6 +1704,8 @@ package soc_apb_ral_pkg;
             this.drop.configure(this, 1, 8, "W1C", 1, 'h0, 1, 1, 0);
             this.werr = new("werr");
             this.werr.configure(this, 1, 9, "W1C", 1, 'h0, 1, 1, 0);
+            this.stale = new("stale");
+            this.stale.configure(this, 1, 10, "W1C", 1, 'h0, 1, 1, 0);
         endfunction : build
     endclass : nvme_regs__CQE_STATUS
 
@@ -1704,6 +1722,23 @@ package soc_apb_ral_pkg;
             this.count.configure(this, 32, 0, "RO", 1, 'h0, 0, 1, 0);
         endfunction : build
     endclass : nvme_regs__CQES
+
+    // reg - nvme_regs::STALE
+    class nvme_regs__STALE extends uvm_reg;
+        rand uvm_reg_field cqe;
+        rand uvm_reg_field xf;
+
+        function new(string name = "nvme_regs__STALE");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.cqe = new("cqe");
+            this.cqe.configure(this, 16, 0, "RO", 1, 'h0, 0, 1, 0);
+            this.xf = new("xf");
+            this.xf.configure(this, 16, 16, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nvme_regs__STALE
 
     // reg - nvme_regs::IOQ::SQB_LO
     class nvme_regs__IOQ__SQB_LO extends uvm_reg;
@@ -1737,6 +1772,7 @@ package soc_apb_ral_pkg;
     class nvme_regs__IOQ__SQ_CFG extends uvm_reg;
         rand uvm_reg_field size;
         rand uvm_reg_field cqid;
+        rand uvm_reg_field epoch;
         rand uvm_reg_field en;
 
         function new(string name = "nvme_regs__IOQ__SQ_CFG");
@@ -1748,6 +1784,8 @@ package soc_apb_ral_pkg;
             this.size.configure(this, 12, 0, "RW", 0, 'h0, 1, 1, 0);
             this.cqid = new("cqid");
             this.cqid.configure(this, 3, 16, "RW", 0, 'h0, 1, 1, 0);
+            this.epoch = new("epoch");
+            this.epoch.configure(this, 4, 26, "RW", 0, 'h0, 1, 1, 0);
             this.en = new("en");
             this.en.configure(this, 1, 31, "RW", 1, 'h0, 1, 1, 0);
         endfunction : build
@@ -1786,6 +1824,7 @@ package soc_apb_ral_pkg;
         rand uvm_reg_field size;
         rand uvm_reg_field iv;
         rand uvm_reg_field ien;
+        rand uvm_reg_field epoch;
         rand uvm_reg_field en;
 
         function new(string name = "nvme_regs__IOQ__CQ_CFG");
@@ -1799,6 +1838,8 @@ package soc_apb_ral_pkg;
             this.iv.configure(this, 3, 16, "RW", 0, 'h0, 1, 1, 0);
             this.ien = new("ien");
             this.ien.configure(this, 1, 24, "RW", 0, 'h0, 1, 1, 0);
+            this.epoch = new("epoch");
+            this.epoch.configure(this, 4, 26, "RW", 0, 'h0, 1, 1, 0);
             this.en = new("en");
             this.en.configure(this, 1, 31, "RW", 1, 'h0, 1, 1, 0);
         endfunction : build
@@ -1920,6 +1961,7 @@ package soc_apb_ral_pkg;
         rand nvme_regs__CQE_CTRL CQE_CTRL;
         rand nvme_regs__CQE_STATUS CQE_STATUS;
         rand nvme_regs__CQES CQES;
+        rand nvme_regs__STALE STALE;
         rand nvme_regs__IOQ IOQ[4];
         rand nvme_regs__SQ_PTR SQ_PTR[5];
         rand nvme_regs__CQ_PTR CQ_PTR[5];
@@ -2075,6 +2117,11 @@ package soc_apb_ral_pkg;
 
             this.CQES.build();
             this.default_map.add_reg(this.CQES, 'h90);
+            this.STALE = new("STALE");
+            this.STALE.configure(this);
+
+            this.STALE.build();
+            this.default_map.add_reg(this.STALE, 'h94);
             foreach(this.IOQ[i0]) begin
                 this.IOQ[i0] = new($sformatf("IOQ[%0d]", i0));
                 this.IOQ[i0].configure(this);

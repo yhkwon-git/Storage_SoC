@@ -370,7 +370,7 @@ module tb_soc;
     force dut.u_pwr.u_host_if.u_tl.bar2_win = 17'h0_8000;   // 0x4000_0000
     // ID (0x000) and VERSION (0x004) in one QW read.
     host.mem_rd(BAR2, 8, b, st);
-    apb_expect(st == SC && qw(b, 0) == {32'h0002_0003, 32'h5353_4F43}, "QW read of ID and VERSION");
+    apb_expect(st == SC && qw(b, 0) == {32'h0002_0005, 32'h5353_4F43}, "QW read of ID and VERSION");
     // SCRATCH through a DW write, read back.
     host.mem_wr(BAR2 + 64'h8, le_bytes(64'h1234_5678, 4));
     host.mem_rd(BAR2 + 64'h8, 4, b, st);
@@ -875,6 +875,344 @@ module tb_soc;
   endtask
 
   // ---------------------------------------------------------------------------
+  // NVMe host driver model against nvme_app (+test=nvme_rand, step 2-5,
+  // docs/14_nvme_host_verification.md, dv/tb/nvme_host_pkg.sv). Epochs of
+  // random I/O over random queue layouts. All but the last end in a
+  // controller reset at a chosen moment: with many, some or a few commands
+  // outstanding, with a data transfer, an entry write or a fetch in flight,
+  // with commands waiting for firmware, or after the queues are deleted. The
+  // last epoch deletes its queues and shuts the controller down.
+  //   +nvme_n=<n>       I/O commands in all (default 1200)
+  //   +nvme_epochs=<n>  epochs (default 6)
+  // ---------------------------------------------------------------------------
+  nvme_host_pkg::nvme_host nh;
+  int nr_live [$], nr_cqs [$];
+
+  wire        nv_cc_en   = dut.u_pwr.u_host_if.u_nvme.cc[0];
+  wire        nv_f_busy  = dut.u_pwr.u_host_if.u_nvme.f_busy;
+  wire        nv_p_busy  = dut.u_pwr.u_host_if.u_nvme.p_busy;
+  wire        nv_c_act   = dut.u_pwr.u_host_if.u_nvme.c_active;
+  wire        nv_c_wait  = dut.u_pwr.u_host_if.u_nvme.c_wait;
+  wire [2:0]  nv_c_cq    = dut.u_pwr.u_host_if.u_nvme.c_cq;
+  wire [4:0]  nv_cf_cnt  = dut.u_pwr.u_host_if.u_nvme.cf_count;
+  wire [31:0] nv_stale   = {dut.u_pwr.u_host_if.u_nvme.n_stale_xf, dut.u_pwr.u_host_if.u_nvme.n_stale_cqe};
+
+  // Coverage: the host's events, the controller at each reset, and the
+  // controller waiting for room in a completion queue.
+  int nc_a, nc_b, nc_c, nr_out, nr_busy, nr_wait, nq_cq;
+  covergroup cg_nh_io;
+    cp_kind: coverpoint nc_a { bins read = {0}; bins write = {1}; bins flush = {2}; bins bad_opcode = {3};
+                               bins bad_lba = {4}; bins bad_nsid = {5}; bins bad_prp = {6}; }
+    cp_sq:   coverpoint nc_b { bins sq1 = {1}; bins sq2 = {2}; bins sq3 = {3}; bins sq4 = {4}; }
+  endgroup
+  covergroup cg_nh_rw;
+    cp: coverpoint nc_c { bins read_sq1 = {1}; bins read_sq2 = {2}; bins read_sq3 = {3}; bins read_sq4 = {4};
+                          bins write_sq1 = {9}; bins write_sq2 = {10}; bins write_sq3 = {11}; bins write_sq4 = {12}; }
+  endgroup
+  covergroup cg_nh_form;
+    cp_form: coverpoint nc_a { bins prp1_only = {0}; bins prp1_prp2 = {1}; bins prp_list = {2}; }
+    cp_size: coverpoint nc_b { bins blk1 = {0}; bins blk2_7 = {1}; bins blk8 = {2}; bins blk9_24 = {3}; }
+  endgroup
+  covergroup cg_nh_sqwrap; cp: coverpoint nc_a { bins sq1 = {1}; bins sq2 = {2}; bins sq3 = {3}; bins sq4 = {4}; } endgroup
+  covergroup cg_nh_cqwrap; cp: coverpoint nc_a { bins cq0 = {0}; bins cq1 = {1}; bins cq2 = {2}; bins cq3 = {3}; bins cq4 = {4}; } endgroup
+  covergroup cg_nh_sqfull; cp: coverpoint nc_a { bins sq1 = {1}; bins sq2 = {2}; bins sq3 = {3}; bins sq4 = {4}; } endgroup
+  covergroup cg_nh_cqhold; cp: coverpoint nc_a { bins cq1 = {1}; bins cq2 = {2}; bins cq3 = {3}; bins cq4 = {4}; } endgroup
+  covergroup cg_nh_cqwait; cp: coverpoint nq_cq { bins cq1 = {1}; bins cq2 = {2}; bins cq3 = {3}; bins cq4 = {4}; } endgroup
+  covergroup cg_nh_qd; cp: coverpoint nc_a { bins qd1 = {0}; bins qd2_4 = {1}; bins qd5_15 = {2}; bins qd16 = {3}; } endgroup
+  covergroup cg_nh_admin;
+    cp: coverpoint nc_a { bins identify = {0}; bins create_cq = {1}; bins create_sq = {2}; bins delete_sq = {3};
+                          bins delete_cq = {4}; bins get_features = {5}; bins set_features = {6};
+                          bins err_qid = {7}; bins err_cq_invalid = {8}; bins err_qsize = {9}; bins err_vector = {10};
+                          bins err_qdel = {11}; bins err_field = {12}; }
+  endgroup
+  covergroup cg_nh_reset;
+    cp_out:  coverpoint nr_out  { bins none = {0}; bins out1_3 = {1}; bins out4_15 = {2}; bins out16 = {3}; }
+    cp_busy: coverpoint nr_busy { bins idle = {0}; bins fetch = {1}; bins transfer = {2}; bins entry = {3}; }
+    cp_wait: coverpoint nr_wait { bins none = {0}; bins waiting = {1}; }
+  endgroup
+  covergroup cg_nh_map; cp: coverpoint nc_a { bins cq_per_sq = {0}; bins shared_cq = {1}; bins shared_vector = {2}; } endgroup
+  covergroup cg_nh_mode;
+    cp: coverpoint nc_c { bins read = {0}; bins write = {1}; bins read_overlap = {2}; bins write_overlap = {3}; }
+  endgroup
+  cg_nh_io     cov_io     = new();
+  cg_nh_rw     cov_rw     = new();
+  cg_nh_form   cov_form   = new();
+  cg_nh_sqwrap cov_sqwrap = new();
+  cg_nh_cqwrap cov_cqwrap = new();
+  cg_nh_sqfull cov_sqfull = new();
+  cg_nh_cqhold cov_cqhold = new();
+  cg_nh_cqwait cov_cqwait = new();
+  cg_nh_qd     cov_qd     = new();
+  cg_nh_admin  cov_admin  = new();
+  cg_nh_reset  cov_reset  = new();
+  cg_nh_map    cov_map    = new();
+  cg_nh_mode   cov_mode   = new();
+
+  nvme_host_pkg::nh_cov_t nce;
+  bit nr_cc_q, nr_wait_q;
+  int nr_o;
+  always @(negedge clk) begin
+    if (nh != null) begin
+      while (nh.cov.size() > 0) begin
+        nce = nh.cov.pop_front();
+        nc_a = nce.a;
+        nc_b = nce.b;
+        case (nce.kind)
+          0: begin
+            cov_io.sample();
+            if (nce.a <= 1) begin nc_c = 8 * nce.a + nce.b; cov_rw.sample(); end
+          end
+          1: cov_form.sample();
+          2: cov_sqwrap.sample();
+          3: cov_cqwrap.sample();
+          4: cov_sqfull.sample();
+          5: cov_cqhold.sample();
+          6: cov_qd.sample();
+          7: cov_admin.sample();
+          9: cov_map.sample();
+          10: if (nce.b <= 1) begin nc_c = 2 * nce.a + nce.b; cov_mode.sample(); end
+          default: ;
+        endcase
+      end
+      // The controller's state as the host clears CC.EN.
+      if (nr_cc_q && !nv_cc_en) begin
+        nr_o    = nh.out.size();
+        nr_out  = (nr_o == 0) ? 0 : (nr_o < 4) ? 1 : (nr_o < 16) ? 2 : 3;
+        nr_busy = nv_p_busy ? 2 : nv_c_act ? 3 : nv_f_busy ? 1 : 0;
+        nr_wait = (nv_cf_cnt != 5'd0) ? 1 : 0;
+        cov_reset.sample();
+      end
+      if (nv_c_wait && !nr_wait_q) begin nq_cq = int'(nv_c_cq); cov_cqwait.sample(); end
+    end
+    nr_cc_q   = nv_cc_en;
+    nr_wait_q = nv_c_wait;
+  end
+
+  function automatic int nr_kind();
+    int r = $urandom_range(99);
+    if (r < 44) return nvme_host_pkg::K_READ;
+    if (r < 84) return nvme_host_pkg::K_WRITE;
+    if (r < 89) return nvme_host_pkg::K_FLUSH;
+    if (r < 92) return nvme_host_pkg::K_BAD_OPC;
+    if (r < 95) return nvme_host_pkg::K_BAD_LBA;
+    if (r < 97) return nvme_host_pkg::K_BAD_NS;
+    return nvme_host_pkg::K_BAD_PRP;
+  endfunction
+
+  // One step of the workload: a command if fewer than qd are outstanding,
+  // doorbells now and then, completions, a completion queue's head held back
+  // now and then so that it fills.
+  task automatic nr_step(int qd, inout int issued);
+    if (nh.out.size() < qd && nr_live.size() > 0) begin
+      // A command whose blocks are busy is tried again on other blocks: a
+      // write needs all of its blocks free of outstanding commands.
+      int q = nr_live[$urandom_range(nr_live.size() - 1)];
+      int k = nr_kind();
+      bit ok = 1'b0;
+      for (int t = 0; t < 6 && !ok; t++) begin
+        int nb  = ($urandom_range(9) < 7) ? $urandom_range(8, 1) : ($urandom_range(2) == 0) ? 1 : $urandom_range(24, 9);
+        int lba = $urandom_range(nvme_host_pkg::NSB - nb);
+        int off = ($urandom_range(1) == 0) ? 0 : 4 * $urandom_range(1023);
+        ok = nh.io(q, k, lba, nb, off);
+        if (nh.sq_room(q) == 0) break;
+      end
+      if (ok) issued++;
+    end
+    if ($urandom_range(3) == 0) nh.ring_all();
+    nh.poll();
+    if (nr_cqs.size() > 0) begin
+      if ($urandom_range(149) == 0) begin
+        int c = nr_cqs[$urandom_range(nr_cqs.size() - 1)];
+        if (!nh.cq_hold[c]) begin nh.cq_hold[c] = 1'b1; nh.n_cq_hold++; nh.ev(5, c); end
+      end else if ($urandom_range(59) == 0) begin
+        nh.release_cqs();
+      end
+    end
+    repeat ($urandom_range(6, 1)) @(negedge clk);
+  endtask
+
+  // Enable, identify, and set up this epoch's I/O queues: layout 0 one CQ
+  // per SQ, 1 one CQ for all SQs, 2 one vector for all CQs. Epoch 0 uses
+  // all four pairs with four entries each and checks the queue errors
+  // before creating the fourth.
+  task automatic nr_setup(int e);
+    bit [31:0] dw0;
+    int        layout, nio, sqs, cqs;
+    nh.enable((e == 0) ? 4 : $urandom_range(16, 2));
+    nh.admin(0, 8'h06, 32'd0, HBUF, 32'h1, 32'd0, nvme_host_pkg::ST_OK, dw0);
+    if (host.hget(HBUF + 64'd77) != 8'd5) nh.err("Identify Controller: MDTS");
+    layout = (e == 0) ? 0 : $urandom_range(2);
+    nio    = (e == 0 || e == 1) ? 4 : $urandom_range(4, 2);
+    nr_live.delete();
+    nr_cqs.delete();
+    for (int q = 1; q <= nio; q++) begin
+      sqs = (e == 0) ? 4 : (e == 1) ? 32 : $urandom_range(32, 2);
+      cqs = (e == 0) ? 4 : (e == 1) ? 64 : $urandom_range(64, 2);
+      if (e == 0 && q == 4) begin
+        // Queue errors: no CQ 4 yet, CQ 1 exists, size 1, vector 9, CQ 1 in
+        // use, an unknown CNS, no SQ 4 to delete, and SQ 5.
+        nh.admin(0, 8'h01, 32'd0, nh.sq_addr(4), {16'd3, 16'd4}, {16'd4, 15'd0, 1'b1}, nvme_host_pkg::ST_CQ_INV, dw0);
+        nh.admin(0, 8'h05, 32'd0, nh.cq_addr(1), {16'd3, 16'd1}, {16'd1, 14'd0, 2'b11}, nvme_host_pkg::ST_QID, dw0);
+        nh.admin(0, 8'h05, 32'd0, nh.cq_addr(4), {16'd0, 16'd4}, {16'd4, 14'd0, 2'b11}, nvme_host_pkg::ST_QSIZE, dw0);
+        nh.admin(0, 8'h05, 32'd0, nh.cq_addr(4), {16'd3, 16'd4}, {16'd9, 14'd0, 2'b11}, nvme_host_pkg::ST_IV, dw0);
+        nh.admin(0, 8'h04, 32'd0, 64'd0, 32'd1, 32'd0, nvme_host_pkg::ST_QDEL, dw0);
+        nh.admin(0, 8'h06, 32'd0, HBUF, 32'h10, 32'd0, nvme_host_pkg::ST_FIELD, dw0);
+        nh.admin(0, 8'h00, 32'd0, 64'd0, 32'd4, 32'd0, nvme_host_pkg::ST_QID, dw0);
+        nh.admin(0, 8'h01, 32'd0, nh.sq_addr(1), {16'd3, 16'd5}, {16'd1, 15'd0, 1'b1}, nvme_host_pkg::ST_QID, dw0);
+      end
+      case (layout)
+        0: begin nh.create_cq(q, cqs, q); nh.create_sq(q, sqs, q); nr_cqs.push_back(q); end
+        1: begin
+          if (q == 1) begin nh.create_cq(1, cqs, 1); nr_cqs.push_back(1); end
+          nh.create_sq(q, sqs, 1);
+        end
+        default: begin nh.create_cq(q, cqs, 1); nh.create_sq(q, sqs, q); nr_cqs.push_back(q); end
+      endcase
+      nr_live.push_back(q);
+    end
+    nh.ev(9, layout);
+    nh.admin(0, 8'h0A, 32'd0, 64'd0, 32'h7, 32'd0, nvme_host_pkg::ST_OK, dw0);
+    if (dw0 != 32'h0003_0003) nh.err($sformatf("Get Features Number of Queues: DW0 %h", dw0));
+    nh.set_overlap(1'($urandom_range(1)));
+  endtask
+
+  // Epoch 0, after the namespace is written: large transfers one at a time
+  // (PRP lists), then for each queue pair in turn its CQ head held back while
+  // Flush commands go to its SQ, until the controller waits for room in that
+  // CQ; with four entries per queue both wrap on the way.
+  task automatic nr_directed();
+    int n, sent;
+    int big_lba [4] = '{0, 4, 0, 10};
+    int big_nb [4]  = '{24, 16, 24, 9};
+    int big_off [4] = '{0, 2048, 3584, 1024};
+    for (int i = 0; i < 4; i++) begin
+      n = 0;
+      while (!nh.io(i + 1, (i % 2 == 0) ? nvme_host_pkg::K_WRITE : nvme_host_pkg::K_READ,
+                    big_lba[i], big_nb[i], big_off[i])) begin
+        nh.ring_all(); nh.poll(); @(negedge clk);
+        if (++n > 100000) begin nh.err("large transfer could not be issued"); break; end
+      end
+      nh.drain();
+      n = 0;
+      while (!nh.io(i + 1, nvme_host_pkg::K_READ, big_lba[i], big_nb[i], big_off[i])) begin
+        nh.ring_all(); nh.poll(); @(negedge clk);
+        if (++n > 100000) begin nh.err("large read could not be issued"); break; end
+      end
+      nh.drain();
+    end
+    foreach (nr_cqs[k]) begin
+      int c = nr_cqs[k];
+      bit waited = 1'b0;
+      nh.cq_hold[c] = 1'b1;
+      nh.n_cq_hold++;
+      nh.ev(5, c);
+      sent = 0;
+      n = 0;
+      while (!waited || sent < 8) begin
+        if (nh.io(c, nvme_host_pkg::K_FLUSH, 0, 1, 0)) sent++;
+        nh.ring_all();
+        nh.poll();
+        if (nv_c_wait && nv_c_cq == 3'(c)) waited = 1'b1;
+        if (waited) nh.cq_hold[c] = 1'b0;
+        repeat (4) @(negedge clk);
+        if (++n > 100000) begin nh.err($sformatf("CQ%0d never filled", c)); break; end
+      end
+      nh.drain();
+    end
+  endtask
+
+  task automatic nr_delete_all();
+    foreach (nr_live[i]) nh.delete_sq(nr_live[i]);
+    foreach (nr_cqs[i]) nh.delete_cq(nr_cqs[i]);
+    nr_live.delete();
+    nr_cqs.delete();
+  endtask
+
+  // How each epoch but the last ends: outstanding commands between lo and
+  // hi, and what the controller is doing (0 anything, 1 a fetch, 2 a data
+  // transfer, 3 an entry write, 4 commands waiting for firmware, 5 queues
+  // deleted first).
+  int nr_plan_lo [5]   = '{4, 16, 1, 0, 1};
+  int nr_plan_hi [5]   = '{15, 999, 3, 0, 999};
+  int nr_plan_busy [5] = '{3, 2, 1, 5, 4};
+
+  task automatic nvme_rand_host();
+    int ncmd = 1200, nep = 6, issued, per, n, p;
+    longint t0;
+    void'($value$plusargs("nvme_n=%d", ncmd));
+    void'($value$plusargs("nvme_epochs=%d", nep));
+    nh = new(host, BAR0, MSI);
+    per = ncmd / nep;
+    for (int e = 0; e < nep; e++) begin
+      nr_setup(e);
+      if (e == 0) begin
+        // The whole namespace written, so that every block is known.
+        for (int b = 0; b < nvme_host_pkg::NSB; b += 8) begin
+          n = 0;
+          while (!nh.io(1, nvme_host_pkg::K_WRITE, b, 8, 0)) begin
+            nh.ring_all(); nh.poll(); @(negedge clk);
+            if (++n > 100000) begin nh.err("namespace fill stuck"); break; end
+          end
+        end
+        nh.drain();
+        nr_directed();
+      end
+      issued = 0;
+      n = 0;
+      while (issued < per) begin
+        int qd = (e == 1) ? 40 : (e == 0) ? 12 : $urandom_range(32, 1);
+        nr_step(qd, issued);
+        if (++n > 400000) begin nh.err($sformatf("epoch %0d: workload stuck", e)); break; end
+      end
+      if (e == nep - 1) begin
+        // Last epoch: complete everything, delete the queues, shut down.
+        nh.drain();
+        nr_delete_all();
+        nh.shutdown();
+      end else begin
+        p = e % 5;
+        if (nr_plan_busy[p] == 5) begin
+          nh.drain();
+          nr_delete_all();
+        end else begin
+          // Reach the planned state, then reset.
+          int qd = (nr_plan_hi[p] > 100) ? 40 : nr_plan_hi[p];
+          if (nr_plan_busy[p] == 4) foreach (nr_cqs[i]) nh.cq_hold[nr_cqs[i]] = 1'b1;
+          n = 0;
+          forever begin
+            bit busy_ok;
+            case (nr_plan_busy[p])
+              1: busy_ok = nv_f_busy;
+              2: busy_ok = nv_p_busy;
+              3: busy_ok = nv_c_act;
+              4: busy_ok = (nv_cf_cnt != 5'd0);
+              default: busy_ok = 1'b1;
+            endcase
+            if (nh.out.size() >= nr_plan_lo[p] && nh.out.size() <= nr_plan_hi[p] && busy_ok) break;
+            if (++n > 200000) begin
+              $display("[SOC] nvme_rand: epoch %0d reset without the planned state (%0d outstanding)", e, nh.out.size());
+              break;
+            end
+            if (nh.out.size() < nr_plan_lo[p]) nr_step(qd, issued);
+            else begin
+              if (nr_plan_busy[p] != 4) nh.poll();
+              nh.ring_all();
+              @(negedge clk);
+            end
+          end
+        end
+        nh.reset_ctrl();
+      end
+    end
+    host_errors += nh.errors;
+    $display("[SOC] nvme_rand host: %0d commands (%0d Read, %0d Write, %0d Flush, %0d admin), %0d completed (%0d with an error status, as expected), %0d abandoned by %0d controller resets",
+             nh.n_sub, nh.n_reads, nh.n_writes, nh.n_flush, nh.n_admin, nh.n_done, nh.n_st_err, nh.n_abandon, nh.n_resets);
+    $display("[SOC] nvme_rand host: %0d bytes read and compared, %0d written; %0d SQ-full waits, %0d CQ holds; MSI-X messages %0d, lost at resets %0d; abandoned buffers checked %0d; stale starts refused %0d, stale posts discarded %0d; errors %0d",
+             nh.rd_bytes, nh.wr_bytes, nh.n_sq_full, nh.n_cq_hold, host.msis.size(), nh.n_msi_lost, nh.n_quar_checked,
+             nv_stale[31:16], nv_stale[15:0], nh.errors);
+  endtask
+
+  // ---------------------------------------------------------------------------
   // Main
   // ---------------------------------------------------------------------------
   bit    bg;
@@ -883,7 +1221,7 @@ module tb_soc;
 
   initial begin
     void'($value$plusargs("test=%s", test));
-    void'($value$plusargs("max_cycles=%d", max_cycles));
+    if (!$value$plusargs("max_cycles=%d", max_cycles) && test == "nvme_rand") max_cycles = 80_000_000;
     bg = $test$plusargs("bg");
     host = new(hif);
     host.clk_period = 16;
@@ -904,6 +1242,7 @@ module tb_soc;
           if (bg) gen_bg();
           if (test == "nvme") nvme_host();
           if (test == "nvme_app") nvme_app_host();
+          if (test == "nvme_rand") nvme_rand_host();
         join
       end
     join_none

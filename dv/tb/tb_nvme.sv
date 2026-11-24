@@ -389,8 +389,15 @@ module tb_nvme;
     end while (v[0]);
   endtask
 
+  // The epoch firmware writes back (step 2-5): CMD.EPOCH of the command it
+  // handles, or STATUS.EPOCH when it sets up queues itself.
+  bit [3:0] fw_ep;
+
   // Firmware creates I/O queue pair q (1..4): SQ at 0x2_0000_0000 + q MiB.
   task automatic fw_ioq(int q, int size);
+    bit [31:0] st;
+    fw_rd(R_STATUS, st);
+    fw_ep = st[27:24];
     sq_base[q] = 64'h0000_0002_0000_0000 + 64'(q) * 64'h10_0000;
     sq_size[q] = size;
     sq_tail[q] = 0;
@@ -401,8 +408,8 @@ module tb_nvme;
     fw_wr(r_ioq(q, 1), sq_base[q][63:32]);
     fw_wr(r_ioq(q, 3), 32'h0003_0000 + 32'(q) * 32'h1000);
     fw_wr(r_ioq(q, 4), 32'h3);
-    fw_wr(r_ioq(q, 5), {1'b1, 6'd0, 1'b1, 5'd0, 3'(q), 4'd0, 12'(size - 1)});
-    fw_wr(r_ioq(q, 2), {1'b1, 12'd0, 3'(q), 4'd0, 12'(size - 1)});
+    fw_wr(r_ioq(q, 5), {1'b1, 1'b0, fw_ep, 1'b0, 1'b1, 5'd0, 3'(q), 4'd0, 12'(size - 1)});
+    fw_wr(r_ioq(q, 2), {1'b1, 1'b0, fw_ep, 7'd0, 3'(q), 4'd0, 12'(size - 1)});
   endtask
 
   // ---------------------------------------------------------------------------
@@ -435,7 +442,8 @@ module tb_nvme;
       end
     end
     n_chk++;
-    fw_wr(R_FREE, 32'(s));
+    fw_ep = c[27:24];
+    fw_wr(R_FREE, {24'd0, fw_ep, 4'(s)});
   endtask
 
   // Pop until nothing is outstanding (then 30 empty polls more, to catch
@@ -871,7 +879,7 @@ module tb_nvme;
   localparam bit [11:0] R_XP1L = 12'h050, R_XP1H = 12'h054, R_XP2L = 12'h058, R_XP2H = 12'h05C,
                         R_XLA = 12'h060, R_XLEN = 12'h064, R_XCTL = 12'h068, R_XST = 12'h06C,
                         R_XCYC = 12'h070, R_QDW0 = 12'h080, R_QINFO = 12'h084, R_QCTL = 12'h088,
-                        R_QST = 12'h08C, R_QCNT = 12'h090;
+                        R_QST = 12'h08C, R_QCNT = 12'h090, R_STALE = 12'h094;
   localparam bit [63:0] HDATA = 64'h0000_0004_0000_0000;   // host data pages, 12 KiB apart
   localparam bit [63:0] HLIST = 64'h0000_0005_0000_0000;   // host PRP list pages, 8 KiB apart
   localparam bit [31:0] SBUF  = 32'h1100_0000;             // SRAM data buffers, 128 KiB each
@@ -1111,7 +1119,7 @@ module tb_nvme;
     fw_wr(R_XP2L, prp2[31:0]); fw_wr(R_XP2H, prp2[63:32]);
     fw_wr(R_XLA, la);
     fw_wr(R_XLEN, 32'(len));
-    fw_wr(R_XCTL, {30'd0, d2h, 1'b1});
+    fw_wr(R_XCTL, {24'd0, fw_ep, 2'd0, d2h, 1'b1});
     do begin
       fw_rd(R_XST, v);
       if (++n > 400000) begin fail("data transfer never ended"); break; end
@@ -1135,7 +1143,7 @@ module tb_nvme;
     end
     fw_wr(R_QDW0, dw0);
     fw_wr(R_QINFO, {13'd0, 3'(sq), cid});
-    fw_wr(R_QCTL, {st, 14'd0, 3'(cq)});
+    fw_wr(R_QCTL, {st, 9'd0, fw_ep, 1'b0, 3'(cq)});
     n_post++;
   endtask
 
@@ -1156,7 +1164,8 @@ module tb_nvme;
     s = int'(c[3:0]);
     for (int i = 0; i < 16; i++)
       for (int k = 0; k < 4; k++) dw[i][8*k +: 8] = mem.get(CMDBUF + 32'(64 * s + 4 * i + k));
-    fw_wr(R_FREE, 32'(s));
+    fw_ep = c[27:24];
+    fw_wr(R_FREE, {24'd0, fw_ep, 4'(s)});
     n_chk++;
     opc = dw[0][7:0];
     la  = SBUF + 32'(s) * 32'h2_0000;
@@ -1212,7 +1221,10 @@ module tb_nvme;
     cp_ev: coverpoint cv_cqev { bins len_bad = {0}; bins prp_bad = {1}; bins bm_err = {2}; bins aborted = {3};
                                 bins cq_wait = {4}; bins wrap = {5}; bins drop_off = {6}; bins drop_full = {7};
                                 bins werr = {8}; bins msix_masked = {9}; bins chain_ptr = {10};
-                                bins full_batch = {11}; }
+                                bins full_batch = {11};
+                                // step 2-5: firmware actions with a stale epoch, and with the controller off
+                                bins xf_stale = {12}; bins post_stale = {13}; bins free_stale = {14};
+                                bins ioq_stale = {15}; bins xf_off = {16}; bins post_off = {17}; }
   endgroup
 
   covergroup cg_cqe;
@@ -1249,6 +1261,7 @@ module tb_nvme;
   bit dbg_cst = $test$plusargs("dbg");
 
   bit cq_wait_seen;
+  int n_xf_start;                 // starts the PRP engine took
   always @(posedge clk) if (rst_n) begin
     if (u_nv.p_fin) begin
       if (u_nv.p_cause == 4'd8)                           cqev(0);
@@ -1269,6 +1282,14 @@ module tb_nvme;
     if (u_nv.c_werr)                                    cqev(8);
     if (u_nv.u_prp.st == 3'd4 && u_nv.u_prp.x_chain && u_nv.u_prp.x_i == u_nv.u_prp.x_k - 4'd1) cqev(10);
     if (u_nv.u_prp.st == 3'd1 && u_nv.u_prp.x_fetch && u_nv.u_prp.x_k == 4'd8 && u_nv.p_ready) cqev(11);
+    if (u_nv.xf_stale)
+      cqev((u_nv.c_st == 2'd1) ? 12 : 16);
+    if (u_nv.c_stale)
+      cqev((u_nv.c_st == 2'd1) ? 13 : 17);
+    if (u_nv.free_wr && u_nv.c_st == 2'd1 && u_nv.hwif_out.SLOT_FREE.epoch.value != u_nv.epoch) cqev(14);
+    if (u_nv.c_st == 2'd1 && u_nv.hwif_out.IOQ[1].SQ_CFG.en.value &&
+        u_nv.hwif_out.IOQ[1].SQ_CFG.epoch.value != u_nv.epoch)  cqev(15);
+    if (u_nv.xf_start) n_xf_start++;
   end
 
   // ---------------------------------------------------------------------------
@@ -1538,6 +1559,99 @@ module tb_nvme;
     fw_wr(R_EVENT, 32'h3F);
   endtask
 
+  // Epochs (step 2-5): what firmware does for a command fetched before a
+  // controller reset has no effect once the host has enabled the controller
+  // again, and nothing starts or posts while the controller is off.
+  task automatic t_stale();
+    bit        got;
+    bit [3:0]  c, old_ep, new_ep;
+    bit [31:0] cmd, v, st0, x0;
+    prp_c      x;
+    int        n = 0, s, xs;
+    io_setup(1, 8);
+    expect_reg(R_STATUS, 32'h0F00_0000, {4'd0, fw_ep, 24'd0}, "STATUS.EPOCH before the reset");
+    // A command taken by firmware and still held when the host resets.
+    put_sqe(1);
+    ring_sq(1);
+    do begin
+      fw_rd(R_CMD, cmd);
+      if (++n > 2000) begin fail("command never fetched"); return; end
+    end while (!cmd[31]);
+    old_ep = cmd[27:24];
+    if (old_ep != fw_ep) fail($sformatf("CMD.EPOCH %0d, STATUS.EPOCH %0d", old_ep, fw_ep));
+    expect_q[1].delete();
+    fw_rd(R_STALE, st0);
+    host_disable();
+    new_ep = old_ep + 4'd1;
+    expect_reg(R_STATUS, 32'h0F00_0000, {4'd0, new_ep, 24'd0}, "STATUS.EPOCH after the reset");
+    // With the controller off: a start and a post in the current epoch.
+    fw_ep = new_ep;
+    x = make_prp(4096, 0, 0);
+    xs = n_xf_start;
+    fw_xfer(1'b1, x.prp1, x.prp2, SBUF, 4096, c);
+    if (c != 4'(11)) fail($sformatf("start with the controller off: cause %0d", c));
+    fw_post(1, 16'hFFF0, 1, ST_OK, 32'd0, 1'b1);
+    repeat (20) @(negedge clk);
+    fw_rd(R_QST, v);
+    if (!v[10] || v[8]) fail($sformatf("post with the controller off: CQE_STATUS %h", v));
+    fw_wr(R_QST, 32'h700);
+    // Enabled again, with I/O queue 1 created in the new epoch.
+    io_setup(1, 8);
+    if (fw_ep != new_ep) fail("io_setup did not see the new epoch");
+    // A command of the new epoch in a slot; the old command's SLOT_FREE must
+    // not free it.
+    put_sqe(1);
+    ring_sq(1);
+    n = 0;
+    do begin
+      fw_rd(R_STATUS, v);
+      if (++n > 2000) begin fail("command never fetched after the reset"); return; end
+    end while (v[12:8] == 5'd0);
+    s = int'(cmd[3:0]);
+    fw_wr(R_FREE, {24'd0, old_ep, 4'(s)});
+    fw_wr(R_FREE, {24'd0, old_ep, 4'(s + 1)});
+    repeat (5) @(negedge clk);
+    expect_reg(R_STATUS, 32'h001F_0000, 32'h000F_0000, "15 free slots after stale SLOT_FREE writes");
+    fw_take(got);
+    if (!got) fail("new-epoch command not taken");
+    expect_reg(R_STATUS, 32'h001F_0000, 32'h0010_0000, "16 free slots after the command's own SLOT_FREE");
+    // The old command's transfer and completion.
+    fw_ep = old_ep;
+    for (int i = 0; i < 4096; i++) host.hmem[x.pg[0] + 64'(i)] = 8'hEE;
+    fw_xfer(1'b1, x.prp1, x.prp2, SBUF, 4096, c);
+    if (c != 4'(11)) fail($sformatf("start with a stale epoch: cause %0d", c));
+    if (n_xf_start != xs) fail("a stale or off start reached the PRP engine");
+    for (int i = 0; i < 4096; i++)
+      if (host.hmem[x.pg[0] + 64'(i)] != 8'hEE) begin fail("host memory written by a stale transfer"); break; end
+    fw_wr(R_EVENT, 32'h3F);
+    fw_post(1, 16'hFFF1, 1, ST_OK, 32'd0, 1'b1);
+    repeat (300) @(negedge clk);
+    host_cq_take(1, got);
+    if (got) fail("entry written for a stale post");
+    fw_rd(R_QST, v);
+    if (!v[10] || v[8]) fail($sformatf("stale post: CQE_STATUS %h", v));
+    expect_reg(R_EVENT, 32'h20, 32'h0, "no EVENT.CQE_ERR for a stale post");
+    fw_wr(R_QST, 32'h700);
+    fw_rd(R_STALE, v);
+    if (v[15:0] != st0[15:0] + 16'd2 || v[31:16] != st0[31:16] + 16'd2)
+      fail($sformatf("STALE %h, was %h: expected 2 posts and 2 starts more", v, st0));
+    // An I/O queue created with the old epoch stays disabled: a doorbell to it
+    // is refused.
+    fw_wr(r_ioq(2, 0), 32'h0000_0000); fw_wr(r_ioq(2, 1), 32'h0000_0002);
+    fw_wr(r_ioq(2, 3), 32'h0003_2000); fw_wr(r_ioq(2, 4), 32'h3);
+    fw_wr(r_ioq(2, 5), {1'b1, 1'b0, old_ep, 1'b0, 1'b1, 5'd0, 3'd2, 4'd0, 12'd7});
+    fw_wr(r_ioq(2, 2), {1'b1, 1'b0, old_ep, 7'd0, 3'd2, 4'd0, 12'd7});
+    repeat (5) @(negedge clk);
+    fw_wr(R_EVENT, 32'h3F);
+    hw32(32'h1000 + 8 * 2, 32'd1);
+    repeat (20) @(negedge clk);
+    expect_reg(R_EVENT, 32'h08, 32'h08, "doorbell to a queue created with a stale epoch refused");
+    fw_wr(R_EVENT, 32'h3F);
+    fw_ep = new_ep;
+    drop_prp(x);
+    expect_q[1].delete();
+  endtask
+
   // Throughput and latency of step 2-3, called from t_perf (fast host, memory
   // that never stalls): PRP transfers of 4 KiB and 128 KiB each way (XF_CYCLES),
   // and a completion entry from the CQE_CTRL write to the entry in host memory
@@ -1751,7 +1865,8 @@ module tb_nvme;
         // the directed tests, then random; each leaves the controller off
         seq.push_back("regs");  seq.push_back("enable"); seq.push_back("fetch"); seq.push_back("rr");
         seq.push_back("doorbell"); seq.push_back("ferr"); seq.push_back("shutdown"); seq.push_back("reset");
-        seq.push_back("data");  seq.push_back("cqe");    seq.push_back("xerr");  seq.push_back("random");
+        seq.push_back("data");  seq.push_back("cqe");    seq.push_back("xerr");  seq.push_back("stale");
+        seq.push_back("random");
       end else begin
         seq.push_back(test);
       end
@@ -1769,6 +1884,7 @@ module tb_nvme;
           "data":     t_data();
           "cqe":      t_cqe();
           "xerr":     t_xerr();
+          "stale":    t_stale();
           "io":       t_io(ncmd);
           "random":   t_random(ncmd);
           default:    fail($sformatf("no test %s", seq[k]));
