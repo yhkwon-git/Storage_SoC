@@ -6,6 +6,8 @@ The registers and queues follow the NVM Express Base Specification's layout as f
 
 > **Changed in step 2-3** ([12_nvme_data.md](12_nvme_data.md)): the fetch engine shares the controller's bus-master port with a PRP engine and a completion entry poster, round robin; the completion queue registers, CQ head doorbells and CQ_PTR tails and phases are in use; a controller reset or shutdown also waits for a data transfer or an entry write in flight; the crossbar has a sixth slave for the controller's buffer; SYS VERSION is `0x0002_0003`. The rest of this document describes step 2-2 as measured at `d3a786e`.
 
+> **Changed in step 2-5** ([14_nvme_host_verification.md](14_nvme_host_verification.md)): CMD and STATUS carry an epoch that counts controller resets, and SLOT_FREE, the transfer start, the completion post and the I/O queue enables take it back from firmware; one carrying another epoch does nothing. The command FIFO now empties in the clock the reset completes, together with the slots.
+
 ## Blocks
 
 | Block | File | Role |
@@ -233,7 +235,7 @@ A new firmware test, `fw/tests/nvme.c`, receives NVMe commands from the host mod
 - **One fetch at a time**, 40 clocks each with a fast host (1.25 million commands per second at 50 MHz). Fetching several adjacent entries in one read would cut that.
 - **Fixed entry sizes:** 64-byte submission and 16-byte completion entries. IOSQES and IOCQES are stored but not checked.
 - **Not implemented:** weighted round robin and urgent priority, NVM Subsystem Reset, INTx and MSI (MSI-X only, INTMS and INTMC read 0), controller memory buffer, doorbell stride other than 4 bytes, more than 4 I/O queue pairs, queues that are not physically contiguous, SGLs.
-- **A slot written to SLOT_FREE after a controller reset** frees whatever the slot holds then. Firmware must forget its commands at EVENT.RESET.
+- **A slot written to SLOT_FREE after a controller reset** freed whatever the slot held then; firmware had to forget its commands at EVENT.RESET. Since step 2-5 such a write carries a stale epoch and is ignored.
 - **ss timing.** The fetch address is a long path at ss (above). Pipelining the add, or keeping a running fetch address per queue, would shorten it.
 
 ## How to run

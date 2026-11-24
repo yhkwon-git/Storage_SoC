@@ -118,7 +118,7 @@ On the firmware side, the register accesses could become one descriptor in SRAM 
 - **One namespace**, one LBA format of 512 bytes, no metadata, no protection information.
 - **Admin commands missing**: Get Log Page, Abort, Asynchronous Event Request, firmware commands, Format NVM. They get Invalid Command Opcode.
 - **Deleting a submission queue** does not abort the commands it still holds; a host deletes it when they have completed, as this one does.
-- **A controller reset with commands outstanding:** the firmware finishes the command it holds, and the hardware drops that completion and reports it as EVENT.CQE_ERR. A host here resets only after its commands have completed.
+- **A controller reset with commands outstanding:** the firmware finishes the command it holds, and the hardware drops that completion and reports it as EVENT.CQE_ERR. A host here resets only after its commands have completed. Step 2-5 adds epochs, which make such a reset safe ([14_nvme_host_verification.md](14_nvme_host_verification.md)).
 - **Features:** only Number of Queues and the vendor-specific overlap.
 
 ## How to run

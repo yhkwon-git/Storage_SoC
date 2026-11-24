@@ -4,6 +4,8 @@ Step 2-3 completes the NVMe-style controller's I/O path. Firmware moves a comman
 
 The PRP and completion queue formats follow the NVM Express Base Specification as far as this document says. Compliance is not claimed.
 
+> **Changed in step 2-5** ([14_nvme_host_verification.md](14_nvme_host_verification.md)): XF_CTRL and CQE_CTRL take the command's epoch. A start with another epoch, or with the controller not on, ends at once with cause 11 and moves nothing; such a post is discarded and counted (CQE_STATUS.STALE, STALE), not dropped as an error.
+
 ## Blocks
 
 | Block | File | Role |

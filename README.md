@@ -12,8 +12,8 @@ A RISC-V CPU, an AXI4 interconnect, DMA, SystemRDL-generated CSRs and always-on 
 
 | Item | Value |
 | --- | --- |
-| Current phase | Phase 2, host interface and NVMe front-end: steps 2-1 (transaction layer), 2-2 (NVMe registers and queues), 2-3 (PRP data and completions) and 2-4 (NVMe firmware on an SRAM namespace) done. Next: 2-5 (NVMe host driver model and verification). Phase 1 is done; setup at the ss corner is not met (docs/09 to docs/12) |
-| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 6 AXI4 crossbar, with SRAM, a descriptor-based DMA, and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; an always-on PMU that orders the resets and switches the PD_HOST domain with isolation and retention (UPF); a CPU clock gate; a PCIe-style transaction layer on the host link (inbound BARs, bus master, configuration space, MSI-X); an NVMe-style controller (registers, doorbells, round-robin command fetch into SRAM, PRP data transfers with lists, completion queue entries with phase tags and MSI-X per queue) driven by firmware that serves admin, Read, Write and Flush commands; dual-clock FIFO, 2-flop synchronizer, channel register slice |
+| Current phase | Phase 2, host interface and NVMe front-end: steps 2-1 to 2-5 done (transaction layer, NVMe registers and queues, PRP data and completions, NVMe firmware, NVMe host driver model and verification). Next: phase 3, the storage datapath, from 3-1 (NAND channel controller); steps 2-6 to 2-9 follow it. Phase 1 is done; setup at the ss corner is not met (docs/09 to docs/14) |
+| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 6 AXI4 crossbar, with SRAM, a descriptor-based DMA, and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; an always-on PMU that orders the resets and switches the PD_HOST domain with isolation and retention (UPF); a CPU clock gate; a PCIe-style transaction layer on the host link (inbound BARs, bus master, configuration space, MSI-X); an NVMe-style controller (registers, doorbells, round-robin command fetch into SRAM, PRP data transfers with lists, completion queue entries with phase tags and MSI-X per queue, epochs that make a controller reset safe while firmware holds commands) driven by firmware that serves admin, Read, Write and Flush commands; dual-clock FIFO, 2-flop synchronizer, channel register slice |
 | Verification tools | Vivado simulator 2019.2 (UVM 1.2), Verilator 5.052 |
 | Register generation | PeakRDL 1.5.0: register RTL, C header, UVM register model and register document from one source |
 | Implementation tools | sv2v 0.0.13, Yosys 0.52, OpenSTA 3.1.0, Sky130 HD from lambdapdk v0.2.9 (ss/tt/ff corners) |
@@ -72,8 +72,8 @@ flowchart LR
 | --- | --- | --- |
 | 0 | Toolchain checks, repository layout, CI, RISC-V GCC | Done |
 | 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | Done: 1-1 to 1-9; setup at ss not met (docs/09) |
-| 2 | Host interface: transaction layer and NVMe front-end (steps 2-1 to 2-5), then data link layer, PHY with a PIPE-style boundary and link training (steps 2-6 to 2-9) | In progress: 2-1 to 2-4 done |
-| 3 | Storage datapath: NAND channel controllers, NAND model, BCH, NVMe reads and writes through to NAND | Planned |
+| 2 | Host interface: transaction layer and NVMe front-end (steps 2-1 to 2-5), then data link layer, PHY with a PIPE-style boundary and link training (steps 2-6 to 2-9) | In progress: 2-1 to 2-5 done; 2-6 to 2-9 after phase 3 |
+| 3 | Storage datapath: NAND channel controllers, NAND model, BCH, NVMe reads and writes through to NAND | Next |
 | 4 | SoC-level UVM, verification plan, coverage closure | Planned |
 | 5 | Full-chip synthesis and multi-corner STA, documentation | Planned |
 | 6 | Optional: DSP receiver for the PHY (FFE, DFE, Mueller-Muller CDR, real-number analog model) | Optional |
@@ -236,6 +236,20 @@ NVMe firmware (commit 491d727, details in [docs/13_nvme_firmware.md](docs/13_nvm
   - 4 KiB reads are bound by the transaction layer's single bus master, which carries each command's fetch, data and completion entry in turn (about 800 clocks).
 - **Found on the way.** A controller reset that went uncounted because the shutdown was looked at first, and a driver linked into every application.
 
+NVMe host driver model and verification (commit c5e2b96, details in [docs/14_nvme_host_verification.md](docs/14_nvme_host_verification.md)):
+
+- **Epochs.** A controller reset while firmware held a command let that command move data, post an entry, return its slot or create a queue after the host had enabled the controller again. Firmware alone cannot close that window. The controller now counts resets in an epoch, which firmware gets with each command and writes back with everything it does for it; whatever carries another epoch does nothing.
+- **Host driver model.** A class-based NVMe host on the transaction-level host model:
+  - queues created and deleted with admin commands, any SQ on any CQ, shared CQs and vectors;
+  - PRP1, PRP2 and PRP lists, completions by phase tag, every CID, SQID, status, SQ head and byte read checked against a copy of the namespace;
+  - controller resets with commands outstanding, after which no abandoned command may complete or write its buffer.
+- **SoC test.** `nvme_rand` runs it against the step 2-4 firmware: 4 runs, 5,358 commands, 20 controller resets abandoning 330 of them, 6.6 MB read and compared, 0 errors, and 81 of 81 covergroup bins. In these runs the hardware refused 8 transfer starts and discarded 9 completion posts that the firmware made for stale commands.
+- **Assertions.** 13 assertions on the controller's queue state, bound into both NVMe testbenches. `tb_nvme` has a new epoch test: 101 of 101 bins, and 33 of 33 mutants caught, 6 of them new for the epochs.
+- **Found on the way.**
+  - Firmware posted every I/O completion to the CQ with its SQ's number.
+  - The slot assertion found the command FIFO emptying a clock after a reset had freed the slots: for that clock, CMD offered a stale command with the new epoch.
+- **Synthesis and timing.** The NVMe controller is 10.3% of the standard cells; tt meets every clock; CDC check PASS with no new crossings.
+
 ## How to run
 
 ```bash
@@ -254,7 +268,7 @@ make -C dv                                                           # [LINT] [I
 make -C dv xbar-mut                                                  # [MUT] 7 of 7 mutants caught
 make -C dv dma-mut                                                   # [MUT] 10 of 10 mutants caught
 make -C dv tl-mut                                                    # [MUT] 16 of 16 mutants caught
-make -C dv nvme-mut                                                  # [MUT] 27 of 27 mutants caught
+make -C dv nvme-mut                                                  # [MUT] 33 of 33 mutants caught
 make -C dv power-mut                                                 # [MUT] 11 of 11 mutants caught
 make -C dv power-x                                                   # [PWR] X run PASS: power testbench on xsim (WSL calls Windows)
 make -C fw images                                                    # rebuild fw/images (needs riscv-none-elf-gcc on PATH)
@@ -315,6 +329,7 @@ rtl/vendor/ibex/     Ibex v2.1.0, unchanged (VENDOR.md)
 | [docs/10_transaction_layer.md](docs/10_transaction_layer.md) | Transaction layer: what the host and the SoC see (configuration space, BARs, request handling, HOST registers, link hold), design decisions, host model and tests, throughput, mutation check, SoC tests, area, timing and CDC, findings |
 | [docs/11_nvme_queues.md](docs/11_nvme_queues.md) | NVMe registers and queues: what the host and the firmware see, enable, reset and shutdown, doorbells, round-robin fetch, design decisions, block tests, throughput, mutation check, SoC firmware test, area, timing and CDC, findings |
 | [docs/12_nvme_data.md](docs/12_nvme_data.md) | NVMe data and completions: PRP transfers and lists, completion queue entries, phase and MSI-X order, the controller buffer on the crossbar, design decisions, block tests, throughput, mutation check, SoC test, area, timing and CDC, findings |
+| [docs/14_nvme_host_verification.md](docs/14_nvme_host_verification.md) | NVMe host driver model and verification: why the controller needed epochs and how they work, the host model's checks, the nvme_rand epochs and reset plan, queue assertions, coverage, results, findings |
 | [docs/13_nvme_firmware.md](docs/13_nvme_firmware.md) | NVMe firmware: command loop, admin and I/O commands, statuses, transfer overlap, controller reset, the host's run, latency and IOPS by queue depth, firmware cost per command, what limits it, findings |
 | [docs/regs/soc_apb.md](docs/regs/soc_apb.md) | Generated register reference: every register and field with offset, access and reset value |
 
@@ -337,7 +352,7 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
 - **Storage path.** NAND channel controller 2개와 BCH ECC, NVMe Read·Write를 SRAM을 거쳐 NAND까지 처리하는 firmware입니다.
 - **진행 순서.** Phase 1 → 2-1~2-5(transaction 수준 host 모델로 NVMe) → Phase 3 → 2-6~2-9(link · PHY) → Phase 4, 5. NVMe 명령이 NAND까지 가는 경로를 serial link보다 먼저 완성합니다.
 - **검증과 구현.** IP별 TB를 먼저 만들고, SoC 전체는 UVM(Vivado simulator 2019.2)으로 sign-off합니다. lint, 빠른 regression, coverage는 Verilator 5.052, 합성과 multi-corner STA는 Yosys, OpenSTA, Sky130으로 합니다.
-- **현재 상태.** Phase 0(도구 확인, repo 구조, CI, RISC-V GCC)과 Phase 1(SoC platform, 1-1~1-9)이 끝났고, ss corner의 setup 미충족은 docs/09에 기록했습니다. Phase 2는 2-1(transaction layer), 2-2(NVMe register와 queue), 2-3(PRP 데이터와 completion), 2-4(SRAM namespace에서 firmware 명령 처리)를 마쳤고, 다음은 2-5(NVMe host driver 모델과 검증)입니다.
+- **현재 상태.** Phase 0(도구 확인, repo 구조, CI, RISC-V GCC)과 Phase 1(SoC platform, 1-1~1-9)이 끝났고, ss corner의 setup 미충족은 docs/09에 기록했습니다. Phase 2는 2-1(transaction layer), 2-2(NVMe register와 queue), 2-3(PRP 데이터와 completion), 2-4(SRAM namespace에서 firmware 명령 처리), 2-5(NVMe host driver 모델과 검증)를 마쳤습니다. 다음은 Phase 3(storage datapath)의 3-1(NAND channel controller)이고, 2-6~2-9는 그 뒤입니다.
   - 1-1 아키텍처 사양([docs/01_soc_architecture.md](docs/01_soc_architecture.md)): clock 5개와 crossing 규칙, reset 해제 순서, PD_HOST의 isolation·retention·power sequence, AXI4 규칙, address·interrupt map, 목표 주파수를 정했습니다.
   - 1-2 공통 블록([docs/02_common_blocks.md](docs/02_common_blocks.md)): 이전 프로젝트의 2-FF synchronizer와 register slice는 로직을 그대로 가져왔습니다. dual-clock FIFO는 같은 TB로 측정한 결과 처리량이 상한의 12.5~24.8%(4:1 비율만 50~68%)에 그쳐서 새로 설계했고, 새 FIFO는 12개 run 모두 데이터 오류 0, 상한의 97.9~101.0%를 냈습니다(commit 8ce1fac).
   - 1-3 AXI4 crossbar([docs/03_axi_crossbar.md](docs/03_axi_crossbar.md)): 4×5 sparse 구조이고, 같은 ID가 outstanding인 동안 다른 slave로 넘어가지 않게 해서 reorder buffer 없이 응답 순서를 지킵니다. master마다 DECERR slave를 두고, W는 master와 slave 양쪽의 AW 순서를 따르게 했습니다(commit 76fd272).
@@ -422,5 +437,14 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
       - 512 B는 firmware가 한계입니다. 명령당 약 475 clock이고, 그중 약 155 clock이 register 접근 약 18회입니다.
       - 4 KiB는 명령마다 fetch, 데이터, completion entry를 차례로 나르는 transaction layer의 bus master 하나가 한계입니다(명령당 약 800 clock).
     - **찾은 문제.** shutdown을 먼저 확인해서 controller reset을 세지 못하던 순서와, 모든 application에 link되던 driver를 고쳤습니다(commit 491d727).
+  - 2-5 NVMe host driver 모델과 검증([docs/14_nvme_host_verification.md](docs/14_nvme_host_verification.md)):
+    - **설계 변경(epoch).** firmware가 명령을 들고 있는 동안 host가 controller를 reset하면, 그 명령이 host가 controller를 다시 켠 뒤에도 데이터를 옮기거나 entry를 쓰고, slot을 돌려주거나 queue를 만들 수 있었습니다. firmware만으로는 이 틈을 막을 수 없어서, controller가 reset 횟수를 epoch로 세고 firmware가 명령마다 받은 epoch를 모든 동작에 함께 돌려주게 했습니다. epoch가 다르면 하드웨어가 아무것도 하지 않습니다.
+    - **host driver 모델.** transaction 수준 host 모델 위의 class 기반 NVMe host입니다.
+      - admin 명령으로 queue를 만들고 지우며, SQ와 CQ의 연결은 자유롭고 CQ와 vector를 공유할 수 있습니다.
+      - PRP1·PRP2·PRP list를 쓰고, phase tag로 completion을 받아 CID, SQID, status, SQ head, 읽은 모든 byte를 namespace 사본과 대조합니다.
+      - 명령이 남은 채 controller를 reset하고, 버려진 명령이 그 뒤에 완료되거나 버퍼에 쓰지 않는지 확인합니다.
+    - **SoC 테스트.** nvme_rand가 이 모델을 2-4 firmware에 돌립니다. 4번 실행에서 명령 5,358개, controller reset 20회(버린 명령 330개), 6.6 MB를 읽어 비교했고 오류 0, covergroup 81/81입니다. 그동안 하드웨어가 stale 명령에 대한 firmware의 전송 시작 8회와 completion post 9회를 거부했습니다.
+    - **SVA.** controller queue 상태 assertion 13개를 두 NVMe TB에 bind했습니다. tb_nvme는 epoch test를 더해 bin 101/101, mutation 33/33(epoch용 6개 추가)입니다.
+    - **찾은 문제.** I/O completion을 SQ 번호와 같은 CQ에 쓰던 firmware, 그리고 reset이 slot을 비운 뒤 한 clock 늦게 비던 명령 FIFO(그 clock에 CMD가 stale 명령을 새 epoch로 내보냄, slot SVA가 발견)를 고쳤습니다(commit c5e2b96).
 - **범위.** 공개 자료만으로 구성하며 PCIe, NVMe, M-PHY, UniPro 규격 준수를 주장하지 않습니다. NVMe는 공개된 Base Specification의 register · queue · PRP 구조 일부만 따릅니다.
 - **LLM 사용.** 코드, 테스트, 문서 초안에 LLM(Claude)을 쓰고, repo 안의 regression과 검사를 통과한 결과만 반영합니다.
