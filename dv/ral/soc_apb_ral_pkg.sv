@@ -28,7 +28,7 @@ package soc_apb_ral_pkg;
 
         virtual function void build();
             this.value = new("value");
-            this.value.configure(this, 32, 0, "RO", 0, 'h20005, 1, 1, 0);
+            this.value.configure(this, 32, 0, "RO", 0, 'h30001, 1, 1, 0);
         endfunction : build
     endclass : sys_regs__VERSION
 
@@ -77,6 +77,8 @@ package soc_apb_ral_pkg;
     // reg - sys_regs::SOFT_RESET
     class sys_regs__SOFT_RESET extends uvm_reg;
         rand uvm_reg_field dma;
+        rand uvm_reg_field nand0;
+        rand uvm_reg_field nand1;
 
         function new(string name = "sys_regs__SOFT_RESET");
             super.new(name, 32, UVM_NO_COVERAGE);
@@ -85,6 +87,10 @@ package soc_apb_ral_pkg;
         virtual function void build();
             this.dma = new("dma");
             this.dma.configure(this, 1, 0, "RW", 0, 'h0, 1, 1, 0);
+            this.nand0 = new("nand0");
+            this.nand0.configure(this, 1, 1, "RW", 0, 'h0, 1, 1, 0);
+            this.nand1 = new("nand1");
+            this.nand1.configure(this, 1, 2, "RW", 0, 'h0, 1, 1, 0);
         endfunction : build
     endclass : sys_regs__SOFT_RESET
 
@@ -1224,6 +1230,369 @@ package soc_apb_ral_pkg;
         endfunction : build
     endclass : host_regs
 
+    // reg - nand_regs::CTRL
+    class nand_regs__CTRL extends uvm_reg;
+        rand uvm_reg_field wp;
+        rand uvm_reg_field ien_done;
+        rand uvm_reg_field ien_err;
+
+        function new(string name = "nand_regs__CTRL");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.wp = new("wp");
+            this.wp.configure(this, 1, 0, "RW", 0, 'h1, 1, 1, 0);
+            this.ien_done = new("ien_done");
+            this.ien_done.configure(this, 1, 1, "RW", 0, 'h0, 1, 1, 0);
+            this.ien_err = new("ien_err");
+            this.ien_err.configure(this, 1, 2, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : nand_regs__CTRL
+
+    // reg - nand_regs::STATUS
+    class nand_regs__STATUS extends uvm_reg;
+        rand uvm_reg_field busy;
+        rand uvm_reg_field rb;
+        rand uvm_reg_field cmds;
+        rand uvm_reg_field cpls;
+
+        function new(string name = "nand_regs__STATUS");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.busy = new("busy");
+            this.busy.configure(this, 1, 0, "RO", 1, 'h0, 0, 1, 0);
+            this.rb = new("rb");
+            this.rb.configure(this, 1, 1, "RO", 1, 'h0, 0, 1, 0);
+            this.cmds = new("cmds");
+            this.cmds.configure(this, 3, 8, "RO", 1, 'h0, 0, 1, 0);
+            this.cpls = new("cpls");
+            this.cpls.configure(this, 4, 12, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nand_regs__STATUS
+
+    // reg - nand_regs::EVENT
+    class nand_regs__EVENT extends uvm_reg;
+        rand uvm_reg_field err;
+        rand uvm_reg_field ovf;
+
+        function new(string name = "nand_regs__EVENT");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.err = new("err");
+            this.err.configure(this, 1, 0, "W1C", 1, 'h0, 1, 1, 0);
+            this.ovf = new("ovf");
+            this.ovf.configure(this, 1, 1, "W1C", 1, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : nand_regs__EVENT
+
+    // reg - nand_regs::TIMING0
+    class nand_regs__TIMING0 extends uvm_reg;
+        rand uvm_reg_field twp;
+        rand uvm_reg_field twh;
+        rand uvm_reg_field trp;
+        rand uvm_reg_field treh;
+
+        function new(string name = "nand_regs__TIMING0");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.twp = new("twp");
+            this.twp.configure(this, 4, 0, "RW", 0, 'h3, 1, 1, 0);
+            this.twh = new("twh");
+            this.twh.configure(this, 4, 4, "RW", 0, 'h2, 1, 1, 0);
+            this.trp = new("trp");
+            this.trp.configure(this, 4, 8, "RW", 0, 'h3, 1, 1, 0);
+            this.treh = new("treh");
+            this.treh.configure(this, 4, 12, "RW", 0, 'h2, 1, 1, 0);
+        endfunction : build
+    endclass : nand_regs__TIMING0
+
+    // reg - nand_regs::TIMING1
+    class nand_regs__TIMING1 extends uvm_reg;
+        rand uvm_reg_field twb;
+        rand uvm_reg_field twhr;
+        rand uvm_reg_field tadl;
+        rand uvm_reg_field trr;
+
+        function new(string name = "nand_regs__TIMING1");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.twb = new("twb");
+            this.twb.configure(this, 6, 0, "RW", 0, 'hc, 1, 1, 0);
+            this.twhr = new("twhr");
+            this.twhr.configure(this, 6, 8, "RW", 0, 'h6, 1, 1, 0);
+            this.tadl = new("tadl");
+            this.tadl.configure(this, 6, 16, "RW", 0, 'ha, 1, 1, 0);
+            this.trr = new("trr");
+            this.trr.configure(this, 6, 24, "RW", 0, 'h2, 1, 1, 0);
+        endfunction : build
+    endclass : nand_regs__TIMING1
+
+    // reg - nand_regs::TIMEOUT
+    class nand_regs__TIMEOUT extends uvm_reg;
+        rand uvm_reg_field busy;
+
+        function new(string name = "nand_regs__TIMEOUT");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.busy = new("busy");
+            this.busy.configure(this, 16, 0, "RW", 0, 'h1000, 1, 1, 0);
+        endfunction : build
+    endclass : nand_regs__TIMEOUT
+
+    // reg - nand_regs::CMD_ROW
+    class nand_regs__CMD_ROW extends uvm_reg;
+        rand uvm_reg_field row;
+
+        function new(string name = "nand_regs__CMD_ROW");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.row = new("row");
+            this.row.configure(this, 24, 0, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : nand_regs__CMD_ROW
+
+    // reg - nand_regs::CMD_COL
+    class nand_regs__CMD_COL extends uvm_reg;
+        rand uvm_reg_field col;
+
+        function new(string name = "nand_regs__CMD_COL");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.col = new("col");
+            this.col.configure(this, 13, 0, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : nand_regs__CMD_COL
+
+    // reg - nand_regs::CMD_LEN
+    class nand_regs__CMD_LEN extends uvm_reg;
+        rand uvm_reg_field len;
+
+        function new(string name = "nand_regs__CMD_LEN");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.len = new("len");
+            this.len.configure(this, 13, 0, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : nand_regs__CMD_LEN
+
+    // reg - nand_regs::CMD_BUF
+    class nand_regs__CMD_BUF extends uvm_reg;
+        rand uvm_reg_field off;
+
+        function new(string name = "nand_regs__CMD_BUF");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.off = new("off");
+            this.off.configure(this, 13, 0, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : nand_regs__CMD_BUF
+
+    // reg - nand_regs::CMD_GO
+    class nand_regs__CMD_GO extends uvm_reg;
+        rand uvm_reg_field op;
+        rand uvm_reg_field tag;
+
+        function new(string name = "nand_regs__CMD_GO");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.op = new("op");
+            this.op.configure(this, 3, 0, "RW", 0, 'h0, 1, 1, 0);
+            this.tag = new("tag");
+            this.tag.configure(this, 8, 8, "RW", 0, 'h0, 1, 1, 0);
+        endfunction : build
+    endclass : nand_regs__CMD_GO
+
+    // reg - nand_regs::CPL
+    class nand_regs__CPL extends uvm_reg;
+        rand uvm_reg_field tag;
+        rand uvm_reg_field code;
+        rand uvm_reg_field status;
+        rand uvm_reg_field valid;
+
+        function new(string name = "nand_regs__CPL");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.tag = new("tag");
+            this.tag.configure(this, 8, 0, "RO", 1, 'h0, 0, 1, 0);
+            this.code = new("code");
+            this.code.configure(this, 2, 8, "RO", 1, 'h0, 0, 1, 0);
+            this.status = new("status");
+            this.status.configure(this, 8, 16, "RO", 1, 'h0, 0, 1, 0);
+            this.valid = new("valid");
+            this.valid.configure(this, 1, 31, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nand_regs__CPL
+
+    // reg - nand_regs::CYCLES
+    class nand_regs__CYCLES extends uvm_reg;
+        rand uvm_reg_field count;
+
+        function new(string name = "nand_regs__CYCLES");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.count = new("count");
+            this.count.configure(this, 32, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nand_regs__CYCLES
+
+    // reg - nand_regs::BUSY_TIME
+    class nand_regs__BUSY_TIME extends uvm_reg;
+        rand uvm_reg_field count;
+
+        function new(string name = "nand_regs__BUSY_TIME");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.count = new("count");
+            this.count.configure(this, 24, 0, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nand_regs__BUSY_TIME
+
+    // reg - nand_regs::COUNT
+    class nand_regs__COUNT extends uvm_reg;
+        rand uvm_reg_field done;
+        rand uvm_reg_field err;
+
+        function new(string name = "nand_regs__COUNT");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.done = new("done");
+            this.done.configure(this, 16, 0, "RO", 1, 'h0, 0, 1, 0);
+            this.err = new("err");
+            this.err.configure(this, 16, 16, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nand_regs__COUNT
+
+    // addrmap - nand_regs
+    class nand_regs extends uvm_reg_block;
+        rand nand_regs__CTRL CTRL;
+        rand nand_regs__STATUS STATUS;
+        rand nand_regs__EVENT EVENT;
+        rand nand_regs__TIMING0 TIMING0;
+        rand nand_regs__TIMING1 TIMING1;
+        rand nand_regs__TIMEOUT TIMEOUT;
+        rand nand_regs__CMD_ROW CMD_ROW;
+        rand nand_regs__CMD_COL CMD_COL;
+        rand nand_regs__CMD_LEN CMD_LEN;
+        rand nand_regs__CMD_BUF CMD_BUF;
+        rand nand_regs__CMD_GO CMD_GO;
+        rand nand_regs__CPL CPL;
+        rand nand_regs__CYCLES CYCLES;
+        rand nand_regs__BUSY_TIME BUSY_TIME;
+        rand nand_regs__COUNT COUNT;
+
+        function new(string name = "nand_regs");
+            super.new(name);
+        endfunction : new
+
+        virtual function void build();
+            this.default_map = create_map("reg_map", 0, 4, UVM_NO_ENDIAN);
+            this.CTRL = new("CTRL");
+            this.CTRL.configure(this);
+
+            this.CTRL.build();
+            this.default_map.add_reg(this.CTRL, 'h0);
+            this.STATUS = new("STATUS");
+            this.STATUS.configure(this);
+
+            this.STATUS.build();
+            this.default_map.add_reg(this.STATUS, 'h4);
+            this.EVENT = new("EVENT");
+            this.EVENT.configure(this);
+
+            this.EVENT.build();
+            this.default_map.add_reg(this.EVENT, 'h8);
+            this.TIMING0 = new("TIMING0");
+            this.TIMING0.configure(this);
+
+            this.TIMING0.build();
+            this.default_map.add_reg(this.TIMING0, 'h10);
+            this.TIMING1 = new("TIMING1");
+            this.TIMING1.configure(this);
+
+            this.TIMING1.build();
+            this.default_map.add_reg(this.TIMING1, 'h14);
+            this.TIMEOUT = new("TIMEOUT");
+            this.TIMEOUT.configure(this);
+
+            this.TIMEOUT.build();
+            this.default_map.add_reg(this.TIMEOUT, 'h18);
+            this.CMD_ROW = new("CMD_ROW");
+            this.CMD_ROW.configure(this);
+
+            this.CMD_ROW.build();
+            this.default_map.add_reg(this.CMD_ROW, 'h20);
+            this.CMD_COL = new("CMD_COL");
+            this.CMD_COL.configure(this);
+
+            this.CMD_COL.build();
+            this.default_map.add_reg(this.CMD_COL, 'h24);
+            this.CMD_LEN = new("CMD_LEN");
+            this.CMD_LEN.configure(this);
+
+            this.CMD_LEN.build();
+            this.default_map.add_reg(this.CMD_LEN, 'h28);
+            this.CMD_BUF = new("CMD_BUF");
+            this.CMD_BUF.configure(this);
+
+            this.CMD_BUF.build();
+            this.default_map.add_reg(this.CMD_BUF, 'h2c);
+            this.CMD_GO = new("CMD_GO");
+            this.CMD_GO.configure(this);
+
+            this.CMD_GO.build();
+            this.default_map.add_reg(this.CMD_GO, 'h30);
+            this.CPL = new("CPL");
+            this.CPL.configure(this);
+
+            this.CPL.build();
+            this.default_map.add_reg(this.CPL, 'h34);
+            this.CYCLES = new("CYCLES");
+            this.CYCLES.configure(this);
+
+            this.CYCLES.build();
+            this.default_map.add_reg(this.CYCLES, 'h38);
+            this.BUSY_TIME = new("BUSY_TIME");
+            this.BUSY_TIME.configure(this);
+
+            this.BUSY_TIME.build();
+            this.default_map.add_reg(this.BUSY_TIME, 'h3c);
+            this.COUNT = new("COUNT");
+            this.COUNT.configure(this);
+
+            this.COUNT.build();
+            this.default_map.add_reg(this.COUNT, 'h40);
+        endfunction : build
+    endclass : nand_regs
+
     // reg - nvme_regs::CTRL
     class nvme_regs__CTRL extends uvm_reg;
         rand uvm_reg_field ien_cmd;
@@ -2153,6 +2522,8 @@ package soc_apb_ral_pkg;
         rand timer_regs TIMER;
         rand dma_regs DMA;
         rand host_regs HOST;
+        rand nand_regs NAND0;
+        rand nand_regs NAND1;
         rand nvme_regs NVME;
 
         function new(string name = "soc_apb");
@@ -2185,6 +2556,14 @@ package soc_apb_ral_pkg;
             this.HOST.configure(this);
             this.HOST.build();
             this.default_map.add_submap(this.HOST.default_map, 'h5000);
+            this.NAND0 = new("NAND0");
+            this.NAND0.configure(this);
+            this.NAND0.build();
+            this.default_map.add_submap(this.NAND0.default_map, 'h6000);
+            this.NAND1 = new("NAND1");
+            this.NAND1.configure(this);
+            this.NAND1.build();
+            this.default_map.add_submap(this.NAND1.default_map, 'h7000);
             this.NVME = new("NVME");
             this.NVME.configure(this);
             this.NVME.build();

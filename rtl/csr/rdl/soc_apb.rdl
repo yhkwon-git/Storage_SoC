@@ -24,8 +24,8 @@ addrmap sys_regs {
 
   reg {
     name = "VERSION";
-    desc = "Register map version: 0x0002_0005 is the map of step 2-5 (NVMe controller epochs).";
-    field { sw = r; hw = na; } value[31:0] = 32'h0002_0005;
+    desc = "Register map version: 0x0003_0001 is the map of step 3-1 (NAND channel controllers).";
+    field { sw = r; hw = na; } value[31:0] = 32'h0003_0001;
   } VERSION @ 0x004;
 
   reg {
@@ -51,6 +51,8 @@ addrmap sys_regs {
     name = "SOFT_RESET";
     desc = "While a bit is 1 its block is held in reset. Use only while the block is idle: a block reset with transactions outstanding leaves them unanswered.";
     field { sw = rw; hw = r; desc = "DMA, registers included."; } dma[0:0] = 1'b0;
+    field { sw = rw; hw = r; desc = "NAND0: both clock domains, registers included (the page buffer keeps its contents)."; } nand0[1:1] = 1'b0;
+    field { sw = rw; hw = r; desc = "NAND1, as NAND0."; } nand1[2:2] = 1'b0;
   } SOFT_RESET @ 0x100;
 
   reg {
@@ -649,6 +651,110 @@ addrmap nvme_regs {
   } CQ_PTR[5] @ 0x220 += 0x4;
 };
 
+addrmap nand_regs {
+  name = "NAND";
+  desc = "One NAND channel (rtl/nand/nand_ctrl.sv, docs/15_nand_channel.md): an 8-bit ONFI-style asynchronous interface run by a sequencer in clk_nand, a command queue of 4, a completion queue of 8, and an 8 KiB page buffer on the crossbar. NAND0 is at 0x4000_6000 with its page buffer at 0x3000_0000, NAND1 at 0x4000_7000 and 0x3001_0000.";
+  default regwidth = 32;
+  default accesswidth = 32;
+
+  reg {
+    name = "CTRL";
+    field { sw = rw; hw = r; desc = "Write protect: WP# is low while this is 1, from reset until firmware clears it."; } wp[0:0] = 1'b1;
+    field { sw = rw; hw = r; desc = "Interrupt (INTC 6 for NAND0, 8 for NAND1) while a completion waits in CPL."; } ien_done[1:1] = 1'b0;
+    field { sw = rw; hw = r; desc = "Interrupt (INTC 7 for NAND0, 9 for NAND1) while EVENT.ERR or EVENT.OVF is set."; } ien_err[2:2] = 1'b0;
+  } CTRL @ 0x000;
+
+  reg {
+    name = "STATUS";
+    field { sw = r; hw = w; desc = "A command is running."; } busy[0:0];
+    field { sw = r; hw = w; desc = "R/B#, synchronized into clk_sys: 1 ready, 0 busy."; } rb[1:1];
+    field { sw = r; hw = w; desc = "Commands waiting in the queue, 0 to 4."; } cmds[10:8];
+    field { sw = r; hw = w; desc = "Completions waiting in CPL, 0 to 8."; } cpls[15:12];
+  } STATUS @ 0x004;
+
+  reg {
+    name = "EVENT";
+    desc = "Set by hardware, cleared by writing 1.";
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "A command completed with a code other than 0."; } err[0:0] = 1'b0;
+    field { sw = rw; onwrite = woclr; hw = r; hwset; precedence = hw; desc = "CMD_GO was written with 4 commands waiting; that command was dropped."; } ovf[1:1] = 1'b0;
+  } EVENT @ 0x008;
+
+  reg {
+    name = "TIMING0";
+    desc = "Bus cycle phases in clk_nand clocks (20 ns), 1 to 15; 0 counts as 1. A command takes TIMING0, TIMING1 and TIMEOUT as they are when it starts. The reset values give 100 ns cycles; 1 and 1 give 40 ns cycles, 25 MB/s.";
+    field { sw = rw; hw = r; desc = "WE# low (tWP)."; } twp[3:0] = 4'd3;
+    field { sw = rw; hw = r; desc = "WE# high (tWH)."; } twh[7:4] = 4'd2;
+    field { sw = rw; hw = r; desc = "RE# low (tRP); DQ is sampled at the clock edge that raises RE#."; } trp[11:8] = 4'd3;
+    field { sw = rw; hw = r; desc = "RE# high (tREH)."; } treh[15:12] = 4'd2;
+  } TIMING0 @ 0x010;
+
+  reg {
+    name = "TIMING1";
+    desc = "Waits in clk_nand clocks, 1 to 63; 0 counts as 1.";
+    field { sw = rw; hw = r; desc = "From the confirm command's WE# rising to the first look at R/B# (tWB, plus 2 clocks of synchronizer)."; } twb[5:0] = 6'd12;
+    field { sw = rw; hw = r; desc = "From the last WE# rising to RE# falling for a status, ID or changed-column read (tWHR)."; } twhr[13:8] = 6'd6;
+    field { sw = rw; hw = r; desc = "From the last address cycle to the first data cycle of a program (tADL)."; } tadl[21:16] = 6'd10;
+    field { sw = rw; hw = r; desc = "From R/B# seen ready to the first RE# falling (tRR)."; } trr[29:24] = 6'd2;
+  } TIMING1 @ 0x014;
+
+  reg {
+    name = "TIMEOUT";
+    field { sw = rw; hw = r; desc = "R/B# busy for more than this many units of 256 clk_nand clocks ends the command with code 2; 0 waits without limit."; } busy[15:0] = 16'd4096;
+  } TIMEOUT @ 0x018;
+
+  reg {
+    name = "CMD_ROW";
+    field { sw = rw; hw = r; desc = "Row address: the page in bits 5:0, the block above."; } row[23:0] = 24'h0;
+  } CMD_ROW @ 0x020;
+
+  reg {
+    name = "CMD_COL";
+    field { sw = rw; hw = r; desc = "Column: the byte in the page, 0 to 4319 (4096 to 4319 are the spare area). For READ_ID, the address byte."; } col[12:0] = 13'h0;
+  } CMD_COL @ 0x024;
+
+  reg {
+    name = "CMD_LEN";
+    field { sw = rw; hw = r; desc = "Bytes to move, 0 to 4320."; } len[12:0] = 13'h0;
+  } CMD_LEN @ 0x028;
+
+  reg {
+    name = "CMD_BUF";
+    field { sw = rw; hw = r; desc = "Byte offset of the data in the page buffer."; } off[12:0] = 13'h0;
+  } CMD_BUF @ 0x02C;
+
+  reg {
+    name = "CMD_GO";
+    desc = "A write queues a command: OP and TAG with CMD_ROW, CMD_COL, CMD_LEN and CMD_BUF as they are then.";
+    field { sw = rw; hw = r; swmod; desc = "0 RESET, 1 READ_ID, 2 READ, 3 PROGRAM, 4 ERASE, 5 STATUS, 6 CHANGE READ COLUMN; 7 completes at once with no bus cycle."; } op[2:0] = 3'd0;
+    field { sw = rw; hw = r; desc = "Returned with the completion."; } tag[15:8] = 8'h0;
+  } CMD_GO @ 0x030;
+
+  reg {
+    name = "CPL";
+    desc = "The oldest completion; reading it removes it. VALID is 0 when none waits.";
+    field { sw = r; hw = w; swacc; desc = "TAG of the command."; } tag[7:0];
+    field { sw = r; hw = w; desc = "0 done, 1 status fail, 2 busy timeout, 3 write protected."; } code[9:8];
+    field { sw = r; hw = w; desc = "The status byte read after a program, an erase or STATUS; 0 otherwise."; } status[23:16];
+    field { sw = r; hw = w; } valid[31:31];
+  } CPL @ 0x034;
+
+  reg {
+    name = "CYCLES";
+    field { sw = r; hw = w; desc = "clk_sys clocks from the dispatch of the last completed command to its completion."; } count[31:0];
+  } CYCLES @ 0x038;
+
+  reg {
+    name = "BUSY_TIME";
+    field { sw = r; hw = w; desc = "clk_nand clocks the last completed command waited for R/B# (saturates)."; } count[23:0];
+  } BUSY_TIME @ 0x03C;
+
+  reg {
+    name = "COUNT";
+    field { sw = r; hw = w; desc = "Commands completed (wraps)."; } done[15:0];
+    field { sw = r; hw = w; desc = "Of them, with a code other than 0 (wraps)."; } err[31:16];
+  } COUNT @ 0x040;
+};
+
 addrmap soc_apb {
   name = "APB peripherals";
   desc = "Register blocks in the APB window at 0x4000_0000, one 4 KiB slot each.";
@@ -658,5 +764,7 @@ addrmap soc_apb {
   timer_regs TIMER @ 0x3000;
   dma_regs   DMA   @ 0x4000;
   host_regs  HOST  @ 0x5000;
+  nand_regs  NAND0 @ 0x6000;
+  nand_regs  NAND1 @ 0x7000;
   nvme_regs  NVME  @ 0x8000;
 };

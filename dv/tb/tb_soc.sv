@@ -96,6 +96,23 @@ module tb_soc;
   logic [7:0]  console_char;
   logic [31:0] exit_code;
 
+  // NAND channels: a nand_model on each (dv/tb/nand_model.sv). DQ as the
+  // controller sees it: the device's byte while it drives, else a floating-bus
+  // pattern.
+  logic [1:0]  nand_ce_n, nand_cle, nand_ale, nand_we_n, nand_re_n, nand_wp_n, nand_dq_oe, nand_rb_n;
+  logic [15:0] nand_dq_o, nand_dq_i, nand_dq_d;
+  logic [1:0]  nand_dq_d_oe;
+
+  for (genvar c = 0; c < 2; c++) begin : g_nm
+    nand_model #(.NAME((c == 0) ? "NAND0" : "NAND1")) u_m (
+      .ce_n (nand_ce_n[c]), .cle (nand_cle[c]), .ale (nand_ale[c]), .we_n (nand_we_n[c]),
+      .re_n (nand_re_n[c]), .wp_n (nand_wp_n[c]), .dq_c (nand_dq_o[8 * c +: 8]), .dq_c_oe (nand_dq_oe[c]),
+      .dq_d (nand_dq_d[8 * c +: 8]), .dq_d_oe (nand_dq_d_oe[c]), .rb_n (nand_rb_n[c])
+    );
+    assign nand_dq_i[8 * c +: 8] = nand_dq_d_oe[c] ? nand_dq_d[8 * c +: 8] :
+                                   (nand_dq_oe[c] ? nand_dq_o[8 * c +: 8] : 8'hA5);
+  end
+
   soc_top dut (.*);
 
   // ---------------------------------------------------------------------------
@@ -370,7 +387,7 @@ module tb_soc;
     force dut.u_pwr.u_host_if.u_tl.bar2_win = 17'h0_8000;   // 0x4000_0000
     // ID (0x000) and VERSION (0x004) in one QW read.
     host.mem_rd(BAR2, 8, b, st);
-    apb_expect(st == SC && qw(b, 0) == {32'h0002_0005, 32'h5353_4F43}, "QW read of ID and VERSION");
+    apb_expect(st == SC && qw(b, 0) == {32'h0003_0001, 32'h5353_4F43}, "QW read of ID and VERSION");
     // SCRATCH through a DW write, read back.
     host.mem_wr(BAR2 + 64'h8, le_bytes(64'h1234_5678, 4));
     host.mem_rd(BAR2 + 64'h8, 4, b, st);
@@ -387,9 +404,9 @@ module tb_soc;
     // its reset value.
     host.mem_rd(BAR2 + 64'h3000, 16, b, st);
     apb_expect(st == SC && qw(b, 8) == '1 && qw(b, 0) != 0, "2-beat burst over the timer");
-    // Slot 6 has no peripheral: CA.
-    host.mem_rd(BAR2 + 64'h6000, 4, b, st);
-    apb_expect(st == CA, "read of empty slot 6 gets CA");
+    // Slot 6 is NAND0 (step 3-1): TIMING0 holds its reset value.
+    host.mem_rd(BAR2 + 64'h6010, 4, b, st);
+    apb_expect(st == SC && qw(b, 0) == 64'h2323, "NAND0 TIMING0 through slot 6");
     // Window on slots 8 to 15: NVME, then empty slots.
     force dut.u_pwr.u_host_if.u_tl.bar2_win = 17'h0_8001;   // 0x4000_8000
     // NVME STATUS: controller off, no command, 16 free slots.
@@ -398,10 +415,12 @@ module tb_soc;
     // CMDBUF holds its reset value.
     host.mem_rd(BAR2 + 64'h14, 4, b, st);
     apb_expect(st == SC && qw(b, 0) == 64'h1000_BC00, "NVME CMDBUF through slot 8");
+    host.mem_rd(BAR2 + 64'h1000, 4, b, st);
+    apb_expect(st == CA, "read of empty slot 9 gets CA");
     host.mem_rd(BAR2 + 64'h7000, 4, b, st);
     apb_expect(st == CA, "read of empty slot 15 gets CA");
     release dut.u_pwr.u_host_if.u_tl.bar2_win;
-    $display("[SOC] apb check through BAR2: QW read, DW write and read, CA beside an undefined word, AON register, 2-beat burst, empty slots, NVME slot: %0d errors",
+    $display("[SOC] apb check through BAR2: QW read, DW write and read, CA beside an undefined word, AON register, 2-beat burst, NAND0 slot, empty slots, NVME slot: %0d errors",
              apb_errors);
   endtask
 
@@ -1255,7 +1274,7 @@ module tb_soc;
     if (test == "host") host_check();
     if ($test$plusargs("apb_check")) apb_check();
 
-    errs = host.errors + host_errors + apb_errors;
+    errs = host.errors + host_errors + apb_errors + g_nm[0].u_m.errors + g_nm[1].u_m.errors;
     mode = "";
     if (bg) mode = " with background traffic";
     $display("[SOC] %s%s: exit code %0d after %0d cycles; host requests %0d (%0d bytes), errors %0d",

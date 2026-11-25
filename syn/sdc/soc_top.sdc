@@ -53,6 +53,17 @@ set_input_delay  4.8 -clock pclk $host_in
 set_output_delay 4.8 -clock pclk $host_out
 set_driving_cell -lib_cell sky130_fd_sc_hd__buf_2 -pin X $host_in
 
+# NAND channels (step 3-1): the bus is driven from clk_nand flops and read
+# data is sampled at the clock edge that raises RE#, so the pins are timed
+# against clk_nand, 30% of its period on each side. R/B# is asynchronous and
+# goes through a synchronizer in both clock domains.
+set nand_in  [get_ports {nand_dq_i*}]
+set nand_out [get_ports {nand_ce_n* nand_cle* nand_ale* nand_we_n* nand_re_n* nand_wp_n* nand_dq_o* nand_dq_oe*}]
+set_input_delay  6.0 -clock clk_nand $nand_in
+set_output_delay 6.0 -clock clk_nand $nand_out
+set_driving_cell -lib_cell sky130_fd_sc_hd__buf_2 -pin X $nand_in
+set_false_path -from [get_ports {nand_rb_n*}]
+
 # Simulation console and exit, the lock-up flag and the power switch control
 # are not timed against a clock.
 set_false_path -to [get_ports {console_valid console_char* exit_valid exit_code* cpu_double_fault host_pwr_en}]

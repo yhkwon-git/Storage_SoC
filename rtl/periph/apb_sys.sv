@@ -12,8 +12,9 @@
 // clock, with the written value on console_char or exit_code. The testbench
 // watches them; they stay in the synthesized design as ordinary registers.
 //
-// Since step 1-7 also SOFT_RESET (soft_rst_dma), CLK_GATE (cg_cpu) and
-// SLEEP_CYCLES, which counts the clocks the CPU's clock gate removes.
+// Since step 1-7 also SOFT_RESET (soft_rst_dma; since step 3-1 soft_rst_nand
+// for the two NAND channels), CLK_GATE (cg_cpu) and SLEEP_CYCLES, which
+// counts the clocks the CPU's clock gate removes.
 // -----------------------------------------------------------------------------
 
 module apb_sys (
@@ -35,6 +36,7 @@ module apb_sys (
   output logic [31:0]  exit_code,
 
   output logic         soft_rst_dma,
+  output logic [1:0]   soft_rst_nand,
   output logic         cg_cpu,
   input  wire          cpu_sleep
 );
@@ -65,7 +67,8 @@ module apb_sys (
     else if (cpu_sleep) sleep_cycles <= sleep_cycles + 32'd1;
   end
   assign hwif_in.SLEEP_CYCLES.count.next = sleep_cycles;
-  assign soft_rst_dma = hwif_out.SOFT_RESET.dma.value;
+  assign soft_rst_dma  = hwif_out.SOFT_RESET.dma.value;
+  assign soft_rst_nand = {hwif_out.SOFT_RESET.nand1.value, hwif_out.SOFT_RESET.nand0.value};
   assign cg_cpu       = hwif_out.CLK_GATE.cpu.value;
 
   // The field stores the written value on the same edge that this flop

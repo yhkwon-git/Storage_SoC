@@ -1,9 +1,9 @@
 // ral_tb
 //
 // The APB blocks behind one APB bus, decoded by slot like the SoC's bridge
-// does (paddr[15:12]: 0 SYS, 1 PMU, 2 INTC, 3 TIMER, 4 DMA, 5 HOST, 8 NVME;
-// other slots answer PSLVERR), driven by the UVM register test in
-// ral_test_pkg.
+// does (paddr[15:12]: 0 SYS, 1 PMU, 2 INTC, 3 TIMER, 4 DMA, 5 HOST, 6 NAND0,
+// 7 NAND1, 8 NVME; other slots answer PSLVERR), driven by the UVM register
+// test in ral_test_pkg.
 //
 //   * PMU, HOST and NVME come with soc_pwr, as in soc_top: the PMU is reached
 //     through its APB crossing into clk_aon, and soc_pwr's core reset is this
@@ -12,7 +12,11 @@
 //   * The DMA's AXI port sees a bus that never answers: the test starts it
 //     only with a misaligned DESC_PTR, which ends with an error before any
 //     bus request.
-//   * INTC sources: 1 and 2 DMA DONE and ERR, 3 NVMe, 10 PMU, as in soc_top.
+//   * NAND0 and NAND1 (nand_ctrl, clk_nand = clk) have no device on their
+//     pins: R/B# reads ready and DQ reads FFh. Their page buffers see no
+//     bus traffic.
+//   * INTC sources: 1 and 2 DMA DONE and ERR, 3 NVMe, 6 to 9 NAND0 and NAND1
+//     done and error, 10 PMU, as in soc_top.
 
 `timescale 1ns/1ps
 
@@ -41,6 +45,8 @@ module ral_tb;
   logic [7:0]  console_char;
   logic [31:0] exit_code;
   logic        soft_rst_dma, cg_cpu;
+  logic [1:0]  soft_rst_nand, nand_done_irq, nand_err_irq, rdy_nand, err_nand;
+  logic [31:0] rd_nand [2];
 
   apb_sys u_sys (
     .clk (clk), .rst_n (rst_n),
@@ -49,7 +55,7 @@ module ral_tb;
     .prdata (rd_sys), .pready (rdy_sys), .pslverr (err_sys),
     .console_valid (console_valid), .console_char (console_char),
     .exit_valid (exit_valid), .exit_code (exit_code),
-    .soft_rst_dma (soft_rst_dma), .cg_cpu (cg_cpu), .cpu_sleep (1'b0)
+    .soft_rst_dma (soft_rst_dma), .soft_rst_nand (soft_rst_nand), .cg_cpu (cg_cpu), .cpu_sleep (1'b0)
   );
 
   apb_intc u_intc (
@@ -57,7 +63,8 @@ module ral_tb;
     .psel (apb.psel && slot == 4'd2), .penable (apb.penable), .paddr (apb.paddr[11:0]),
     .pwrite (apb.pwrite), .pwdata (apb.pwdata), .pstrb (apb.pstrb),
     .prdata (rd_intc), .pready (rdy_intc), .pslverr (err_intc),
-    .src ({21'd0, pmu_irq, 6'd0, nvme_irq, dma_err, dma_done, 1'b0}), .irq (apb.irq_external)
+    .src ({21'd0, pmu_irq, nand_err_irq[1], nand_done_irq[1], nand_err_irq[0], nand_done_irq[0], 2'd0,
+           nvme_irq, dma_err, dma_done, 1'b0}), .irq (apb.irq_external)
   );
 
   apb_timer u_tmr (
@@ -155,6 +162,24 @@ module ral_tb;
     .m_rvalid (1'b0), .m_rready ()
   );
 
+  // NAND0 and NAND1: no device, no page-buffer traffic.
+  for (genvar c = 0; c < 2; c++) begin : g_nand
+    nand_ctrl #(.IDW(4)) u_nand (
+      .clk (clk), .rst_n (rst_n), .clk_nand (clk), .rst_nand_n (rst_n),
+      .psel (apb.psel && slot == 4'(6 + c)), .penable (apb.penable), .paddr (apb.paddr[11:0]),
+      .pwrite (apb.pwrite), .pwdata (apb.pwdata), .pstrb (apb.pstrb),
+      .prdata (rd_nand[c]), .pready (rdy_nand[c]), .pslverr (err_nand[c]),
+      .s_awid (4'd0), .s_awaddr (32'd0), .s_awlen (8'd0), .s_awvalid (1'b0), .s_awready (),
+      .s_wdata (64'd0), .s_wstrb (8'd0), .s_wlast (1'b0), .s_wvalid (1'b0), .s_wready (),
+      .s_bid (), .s_bresp (), .s_bvalid (), .s_bready (1'b1),
+      .s_arid (4'd0), .s_araddr (32'd0), .s_arlen (8'd0), .s_arvalid (1'b0), .s_arready (),
+      .s_rid (), .s_rdata (), .s_rresp (), .s_rlast (), .s_rvalid (), .s_rready (1'b1),
+      .ce_n (), .cle (), .ale (), .we_n (), .re_n (), .wp_n (), .dq_o (), .dq_oe (),
+      .dq_i (8'hFF), .rb_n (1'b1),
+      .irq_done (nand_done_irq[c]), .irq_err (nand_err_irq[c])
+    );
+  end
+
   logic [1:0] sw_pipe = 2'b00;
   always @(posedge clk_aon) begin
     sw_pipe <= {sw_pipe[0], pwr_en};
@@ -169,6 +194,8 @@ module ral_tb;
       4'd3:    begin apb.prdata = rd_tmr;  apb.pready = rdy_tmr;  apb.pslverr = err_tmr;  end
       4'd4:    begin apb.prdata = rd_dma;  apb.pready = rdy_dma;  apb.pslverr = err_dma;  end
       4'd5:    begin apb.prdata = rd_host; apb.pready = rdy_host; apb.pslverr = err_host; end
+      4'd6:    begin apb.prdata = rd_nand[0]; apb.pready = rdy_nand[0]; apb.pslverr = err_nand[0]; end
+      4'd7:    begin apb.prdata = rd_nand[1]; apb.pready = rdy_nand[1]; apb.pslverr = err_nand[1]; end
       4'd8:    begin apb.prdata = rd_nvme; apb.pready = rdy_nvme; apb.pslverr = err_nvme; end
       default: begin apb.prdata = 32'd0;   apb.pready = 1'b1;     apb.pslverr = 1'b1;     end
     endcase
@@ -201,5 +228,5 @@ module ral_tb;
   end
 
   // Outputs this testbench does not look at.
-  wire unused_ok = ^{soft_rst_dma, cg_cpu, rst_nand_n, sys_rst_req_n};
+  wire unused_ok = ^{soft_rst_dma, soft_rst_nand, cg_cpu, rst_nand_n, sys_rst_req_n};
 endmodule

@@ -16,7 +16,7 @@ OUT = ROOT / "syn/lib/sram_macros.lib"
 
 CLK_Q, SETUP, HOLD = 3.0, 0.8, 0.2
 CAP_IN, CAP_CLK, TRAN = 0.005, 0.010, 0.2
-MACROS = [("sram_2048x64", 11), ("sram_8192x64", 13), ("sram_512x64", 9)]
+MACROS = [("sram_2048x64", 11), ("sram_8192x64", 13), ("sram_1024x64", 10)]
 
 
 def constraint(kind, value):

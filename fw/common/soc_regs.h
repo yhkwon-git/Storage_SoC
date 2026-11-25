@@ -20,7 +20,7 @@ extern "C" {
 #define SYS_REGS__VERSION__VALUE_bm 0xffffffff
 #define SYS_REGS__VERSION__VALUE_bp 0
 #define SYS_REGS__VERSION__VALUE_bw 32
-#define SYS_REGS__VERSION__VALUE_reset 0x20005
+#define SYS_REGS__VERSION__VALUE_reset 0x30001
 
 // reg - sys_regs::SCRATCH
 #define SYS_REGS__SCRATCH__VALUE_bm 0xffffffff
@@ -45,6 +45,14 @@ extern "C" {
 #define SYS_REGS__SOFT_RESET__DMA_bp 0
 #define SYS_REGS__SOFT_RESET__DMA_bw 1
 #define SYS_REGS__SOFT_RESET__DMA_reset 0x0
+#define SYS_REGS__SOFT_RESET__NAND0_bm 0x2
+#define SYS_REGS__SOFT_RESET__NAND0_bp 1
+#define SYS_REGS__SOFT_RESET__NAND0_bw 1
+#define SYS_REGS__SOFT_RESET__NAND0_reset 0x0
+#define SYS_REGS__SOFT_RESET__NAND1_bm 0x4
+#define SYS_REGS__SOFT_RESET__NAND1_bp 2
+#define SYS_REGS__SOFT_RESET__NAND1_bw 1
+#define SYS_REGS__SOFT_RESET__NAND1_reset 0x0
 
 // reg - sys_regs::CLK_GATE
 #define SYS_REGS__CLK_GATE__CPU_bm 0x1
@@ -516,6 +524,173 @@ typedef struct __attribute__ ((__packed__)) {
     uint32_t TX_TLPS;
 } host_regs_t;
 
+// reg - nand_regs::CTRL
+#define NAND_REGS__CTRL__WP_bm 0x1
+#define NAND_REGS__CTRL__WP_bp 0
+#define NAND_REGS__CTRL__WP_bw 1
+#define NAND_REGS__CTRL__WP_reset 0x1
+#define NAND_REGS__CTRL__IEN_DONE_bm 0x2
+#define NAND_REGS__CTRL__IEN_DONE_bp 1
+#define NAND_REGS__CTRL__IEN_DONE_bw 1
+#define NAND_REGS__CTRL__IEN_DONE_reset 0x0
+#define NAND_REGS__CTRL__IEN_ERR_bm 0x4
+#define NAND_REGS__CTRL__IEN_ERR_bp 2
+#define NAND_REGS__CTRL__IEN_ERR_bw 1
+#define NAND_REGS__CTRL__IEN_ERR_reset 0x0
+
+// reg - nand_regs::STATUS
+#define NAND_REGS__STATUS__BUSY_bm 0x1
+#define NAND_REGS__STATUS__BUSY_bp 0
+#define NAND_REGS__STATUS__BUSY_bw 1
+#define NAND_REGS__STATUS__RB_bm 0x2
+#define NAND_REGS__STATUS__RB_bp 1
+#define NAND_REGS__STATUS__RB_bw 1
+#define NAND_REGS__STATUS__CMDS_bm 0x700
+#define NAND_REGS__STATUS__CMDS_bp 8
+#define NAND_REGS__STATUS__CMDS_bw 3
+#define NAND_REGS__STATUS__CPLS_bm 0xf000
+#define NAND_REGS__STATUS__CPLS_bp 12
+#define NAND_REGS__STATUS__CPLS_bw 4
+
+// reg - nand_regs::EVENT
+#define NAND_REGS__EVENT__ERR_bm 0x1
+#define NAND_REGS__EVENT__ERR_bp 0
+#define NAND_REGS__EVENT__ERR_bw 1
+#define NAND_REGS__EVENT__ERR_reset 0x0
+#define NAND_REGS__EVENT__OVF_bm 0x2
+#define NAND_REGS__EVENT__OVF_bp 1
+#define NAND_REGS__EVENT__OVF_bw 1
+#define NAND_REGS__EVENT__OVF_reset 0x0
+
+// reg - nand_regs::TIMING0
+#define NAND_REGS__TIMING0__TWP_bm 0xf
+#define NAND_REGS__TIMING0__TWP_bp 0
+#define NAND_REGS__TIMING0__TWP_bw 4
+#define NAND_REGS__TIMING0__TWP_reset 0x3
+#define NAND_REGS__TIMING0__TWH_bm 0xf0
+#define NAND_REGS__TIMING0__TWH_bp 4
+#define NAND_REGS__TIMING0__TWH_bw 4
+#define NAND_REGS__TIMING0__TWH_reset 0x2
+#define NAND_REGS__TIMING0__TRP_bm 0xf00
+#define NAND_REGS__TIMING0__TRP_bp 8
+#define NAND_REGS__TIMING0__TRP_bw 4
+#define NAND_REGS__TIMING0__TRP_reset 0x3
+#define NAND_REGS__TIMING0__TREH_bm 0xf000
+#define NAND_REGS__TIMING0__TREH_bp 12
+#define NAND_REGS__TIMING0__TREH_bw 4
+#define NAND_REGS__TIMING0__TREH_reset 0x2
+
+// reg - nand_regs::TIMING1
+#define NAND_REGS__TIMING1__TWB_bm 0x3f
+#define NAND_REGS__TIMING1__TWB_bp 0
+#define NAND_REGS__TIMING1__TWB_bw 6
+#define NAND_REGS__TIMING1__TWB_reset 0xc
+#define NAND_REGS__TIMING1__TWHR_bm 0x3f00
+#define NAND_REGS__TIMING1__TWHR_bp 8
+#define NAND_REGS__TIMING1__TWHR_bw 6
+#define NAND_REGS__TIMING1__TWHR_reset 0x6
+#define NAND_REGS__TIMING1__TADL_bm 0x3f0000
+#define NAND_REGS__TIMING1__TADL_bp 16
+#define NAND_REGS__TIMING1__TADL_bw 6
+#define NAND_REGS__TIMING1__TADL_reset 0xa
+#define NAND_REGS__TIMING1__TRR_bm 0x3f000000
+#define NAND_REGS__TIMING1__TRR_bp 24
+#define NAND_REGS__TIMING1__TRR_bw 6
+#define NAND_REGS__TIMING1__TRR_reset 0x2
+
+// reg - nand_regs::TIMEOUT
+#define NAND_REGS__TIMEOUT__BUSY_bm 0xffff
+#define NAND_REGS__TIMEOUT__BUSY_bp 0
+#define NAND_REGS__TIMEOUT__BUSY_bw 16
+#define NAND_REGS__TIMEOUT__BUSY_reset 0x1000
+
+// reg - nand_regs::CMD_ROW
+#define NAND_REGS__CMD_ROW__ROW_bm 0xffffff
+#define NAND_REGS__CMD_ROW__ROW_bp 0
+#define NAND_REGS__CMD_ROW__ROW_bw 24
+#define NAND_REGS__CMD_ROW__ROW_reset 0x0
+
+// reg - nand_regs::CMD_COL
+#define NAND_REGS__CMD_COL__COL_bm 0x1fff
+#define NAND_REGS__CMD_COL__COL_bp 0
+#define NAND_REGS__CMD_COL__COL_bw 13
+#define NAND_REGS__CMD_COL__COL_reset 0x0
+
+// reg - nand_regs::CMD_LEN
+#define NAND_REGS__CMD_LEN__LEN_bm 0x1fff
+#define NAND_REGS__CMD_LEN__LEN_bp 0
+#define NAND_REGS__CMD_LEN__LEN_bw 13
+#define NAND_REGS__CMD_LEN__LEN_reset 0x0
+
+// reg - nand_regs::CMD_BUF
+#define NAND_REGS__CMD_BUF__OFF_bm 0x1fff
+#define NAND_REGS__CMD_BUF__OFF_bp 0
+#define NAND_REGS__CMD_BUF__OFF_bw 13
+#define NAND_REGS__CMD_BUF__OFF_reset 0x0
+
+// reg - nand_regs::CMD_GO
+#define NAND_REGS__CMD_GO__OP_bm 0x7
+#define NAND_REGS__CMD_GO__OP_bp 0
+#define NAND_REGS__CMD_GO__OP_bw 3
+#define NAND_REGS__CMD_GO__OP_reset 0x0
+#define NAND_REGS__CMD_GO__TAG_bm 0xff00
+#define NAND_REGS__CMD_GO__TAG_bp 8
+#define NAND_REGS__CMD_GO__TAG_bw 8
+#define NAND_REGS__CMD_GO__TAG_reset 0x0
+
+// reg - nand_regs::CPL
+#define NAND_REGS__CPL__TAG_bm 0xff
+#define NAND_REGS__CPL__TAG_bp 0
+#define NAND_REGS__CPL__TAG_bw 8
+#define NAND_REGS__CPL__CODE_bm 0x300
+#define NAND_REGS__CPL__CODE_bp 8
+#define NAND_REGS__CPL__CODE_bw 2
+#define NAND_REGS__CPL__STATUS_bm 0xff0000
+#define NAND_REGS__CPL__STATUS_bp 16
+#define NAND_REGS__CPL__STATUS_bw 8
+#define NAND_REGS__CPL__VALID_bm 0x80000000
+#define NAND_REGS__CPL__VALID_bp 31
+#define NAND_REGS__CPL__VALID_bw 1
+
+// reg - nand_regs::CYCLES
+#define NAND_REGS__CYCLES__COUNT_bm 0xffffffff
+#define NAND_REGS__CYCLES__COUNT_bp 0
+#define NAND_REGS__CYCLES__COUNT_bw 32
+
+// reg - nand_regs::BUSY_TIME
+#define NAND_REGS__BUSY_TIME__COUNT_bm 0xffffff
+#define NAND_REGS__BUSY_TIME__COUNT_bp 0
+#define NAND_REGS__BUSY_TIME__COUNT_bw 24
+
+// reg - nand_regs::COUNT
+#define NAND_REGS__COUNT__DONE_bm 0xffff
+#define NAND_REGS__COUNT__DONE_bp 0
+#define NAND_REGS__COUNT__DONE_bw 16
+#define NAND_REGS__COUNT__ERR_bm 0xffff0000
+#define NAND_REGS__COUNT__ERR_bp 16
+#define NAND_REGS__COUNT__ERR_bw 16
+
+// addrmap - nand_regs
+typedef struct __attribute__ ((__packed__)) {
+    uint32_t CTRL;
+    uint32_t STATUS;
+    uint32_t EVENT;
+    uint8_t RESERVED_c_f[0x4];
+    uint32_t TIMING0;
+    uint32_t TIMING1;
+    uint32_t TIMEOUT;
+    uint8_t RESERVED_1c_1f[0x4];
+    uint32_t CMD_ROW;
+    uint32_t CMD_COL;
+    uint32_t CMD_LEN;
+    uint32_t CMD_BUF;
+    uint32_t CMD_GO;
+    uint32_t CPL;
+    uint32_t CYCLES;
+    uint32_t BUSY_TIME;
+    uint32_t COUNT;
+} nand_regs_t;
+
 // reg - nvme_regs::CTRL
 #define NVME_REGS__CTRL__IEN_CMD_bm 0x1
 #define NVME_REGS__CTRL__IEN_CMD_bp 0
@@ -948,7 +1123,11 @@ typedef struct __attribute__ ((__packed__)) {
     dma_regs_t DMA;
     uint8_t RESERVED_4020_4fff[0xfe0];
     host_regs_t HOST;
-    uint8_t RESERVED_5058_7fff[0x2fa8];
+    uint8_t RESERVED_5058_5fff[0xfa8];
+    nand_regs_t NAND0;
+    uint8_t RESERVED_6044_6fff[0xfbc];
+    nand_regs_t NAND1;
+    uint8_t RESERVED_7044_7fff[0xfbc];
     nvme_regs_t NVME;
 } soc_apb_t;
 

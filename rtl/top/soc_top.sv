@@ -4,8 +4,9 @@
 // -----------------------------------------------------------------------------
 // soc_top
 //
-// The SoC as far as step 2-1 (docs/04_cpu_subsystem.md, docs/06_dma.md,
-// docs/07_clock_reset_power.md, docs/10_transaction_layer.md).
+// The SoC as far as step 3-1 (docs/04_cpu_subsystem.md, docs/06_dma.md,
+// docs/07_clock_reset_power.md, docs/10_transaction_layer.md,
+// docs/15_nand_channel.md).
 //
 //   M0 Ibex instruction port  -> obi2axi (read only); the core's clock is gated
 //                                while it sleeps (SYS CLK_GATE)
@@ -18,8 +19,10 @@
 //   S0 boot ROM 16 KiB        -> axi_mem, read only, loaded from +rom=<file>
 //   S1 SRAM 64 KiB            -> axi_mem
 //   S2 APB window             -> axi2apb: slot 0 SYS, 1 PMU, 2 INTC, 3 TIMER,
-//                                4 DMA, 5 HOST, 8 NVME
-//   S3, S4 NAND page buffers  -> axi_mem 4 KiB each until the NAND channels exist
+//                                4 DMA, 5 HOST, 6 NAND0, 7 NAND1, 8 NVME
+//   S3, S4 NAND page buffers  -> the two NAND channels (rtl/nand/nand_ctrl.sv),
+//                                8 KiB each; their bus sequencers run on
+//                                clk_nand and drive the nand_* pins
 //   S5 NVMe local buffer      -> inside soc_pwr's host_if (nvme_lbuf, 0x5000_0000,
 //                                4 KiB window): PRP list entries and completion
 //                                queue entries on their way; host (M3) only
@@ -31,8 +34,8 @@
 //
 // The timer drives the core's timer interrupt and the INTC its external
 // interrupt. INTC sources: 1 DMA done, 2 DMA error, 3 NVMe, 5 host error,
-// 10 PMU, 12 host bus master done (docs/01, section 7); the others are not
-// wired yet.
+// 6 NAND0 done, 7 NAND0 error, 8 NAND1 done, 9 NAND1 error, 10 PMU, 12 host
+// bus master done (docs/01, section 7); the others are not wired yet.
 // -----------------------------------------------------------------------------
 
 module soc_top (
@@ -62,6 +65,20 @@ module soc_top (
   output logic                   host_tx_eop,
   output logic                   host_tx_ehalf,
 
+  // NAND channels 0 and 1, on clk_nand: an ONFI-style asynchronous interface
+  // each (bits [c], DQ bits [8c+7:8c]). DQ is an output with its enable and
+  // an input; the pads that join them are outside.
+  output logic [1:0]             nand_ce_n,
+  output logic [1:0]             nand_cle,
+  output logic [1:0]             nand_ale,
+  output logic [1:0]             nand_we_n,
+  output logic [1:0]             nand_re_n,
+  output logic [1:0]             nand_wp_n,
+  output logic [15:0]            nand_dq_o,
+  output logic [1:0]             nand_dq_oe,
+  input  wire  [15:0]            nand_dq_i,
+  input  wire  [1:0]             nand_rb_n,
+
   // Simulation console and exit (SYS block), and a core lock-up flag.
   output logic                   console_valid,
   output logic [7:0]             console_char,
@@ -77,7 +94,7 @@ module soc_top (
   // Masters: 0 CPU instruction, 1 CPU data, 2 DMA, 3 host. Bit s = slave s.
   localparam logic [NS-1:0][31:0] SLV_BASE = {32'h5000_0000, 32'h3001_0000, 32'h3000_0000,
                                               32'h4000_0000, 32'h1000_0000, 32'h0000_0000};
-  localparam logic [NS-1:0][31:0] SLV_MASK = {32'hFFFF_F000, 32'hFFFF_F000, 32'hFFFF_F000,
+  localparam logic [NS-1:0][31:0] SLV_MASK = {32'hFFFF_F000, 32'hFFFF_E000, 32'hFFFF_E000,
                                               32'hFFFF_0000, 32'hFFFF_0000, 32'hFFFF_C000};
   localparam logic [NM-1:0][NS-1:0] CONN   = {6'b100110, 6'b011010, 6'b011111, 6'b000011};
 
@@ -222,6 +239,7 @@ module soc_top (
   // interface with its transaction layer on M3
   // ---------------------------------------------------------------------------
   logic irq_pmu, irq_host_err, irq_host_bm, irq_nvme, soft_rst_dma;
+  logic [1:0] soft_rst_nand, irq_nand_done, irq_nand_err;
 
   soc_pwr u_pwr (
     .clk_sys       (clk_sys),
@@ -342,13 +360,13 @@ module soc_top (
   );
 
   // ---------------------------------------------------------------------------
-  // Memories: S0 ROM, S1 SRAM, S3/S4 NAND page buffers (S2 is the APB bridge,
-  // S5 the NVMe local buffer in soc_pwr)
+  // Memories: S0 ROM, S1 SRAM (S2 is the APB bridge, S3 and S4 the NAND
+  // channels below, S5 the NVMe local buffer in soc_pwr)
   // ---------------------------------------------------------------------------
-  localparam int MEM_WORDS [NS] = '{2048, 8192, 0, 512, 512, 0};
+  localparam int MEM_WORDS [NS] = '{2048, 8192, 0, 0, 0, 0};
 
   for (genvar s = 0; s < NS; s++) begin : g_mem
-    if (s != 2 && s != 5) begin : g_m
+    if (s == 0 || s == 1) begin : g_m
       axi_mem #(
         .WORDS        (MEM_WORDS[s]),
         .READ_ONLY    (s == 0),
@@ -373,7 +391,7 @@ module soc_top (
   // ---------------------------------------------------------------------------
   // S2: APB window
   // ---------------------------------------------------------------------------
-  axi2apb #(.IDW(4), .NSLOT(NSLOT), .SLOT_EN(16'b0000_0001_0011_1111)) u_apb (
+  axi2apb #(.IDW(4), .NSLOT(NSLOT), .SLOT_EN(16'b0000_0001_1111_1111)) u_apb (
     .clk       (clk_sys),          .rst_n     (rst_sys_n),
     .s_awid    (m_awid[2]),    .s_awaddr  (m_awaddr[2]),  .s_awlen  (m_awlen[2]),
     .s_awsize  (m_awsize[2]),  .s_awprot  (m_awprot[2]),  .s_awvalid(m_awvalid[2]),
@@ -400,7 +418,8 @@ module soc_top (
     .pslverr (pslverr[0]),
     .console_valid (console_valid), .console_char (console_char),
     .exit_valid (exit_valid), .exit_code (exit_code),
-    .soft_rst_dma (soft_rst_dma), .cg_cpu (cg_cpu), .cpu_sleep (cpu_sleep)
+    .soft_rst_dma (soft_rst_dma), .soft_rst_nand (soft_rst_nand), .cg_cpu (cg_cpu),
+    .cpu_sleep (cpu_sleep)
   );
 
   apb_intc u_intc (
@@ -408,8 +427,8 @@ module soc_top (
     .psel (psel[2]), .penable (penable), .paddr (paddr[11:0]), .pwrite (pwrite),
     .pwdata (pwdata), .pstrb (pstrb), .prdata (prdata[2]), .pready (pready[2]),
     .pslverr (pslverr[2]),
-    .src ({19'd0, irq_host_bm, 1'b0, irq_pmu, 4'd0, irq_host_err, 1'b0, irq_nvme, irq_dma_err,
-           irq_dma_done, 1'b0}),
+    .src ({19'd0, irq_host_bm, 1'b0, irq_pmu, irq_nand_err[1], irq_nand_done[1], irq_nand_err[0],
+           irq_nand_done[0], irq_host_err, 1'b0, irq_nvme, irq_dma_err, irq_dma_done, 1'b0}),
     .irq (irq_external)
   );
 
@@ -425,9 +444,41 @@ module soc_top (
   assign pready[4]  = dma_pready;
   assign pslverr[4] = dma_pslverr;
 
+  // ---------------------------------------------------------------------------
+  // S3, S4: NAND channels 0 and 1, registers in APB slots 6 and 7. Each has a
+  // reset per clock domain, from the chip's and SYS SOFT_RESET.NAND0/NAND1.
+  // ---------------------------------------------------------------------------
+  logic [1:0] rst_nch_sys_n, rst_nch_n;
+
+  for (genvar c = 0; c < 2; c++) begin : g_nand
+    rst_sync u_rst_sys  (.clk(clk_sys),  .arst_n(sys_rst_req_n && !soft_rst_nand[c]), .rst_n(rst_nch_sys_n[c]));
+    rst_sync u_rst_nand (.clk(clk_nand), .arst_n(rst_nand_n && !soft_rst_nand[c]),    .rst_n(rst_nch_n[c]));
+
+    nand_ctrl #(.IDW(4)) u_nand (
+      .clk (clk_sys), .rst_n (rst_nch_sys_n[c]), .clk_nand (clk_nand), .rst_nand_n (rst_nch_n[c]),
+      .psel (psel[6 + c]), .penable (penable), .paddr (paddr[11:0]), .pwrite (pwrite),
+      .pwdata (pwdata), .pstrb (pstrb), .prdata (prdata[6 + c]), .pready (pready[6 + c]),
+      .pslverr (pslverr[6 + c]),
+      .s_awid    (m_awid[3 + c]),    .s_awaddr  (m_awaddr[3 + c]),  .s_awlen  (m_awlen[3 + c]),
+      .s_awvalid (m_awvalid[3 + c]), .s_awready (m_awready[3 + c]),
+      .s_wdata   (m_wdata[3 + c]),   .s_wstrb   (m_wstrb[3 + c]),   .s_wlast  (m_wlast[3 + c]),
+      .s_wvalid  (m_wvalid[3 + c]),  .s_wready  (m_wready[3 + c]),
+      .s_bid     (m_bid[3 + c]),     .s_bresp   (m_bresp[3 + c]),   .s_bvalid (m_bvalid[3 + c]),
+      .s_bready  (m_bready[3 + c]),
+      .s_arid    (m_arid[3 + c]),    .s_araddr  (m_araddr[3 + c]),  .s_arlen  (m_arlen[3 + c]),
+      .s_arvalid (m_arvalid[3 + c]), .s_arready (m_arready[3 + c]),
+      .s_rid     (m_rid[3 + c]),     .s_rdata   (m_rdata[3 + c]),   .s_rresp  (m_rresp[3 + c]),
+      .s_rlast   (m_rlast[3 + c]),   .s_rvalid  (m_rvalid[3 + c]),  .s_rready (m_rready[3 + c]),
+      .ce_n (nand_ce_n[c]), .cle (nand_cle[c]), .ale (nand_ale[c]), .we_n (nand_we_n[c]),
+      .re_n (nand_re_n[c]), .wp_n (nand_wp_n[c]), .dq_o (nand_dq_o[8 * c +: 8]),
+      .dq_oe (nand_dq_oe[c]), .dq_i (nand_dq_i[8 * c +: 8]), .rb_n (nand_rb_n[c]),
+      .irq_done (irq_nand_done[c]), .irq_err (irq_nand_err[c])
+    );
+  end
+
   // Slots without a peripheral: the bridge never selects them.
   for (genvar i = 0; i < NSLOT; i++) begin : g_empty_slot
-    if (i >= 6 && i != 8) begin : g_e
+    if (i >= 9) begin : g_e
       assign prdata[i]  = 32'd0;
       assign pready[i]  = 1'b1;
       assign pslverr[i] = 1'b1;
@@ -435,14 +486,12 @@ module soc_top (
   end
 
   // Fields the memories and peripherals do not use (sizes, bursts, cache and
-  // QoS attributes, protection on the APB, the crossbar's statistics, the
-  // core's multi-bit busy flag (cpu_ibex gates its clock from bit 0), and the
-  // NAND reset, whose channels come in phase 3).
+  // QoS attributes, protection on the APB, the crossbar's statistics, and the
+  // core's multi-bit busy flag (cpu_ibex gates its clock from bit 0)).
   /* verilator lint_off UNUSEDSIGNAL */
   wire unused_ok = ^{m_awsize, m_arsize, m_awburst, m_arburst, m_awcache, m_arcache,
                      m_awqos, m_arqos, m_awprot, m_arprot, pprot, paddr[15:12],
-                     psel[7:6], psel[NSLOT-1:9], rst_nand_n,
-                     stat_aw_id_stall, stat_ar_id_stall, core_busy};
+                     psel[NSLOT-1:9], stat_aw_id_stall, stat_ar_id_stall, core_busy};
   /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule : soc_top

@@ -32,7 +32,7 @@ else
 fi
 mkdir -p "$out/rtl/csr/gen" "$out/fw/common" "$out/dv/ral" "$out/docs/regs"
 
-for blk in sys_regs intc_regs timer_regs dma_regs pmu_regs host_regs nvme_regs; do
+for blk in sys_regs intc_regs timer_regs dma_regs pmu_regs host_regs nvme_regs nand_regs; do
   "$peakrdl" regblock "$rdl" -t "$blk" --cpuif apb4-flat --default-reset arst_n \
     --addr-width 12 --err-if-bad-addr -o "$out/rtl/csr/gen"
 done
@@ -49,6 +49,7 @@ if [ "$check" -eq 1 ]; then
            rtl/csr/gen/pmu_regs.sv rtl/csr/gen/pmu_regs_pkg.sv \
            rtl/csr/gen/host_regs.sv rtl/csr/gen/host_regs_pkg.sv \
            rtl/csr/gen/nvme_regs.sv rtl/csr/gen/nvme_regs_pkg.sv \
+           rtl/csr/gen/nand_regs.sv rtl/csr/gen/nand_regs_pkg.sv \
            fw/common/soc_regs.h dv/ral/soc_apb_ral_pkg.sv docs/regs/soc_apb.md; do
     if ! cmp -s "$out/$f" "$root/$f"; then
       echo "[RDL] $f is out of date"

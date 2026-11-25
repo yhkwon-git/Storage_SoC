@@ -33,13 +33,13 @@ module sram_8192x64 (
 endmodule
 
 (* blackbox *)
-module sram_512x64 (
+module sram_1024x64 (
   input  wire        CLK,
   input  wire [7:0]  WE,
-  input  wire [8:0]  WA,
+  input  wire [9:0]  WA,
   input  wire [63:0] D,
   input  wire        RE,
-  input  wire [8:0]  RA,
+  input  wire [9:0]  RA,
   output wire [63:0] Q
 );
 endmodule

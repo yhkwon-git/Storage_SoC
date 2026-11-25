@@ -31,10 +31,11 @@ XBAR_RTL := $(RTL)/common/rr_arb.sv $(RTL)/common/fifo_sync.sv \
             $(RTL)/axi/axi_id_tracker.sv $(RTL)/axi/axi_err_slv.sv $(RTL)/axi/axi_xbar.sv
 CSR_GEN  := $(RTL)/csr/gen/sys_regs_pkg.sv $(RTL)/csr/gen/intc_regs_pkg.sv $(RTL)/csr/gen/timer_regs_pkg.sv \
             $(RTL)/csr/gen/dma_regs_pkg.sv $(RTL)/csr/gen/pmu_regs_pkg.sv $(RTL)/csr/gen/host_regs_pkg.sv \
-            $(RTL)/csr/gen/nvme_regs_pkg.sv \
+            $(RTL)/csr/gen/nvme_regs_pkg.sv $(RTL)/csr/gen/nand_regs_pkg.sv \
             $(RTL)/csr/gen/sys_regs.sv $(RTL)/csr/gen/intc_regs.sv $(RTL)/csr/gen/timer_regs.sv \
             $(RTL)/csr/gen/dma_regs.sv $(RTL)/csr/gen/pmu_regs.sv $(RTL)/csr/gen/host_regs.sv \
-            $(RTL)/csr/gen/nvme_regs.sv
+            $(RTL)/csr/gen/nvme_regs.sv $(RTL)/csr/gen/nand_regs.sv
+NAND_RTL := $(RTL)/nand/nand_pkg.sv $(RTL)/nand/nand_seq.sv $(RTL)/nand/nand_pbuf.sv $(RTL)/nand/nand_ctrl.sv
 DMA_RTL  := $(RTL)/csr/gen/dma_regs_pkg.sv $(RTL)/csr/gen/dma_regs.sv $(RTL)/common/fifo_sync.sv \
             $(RTL)/dma/dma.sv
 TL_RTL   := $(RTL)/axi/axi_channel_reg_slice.sv $(RTL)/host/tl/tl_pkg.sv $(RTL)/host/tl/tl_dw_align.sv \
@@ -57,12 +58,12 @@ SOC_RTL  := $(CSR_GEN) $(XBAR_RTL) $(RTL)/axi/axi2apb.sv $(RTL)/cpu/cpu_ibex.sv 
             $(RTL)/common/cdc_sync_2ff.sv $(RTL)/common/cdc_async_fifo.sv $(RTL)/common/rst_sync.sv \
             $(RTL)/common/clk_gate.sv $(RTL)/pmu/iso_clamp.sv $(RTL)/pmu/ret_reg.sv $(RTL)/pmu/apb_cdc.sv \
             $(RTL)/pmu/pmu.sv $(RTL)/host/phy_pll_model.sv $(RTL)/host/host_stub.sv $(RTL)/host/pd_host.sv \
-            $(RTL)/host/host_if.sv $(RTL)/top/soc_pwr.sv $(RTL)/top/soc_top.sv
+            $(RTL)/host/host_if.sv $(RTL)/top/soc_pwr.sv $(NAND_RTL) $(RTL)/top/soc_top.sv
 
-.PHONY: all lint fifo slice xbar xbar-mut dma dma-mut tl tl-mut nvme nvme-mut power power-x power-mut iso-check soc \
-        ral ral-mut rdl-check
+.PHONY: all lint fifo slice xbar xbar-mut dma dma-mut tl tl-mut nvme nvme-mut nand nand-mut power power-x \
+        power-mut iso-check soc ral ral-mut rdl-check
 
-all: lint iso-check fifo slice xbar dma tl nvme power soc
+all: lint iso-check fifo slice xbar dma tl nvme nand power soc
 
 lint:
 	verilator --lint-only -Wall --top-module cdc_async_fifo \
@@ -74,6 +75,9 @@ lint:
 	verilator --lint-only -Wall --timescale 1ns/1ps --top-module tl_core lint/waivers.vlt \
 	  $(RTL)/common/fifo_sync.sv $(TL_RTL)
 	verilator --lint-only -Wall --timescale 1ns/1ps --top-module nvme_ctrl lint/waivers.vlt $(NVME_RTL)
+	verilator --lint-only -Wall --timescale 1ns/1ps --top-module nand_ctrl lint/waivers.vlt \
+	  $(RTL)/common/fifo_sync.sv $(RTL)/common/cdc_sync_2ff.sv $(RTL)/common/cdc_async_fifo.sv \
+	  $(RTL)/mem/mem_array.sv $(RTL)/csr/gen/nand_regs_pkg.sv $(RTL)/csr/gen/nand_regs.sv $(NAND_RTL)
 	verilator --lint-only -Wall --timescale 1ns/1ps --top-module soc_pwr lint/waivers.vlt $(PWR_RTL)
 	verilator --lint-only -Wall --timescale 1ns/1ps --top-module soc_top \
 	  lint/waivers.vlt -F $(RTL)/vendor/ibex/ibex.f $(SOC_RTL)
@@ -113,6 +117,12 @@ nvme:
 
 nvme-mut:
 	bash mutate_nvme.sh
+
+nand:
+	bash run_nand.sh
+
+nand-mut:
+	bash mutate_nand.sh
 
 power:
 	bash run_power.sh

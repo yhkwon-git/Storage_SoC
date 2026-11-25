@@ -2,8 +2,8 @@
 //
 // UVM register tests for the APB blocks, run on Vivado's simulator (xsim)
 // with UVM 1.2. The register model is the generated soc_apb
-// (dv/ral/soc_apb_ral_pkg.sv); the DUT is apb_sys, apb_intc, apb_timer, dma
-// and soc_pwr (PMU behind its clock-domain crossing, HOST, NVME), so the generated
+// (dv/ral/soc_apb_ral_pkg.sv); the DUT is apb_sys, apb_intc, apb_timer, dma,
+// two nand_ctrl and soc_pwr (PMU behind its clock-domain crossing, HOST, NVME), so the generated
 // register RTL is tested together with the logic around it.
 //
 //   1. uvm_reg_hw_reset_seq   every register's reset value
@@ -22,7 +22,10 @@
 //                             PD_HOST, the link held, a power-down;
 //                             NVME with no host: controller off, no command,
 //                             16 free slots, no interrupt with every source
-//                             enabled
+//                             enabled; NAND0 and NAND1 with no device: idle,
+//                             write protect on from reset, a STATUS command
+//                             completing with its tag and the bus's FFh and
+//                             its done interrupt until CPL is read
 //   4. decode                 PSLVERR for offsets and slots with no register
 //
 // Left out of 1 and 2, with the reason: MTIME_LO/HI count from reset
@@ -34,7 +37,9 @@
 // HOST BM_CTRL starts a bus-master transfer and MSIX_REQ requests a vector
 // (both checked by tb_tl and the host firmware test); NVME SLOT_FREE is
 // write-only and returns a command-buffer slot, XF_CTRL starts a PRP transfer
-// and CQE_CTRL queues a completion queue entry (all checked by tb_nvme).
+// and CQE_CTRL queues a completion queue entry (all checked by tb_nvme);
+// NAND CMD_GO queues a command and reading CPL takes a completion (checked
+// in 3 and by tb_nand).
 // Fields written by hardware (PENDING, CLAIM, MTIME, the DMA's and PMU's
 // status and counters) are volatile in the model, so the bit bash does not
 // compare them.
@@ -93,6 +98,30 @@ package ral_test_pkg;
       if (!uvm_config_db #(virtual apb_if)::get(this, "", "vif", vif))
         `uvm_fatal("NOVIF", "apb_if not set")
     endfunction
+
+    task nand_check(nand_regs b, int c);
+      uvm_status_e st;
+      uvm_reg_data_t v;
+      int n = 0;
+      b.STATUS.read(st, v);
+      expect_ok(v[15:0] == 16'h0002, $sformatf("NAND%0d STATUS %h, expected idle with R/B# ready", c, v));
+      b.CTRL.read(st, v);
+      expect_ok(v[2:0] == 3'b001, $sformatf("NAND%0d CTRL %h, expected write protect on", c, v));
+      b.CTRL.write(st, 32'h2);                              // IEN_DONE
+      b.CMD_GO.write(st, 32'h5A05);                         // STATUS, tag 5Ah
+      do begin
+        repeat (10) @(posedge vif.pclk);
+        b.STATUS.read(st, v);
+      end while (v[15:12] == 4'd0 && ++n < 100);
+      env.regmodel.INTC.PENDING.read(st, v);
+      expect_ok(v[6 + 2 * c] == 1'b1, $sformatf("INTC PENDING %h: NAND%0d done not pending", v, c));
+      b.CPL.read(st, v);
+      expect_ok(v[31] && v[7:0] == 8'h5A && v[9:8] == 2'd0 && v[23:16] == 8'hFF,
+                $sformatf("NAND%0d CPL %h, expected tag 5A, code 0, status FF", c, v));
+      env.regmodel.INTC.PENDING.read(st, v);
+      expect_ok(v[6 + 2 * c] == 1'b0, $sformatf("INTC PENDING %h: NAND%0d done pending after CPL", v, c));
+      b.CTRL.write(st, 32'h1);
+    endtask
 
     function void exclude(uvm_reg r, string test);
       uvm_resource_db #(bit)::set({"REG::", r.get_full_name()}, test, 1, this);
@@ -163,6 +192,11 @@ package ral_test_pkg;
       // A write starts a PRP transfer or queues a completion queue entry.
       exclude(rm.NVME.XF_CTRL,   "NO_REG_BIT_BASH_TEST");
       exclude(rm.NVME.CQE_CTRL,  "NO_REG_BIT_BASH_TEST");
+      // A write queues a NAND command; a read takes a completion.
+      exclude(rm.NAND0.CMD_GO,   "NO_REG_BIT_BASH_TEST");
+      exclude(rm.NAND1.CMD_GO,   "NO_REG_BIT_BASH_TEST");
+      exclude(rm.NAND0.CPL,      "NO_REG_BIT_BASH_TEST");
+      exclude(rm.NAND1.CPL,      "NO_REG_BIT_BASH_TEST");
 
       // 1. Reset values.
       rst_seq = uvm_reg_hw_reset_seq::type_id::create("rst_seq");
@@ -313,11 +347,18 @@ package ral_test_pkg;
       rm.NVME.EVENT_EN.write(st, 32'h0);
       rm.NVME.CTRL.write(st, 32'h0);
 
+      // 3g. NAND0 and NAND1 with no device (R/B# ready, DQ reads FFh): idle,
+      // write protect on from reset; a STATUS command completes with its tag,
+      // code 0 and FFh, and its done interrupt (INTC 6, 8) is pending until
+      // CPL is read.
+      nand_check(rm.NAND0, 0);
+      nand_check(rm.NAND1, 1);
+
       // 4. Decode: offsets and slots without a register answer PSLVERR.
       raw(16'h0000, 1'b0, 0, rd, err);
       expect_ok(!err && rd == 32'h5353_4F43, "ID read through a raw transfer");
       bad_addr = '{16'h0018, 16'h0FFC, 16'h1020, 16'h1FFC, 16'h2010, 16'h3014, 16'h4020, 16'h5058,
-                   16'h6000, 16'h7000, 16'h8028, 16'h8FFC, 16'h9000, 16'hF000};
+                   16'h600C, 16'h7044, 16'h8028, 16'h8FFC, 16'h9000, 16'hF000};
       foreach (bad_addr[i]) begin
         raw(bad_addr[i], 1'b0, 0, rd, err);
         expect_ok(err, $sformatf("read of %h answered without PSLVERR", bad_addr[i]));

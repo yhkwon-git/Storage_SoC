@@ -162,6 +162,14 @@ module sys_regs (
                 logic next;
                 logic load_next;
             } dma;
+            struct {
+                logic next;
+                logic load_next;
+            } nand0;
+            struct {
+                logic next;
+                logic load_next;
+            } nand1;
         } SOFT_RESET;
         struct {
             struct {
@@ -192,6 +200,12 @@ module sys_regs (
             struct {
                 logic value;
             } dma;
+            struct {
+                logic value;
+            } nand0;
+            struct {
+                logic value;
+            } nand1;
         } SOFT_RESET;
         struct {
             struct {
@@ -294,6 +308,52 @@ module sys_regs (
         end
     end
     assign hwif_out.SOFT_RESET.dma.value = field_storage.SOFT_RESET.dma.value;
+    // Field: sys_regs.SOFT_RESET.nand0
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.SOFT_RESET.nand0.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.SOFT_RESET && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.SOFT_RESET.nand0.value & ~decoded_wr_biten[1:1]) | (decoded_wr_data[1:1] & decoded_wr_biten[1:1]);
+            load_next_c = '1;
+        end
+        field_combo.SOFT_RESET.nand0.next = next_c;
+        field_combo.SOFT_RESET.nand0.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.SOFT_RESET.nand0.value <= 1'h0;
+        end else begin
+            if(field_combo.SOFT_RESET.nand0.load_next) begin
+                field_storage.SOFT_RESET.nand0.value <= field_combo.SOFT_RESET.nand0.next;
+            end
+        end
+    end
+    assign hwif_out.SOFT_RESET.nand0.value = field_storage.SOFT_RESET.nand0.value;
+    // Field: sys_regs.SOFT_RESET.nand1
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.SOFT_RESET.nand1.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.SOFT_RESET && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.SOFT_RESET.nand1.value & ~decoded_wr_biten[2:2]) | (decoded_wr_data[2:2] & decoded_wr_biten[2:2]);
+            load_next_c = '1;
+        end
+        field_combo.SOFT_RESET.nand1.next = next_c;
+        field_combo.SOFT_RESET.nand1.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.SOFT_RESET.nand1.value <= 1'h0;
+        end else begin
+            if(field_combo.SOFT_RESET.nand1.load_next) begin
+                field_storage.SOFT_RESET.nand1.value <= field_combo.SOFT_RESET.nand1.next;
+            end
+        end
+    end
+    assign hwif_out.SOFT_RESET.nand1.value = field_storage.SOFT_RESET.nand1.value;
     // Field: sys_regs.CLK_GATE.cpu
     always_comb begin
         automatic logic [0:0] next_c;
@@ -342,13 +402,15 @@ module sys_regs (
             readback_data_var[31:0] = 32'h53534f43;
         end
         if(rd_mux_addr == 12'h4) begin
-            readback_data_var[31:0] = 32'h20005;
+            readback_data_var[31:0] = 32'h30001;
         end
         if(rd_mux_addr == 12'h8) begin
             readback_data_var[31:0] = field_storage.SCRATCH.value.value;
         end
         if(rd_mux_addr == 12'h100) begin
             readback_data_var[0] = field_storage.SOFT_RESET.dma.value;
+            readback_data_var[1] = field_storage.SOFT_RESET.nand0.value;
+            readback_data_var[2] = field_storage.SOFT_RESET.nand1.value;
         end
         if(rd_mux_addr == 12'h104) begin
             readback_data_var[0] = field_storage.CLK_GATE.cpu.value;

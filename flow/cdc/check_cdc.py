@@ -16,7 +16,8 @@ an asynchronous input port, is a crossing, and each crossing must be one of:
   HANDSHAKE  a request or response register of apb_cdc, which the
              request/acknowledge handshake holds stable while it is read
   FIFO       a memory word of a cdc_async_fifo, read through the read side's
-             address after the Gray pointer said it was written
+             address after the Gray pointer said it was written (the host
+             link's FIFOs and, since step 3-1, the NAND channels')
   CONTROL    a PMU output that changes only while what it drives is idle:
              iso_en (PD_HOST's outputs are idle or in reset when it changes)
              and save (the PD_HOST logic is idle while it is high)
@@ -36,23 +37,27 @@ ROOT = Path(__file__).resolve().parents[2]
 NETLIST = ROOT / "build/syn/soc_top_generic.json"
 
 CLOCK_PORTS = {"clk_sys": "clk_sys", "clk_aon": "clk_aon", "clk_nand": "clk_nand", "pclk_in": "pclk"}
-ASYNC_PORTS = {"por_n", "host_pwr_ack", "host_wake"}
+ASYNC_PORTS = {"por_n", "host_pwr_ack", "host_wake", "nand_rb_n"}
 # Input ports synchronous to a clock other than clk_sys: the host link's
-# packed TLP pins (step 2-1) are timed against pclk. Every other port is
-# constrained against clk_sys.
+# packed TLP pins (step 2-1) are timed against pclk, the NAND channels' DQ
+# inputs (step 3-1) against clk_nand. Every other port is constrained against
+# clk_sys.
 PORT_DOMAIN = {p: "pclk" for p in ("host_rx_valid", "host_rx_data", "host_rx_sop", "host_rx_eop",
                                      "host_rx_ehalf", "host_tx_ready")}
+PORT_DOMAIN["nand_dq_i"] = "clk_nand"
 IDX = r"(\[\d+\])*$"
 SYNC_STAGE1 = re.compile(r"\.stage1" + IDX)
 HANDSHAKE = re.compile(r"\.u_cdc\.(q_addr|q_write|q_wdata|q_strb|d_rdata|d_slverr)" + IDX)
-FIFO_MEM = re.compile(r"_fifo\.mem" + IDX)
+# The dual-clock FIFOs: the host link's (u_*_fifo) and the NAND channels'
+# (nand_ctrl's u_xcmd, u_xtx, u_xrx, u_xcpl).
+FIFO_MEM = re.compile(r"(_fifo|\.u_x(cmd|tx|rx|cpl))\.mem" + IDX)
 CONTROL = re.compile(r"\.u_pmu\.(iso_en|save)" + IDX)
 
 # Pins of generic flops: clock, data-like inputs, outputs. Async R/S pins are
 # left out on purpose (see the docstring).
 FF_CLK = "C"
 FF_DATA = {"D", "E"}
-SRAM_CELLS = {"sram_2048x64", "sram_8192x64", "sram_512x64"}
+SRAM_CELLS = {"sram_2048x64", "sram_8192x64", "sram_1024x64"}
 
 
 def main():

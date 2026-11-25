@@ -28,7 +28,7 @@
 #define TIMER_BASE  (APB_BASE + (uint32_t)offsetof(soc_apb_t, TIMER))
 #define PMU_BASE    (APB_BASE + (uint32_t)offsetof(soc_apb_t, PMU))
 #define HOST_BASE   (APB_BASE + (uint32_t)offsetof(soc_apb_t, HOST))
-#define EMPTY_SLOT_BASE (APB_BASE + 0x6000u) /* NAND0 registers, phase 3 */
+#define EMPTY_SLOT_BASE (APB_BASE + 0x9000u) /* slot 9: no peripheral */
 
 #define SYS_ID           APB_REG(SYS.ID)
 #define SYS_VERSION      APB_REG(SYS.VERSION)
@@ -223,8 +223,36 @@ typedef struct __attribute__((aligned(16))) {
 #define IRQ_DMA_ERR  2u
 #define IRQ_NVME     3u
 #define IRQ_HOST_ERR 5u
+#define IRQ_NAND0_DONE 6u
+#define IRQ_NAND0_ERR  7u
+#define IRQ_NAND1_DONE 8u
+#define IRQ_NAND1_ERR  9u
 #define IRQ_PMU      10u
 #define IRQ_HOST_BM  12u
+
+/* NAND channels (step 3-1, docs/15_nand_channel.md): the registers of channel
+ * ch (0 or 1), its page buffer, operations and completion fields. */
+#define NAND_BASE(ch)      (APB_BASE + (uint32_t)offsetof(soc_apb_t, NAND0) + 0x1000u * (uint32_t)(ch))
+#define NAND_REG(ch, r)    REG32(NAND_BASE(ch) + (uint32_t)offsetof(nand_regs_t, r))
+#define NAND_PBUF(ch)      (0x30000000u + 0x10000u * (uint32_t)(ch))
+#define NAND_PAGE_BYTES    4320u     /* 4096 main + 224 spare */
+#define NAND_MAIN_BYTES    4096u
+#define NAND_BLOCK_PAGES   64u
+#define NAND_OP_RESET      0u
+#define NAND_OP_ID         1u
+#define NAND_OP_READ       2u
+#define NAND_OP_PROG       3u
+#define NAND_OP_ERASE      4u
+#define NAND_OP_STATUS     5u
+#define NAND_OP_RDCOL      6u
+#define NAND_CTRL_WP       NAND_REGS__CTRL__WP_bm
+#define NAND_CTRL_IEN_DONE NAND_REGS__CTRL__IEN_DONE_bm
+#define NAND_CTRL_IEN_ERR  NAND_REGS__CTRL__IEN_ERR_bm
+#define NAND_GO(op, tag)   ((uint32_t)(op) | ((uint32_t)(tag) << 8))
+#define NAND_CPL_VALID     NAND_REGS__CPL__VALID_bm
+#define NAND_CPL_TAG(c)    ((c) & 0xFFu)
+#define NAND_CPL_CODE(c)   (((c) >> 8) & 3u)
+#define NAND_CPL_STATUS(c) (((c) >> 16) & 0xFFu)
 
 #define SOC_ID SYS_REGS__ID__VALUE_reset
 

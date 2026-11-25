@@ -20,10 +20,10 @@ $src = @(
     'dv\uvm\apb_if.sv',
     'rtl\csr\gen\sys_regs_pkg.sv', 'rtl\csr\gen\intc_regs_pkg.sv', 'rtl\csr\gen\timer_regs_pkg.sv',
     'rtl\csr\gen\dma_regs_pkg.sv', 'rtl\csr\gen\pmu_regs_pkg.sv', 'rtl\csr\gen\host_regs_pkg.sv',
-    'rtl\csr\gen\nvme_regs_pkg.sv',
+    'rtl\csr\gen\nvme_regs_pkg.sv', 'rtl\csr\gen\nand_regs_pkg.sv',
     'rtl\csr\gen\sys_regs.sv', 'rtl\csr\gen\intc_regs.sv', 'rtl\csr\gen\timer_regs.sv',
     'rtl\csr\gen\dma_regs.sv', 'rtl\csr\gen\pmu_regs.sv', 'rtl\csr\gen\host_regs.sv',
-    'rtl\csr\gen\nvme_regs.sv',
+    'rtl\csr\gen\nvme_regs.sv', 'rtl\csr\gen\nand_regs.sv',
     'rtl\common\fifo_sync.sv', 'rtl\common\cdc_sync_2ff.sv', 'rtl\common\cdc_async_fifo.sv',
     'rtl\common\rst_sync.sv', 'rtl\common\clk_gate.sv',
     'rtl\pmu\iso_clamp.sv', 'rtl\pmu\ret_reg.sv', 'rtl\pmu\apb_cdc.sv', 'rtl\pmu\pmu.sv',
@@ -34,6 +34,7 @@ $src = @(
     'rtl\host\tl\tl_core.sv', 'rtl\host\tl\tl_port.sv', 'rtl\host\nvme\nvme_lbuf.sv', 'rtl\host\nvme\nvme_prp.sv', 'rtl\host\nvme\nvme_cqe.sv', 'rtl\host\nvme\nvme_ctrl.sv',
     'rtl\host\phy_pll_model.sv', 'rtl\host\host_stub.sv', 'rtl\host\pd_host.sv', 'rtl\host\host_if.sv',
     'rtl\top\soc_pwr.sv',
+    'rtl\mem\mem_array.sv', 'rtl\nand\nand_pkg.sv', 'rtl\nand\nand_seq.sv', 'rtl\nand\nand_pbuf.sv', 'rtl\nand\nand_ctrl.sv',
     'rtl\periph\apb_sys.sv', 'rtl\periph\apb_intc.sv', 'rtl\periph\apb_timer.sv', 'rtl\dma\dma.sv',
     'dv\ral\soc_apb_ral_pkg.sv', 'dv\uvm\apb_pkg.sv', 'dv\uvm\ral_test_pkg.sv', 'dv\uvm\ral_tb.sv'
 )

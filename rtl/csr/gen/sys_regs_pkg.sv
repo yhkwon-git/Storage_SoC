@@ -42,7 +42,17 @@ package sys_regs_pkg;
     } sys_regs__SOFT_RESET__dma__out_t;
 
     typedef struct {
+        logic value;
+    } sys_regs__SOFT_RESET__nand0__out_t;
+
+    typedef struct {
+        logic value;
+    } sys_regs__SOFT_RESET__nand1__out_t;
+
+    typedef struct {
         sys_regs__SOFT_RESET__dma__out_t dma;
+        sys_regs__SOFT_RESET__nand0__out_t nand0;
+        sys_regs__SOFT_RESET__nand1__out_t nand1;
     } sys_regs__SOFT_RESET__out_t;
 
     typedef struct {

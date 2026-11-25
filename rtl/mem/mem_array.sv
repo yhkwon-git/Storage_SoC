@@ -55,8 +55,8 @@ module mem_array #(
     sram_2048x64 u_sram (.CLK(clk), .WE(we), .WA(waddr), .D(wdata), .RE(re), .RA(raddr), .Q(rdata));
   end else if (WORDS == 8192) begin : g_8k
     sram_8192x64 u_sram (.CLK(clk), .WE(we), .WA(waddr), .D(wdata), .RE(re), .RA(raddr), .Q(rdata));
-  end else if (WORDS == 512) begin : g_512
-    sram_512x64 u_sram (.CLK(clk), .WE(we), .WA(waddr), .D(wdata), .RE(re), .RA(raddr), .Q(rdata));
+  end else if (WORDS == 1024) begin : g_1k
+    sram_1024x64 u_sram (.CLK(clk), .WE(we), .WA(waddr), .D(wdata), .RE(re), .RA(raddr), .Q(rdata));
   end
 `endif
 

@@ -21,6 +21,8 @@ Don't override. Generated from: soc_apb
 |0x3000|   TIMER  |TIMER|
 |0x4000|    DMA   | DMA |
 |0x5000|   HOST   | HOST|
+|0x6000|   NAND0  | NAND|
+|0x7000|   NAND1  | NAND|
 |0x8000|   NVME   | NVME|
 
 ## SYS address map
@@ -60,11 +62,11 @@ Don't override. Generated from: soc_apb
 - Base Offset: 0x4
 - Size: 0x4
 
-<p>Register map version: 0x0002_0005 is the map of step 2-5 (NVMe controller epochs).</p>
+<p>Register map version: 0x0003_0001 is the map of step 3-1 (NAND channel controllers).</p>
 
 |Bits|Identifier|Access| Reset |Name|
 |----|----------|------|-------|----|
-|31:0|   value  |   r  |0x20005|  — |
+|31:0|   value  |   r  |0x30001|  — |
 
 ### SCRATCH register
 
@@ -113,10 +115,20 @@ Don't override. Generated from: soc_apb
 |Bits|Identifier|Access|Reset|Name|
 |----|----------|------|-----|----|
 |  0 |    dma   |  rw  | 0x0 |  — |
+|  1 |   nand0  |  rw  | 0x0 |  — |
+|  2 |   nand1  |  rw  | 0x0 |  — |
 
 #### dma field
 
 <p>DMA, registers included.</p>
+
+#### nand0 field
+
+<p>NAND0: both clock domains, registers included (the page buffer keeps its contents).</p>
+
+#### nand1 field
+
+<p>NAND1, as NAND0.</p>
 
 ### CLK_GATE register
 
@@ -1002,6 +1014,660 @@ Don't override. Generated from: soc_apb
 |Bits|Identifier|Access|Reset|Name|
 |----|----------|------|-----|----|
 |31:0|   count  |   r  |  —  |  — |
+
+## NAND0 address map
+
+- Absolute Address: 0x6000
+- Base Offset: 0x6000
+- Size: 0x44
+
+<p>One NAND channel (rtl/nand/nand_ctrl.sv, docs/15_nand_channel.md): an 8-bit ONFI-style asynchronous interface run by a sequencer in clk_nand, a command queue of 4, a completion queue of 8, and an 8 KiB page buffer on the crossbar. NAND0 is at 0x4000_6000 with its page buffer at 0x3000_0000, NAND1 at 0x4000_7000 and 0x3001_0000.</p>
+
+|Offset|Identifier|   Name  |
+|------|----------|---------|
+| 0x00 |   CTRL   |   CTRL  |
+| 0x04 |  STATUS  |  STATUS |
+| 0x08 |   EVENT  |  EVENT  |
+| 0x10 |  TIMING0 | TIMING0 |
+| 0x14 |  TIMING1 | TIMING1 |
+| 0x18 |  TIMEOUT | TIMEOUT |
+| 0x20 |  CMD_ROW | CMD_ROW |
+| 0x24 |  CMD_COL | CMD_COL |
+| 0x28 |  CMD_LEN | CMD_LEN |
+| 0x2C |  CMD_BUF | CMD_BUF |
+| 0x30 |  CMD_GO  |  CMD_GO |
+| 0x34 |    CPL   |   CPL   |
+| 0x38 |  CYCLES  |  CYCLES |
+| 0x3C | BUSY_TIME|BUSY_TIME|
+| 0x40 |   COUNT  |  COUNT  |
+
+### CTRL register
+
+- Absolute Address: 0x6000
+- Base Offset: 0x0
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|  0 |    wp    |  rw  | 0x1 |  — |
+|  1 | ien_done |  rw  | 0x0 |  — |
+|  2 |  ien_err |  rw  | 0x0 |  — |
+
+#### wp field
+
+<p>Write protect: WP# is low while this is 1, from reset until firmware clears it.</p>
+
+#### ien_done field
+
+<p>Interrupt (INTC 6 for NAND0, 8 for NAND1) while a completion waits in CPL.</p>
+
+#### ien_err field
+
+<p>Interrupt (INTC 7 for NAND0, 9 for NAND1) while EVENT.ERR or EVENT.OVF is set.</p>
+
+### STATUS register
+
+- Absolute Address: 0x6004
+- Base Offset: 0x4
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+|  0  |   busy   |   r  |  —  |  — |
+|  1  |    rb    |   r  |  —  |  — |
+| 10:8|   cmds   |   r  |  —  |  — |
+|15:12|   cpls   |   r  |  —  |  — |
+
+#### busy field
+
+<p>A command is running.</p>
+
+#### rb field
+
+<p>R/B#, synchronized into clk_sys: 1 ready, 0 busy.</p>
+
+#### cmds field
+
+<p>Commands waiting in the queue, 0 to 4.</p>
+
+#### cpls field
+
+<p>Completions waiting in CPL, 0 to 8.</p>
+
+### EVENT register
+
+- Absolute Address: 0x6008
+- Base Offset: 0x8
+- Size: 0x4
+
+<p>Set by hardware, cleared by writing 1.</p>
+
+|Bits|Identifier|  Access |Reset|Name|
+|----|----------|---------|-----|----|
+|  0 |    err   |rw, woclr| 0x0 |  — |
+|  1 |    ovf   |rw, woclr| 0x0 |  — |
+
+#### err field
+
+<p>A command completed with a code other than 0.</p>
+
+#### ovf field
+
+<p>CMD_GO was written with 4 commands waiting; that command was dropped.</p>
+
+### TIMING0 register
+
+- Absolute Address: 0x6010
+- Base Offset: 0x10
+- Size: 0x4
+
+<p>Bus cycle phases in clk_nand clocks (20 ns), 1 to 15; 0 counts as 1. A command takes TIMING0, TIMING1 and TIMEOUT as they are when it starts. The reset values give 100 ns cycles; 1 and 1 give 40 ns cycles, 25 MB/s.</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 3:0 |    twp   |  rw  | 0x3 |  — |
+| 7:4 |    twh   |  rw  | 0x2 |  — |
+| 11:8|    trp   |  rw  | 0x3 |  — |
+|15:12|   treh   |  rw  | 0x2 |  — |
+
+#### twp field
+
+<p>WE# low (tWP).</p>
+
+#### twh field
+
+<p>WE# high (tWH).</p>
+
+#### trp field
+
+<p>RE# low (tRP); DQ is sampled at the clock edge that raises RE#.</p>
+
+#### treh field
+
+<p>RE# high (tREH).</p>
+
+### TIMING1 register
+
+- Absolute Address: 0x6014
+- Base Offset: 0x14
+- Size: 0x4
+
+<p>Waits in clk_nand clocks, 1 to 63; 0 counts as 1.</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 5:0 |    twb   |  rw  | 0xC |  — |
+| 13:8|   twhr   |  rw  | 0x6 |  — |
+|21:16|   tadl   |  rw  | 0xA |  — |
+|29:24|    trr   |  rw  | 0x2 |  — |
+
+#### twb field
+
+<p>From the confirm command's WE# rising to the first look at R/B# (tWB, plus 2 clocks of synchronizer).</p>
+
+#### twhr field
+
+<p>From the last WE# rising to RE# falling for a status, ID or changed-column read (tWHR).</p>
+
+#### tadl field
+
+<p>From the last address cycle to the first data cycle of a program (tADL).</p>
+
+#### trr field
+
+<p>From R/B# seen ready to the first RE# falling (tRR).</p>
+
+### TIMEOUT register
+
+- Absolute Address: 0x6018
+- Base Offset: 0x18
+- Size: 0x4
+
+|Bits|Identifier|Access| Reset|Name|
+|----|----------|------|------|----|
+|15:0|   busy   |  rw  |0x1000|  — |
+
+#### busy field
+
+<p>R/B# busy for more than this many units of 256 clk_nand clocks ends the command with code 2; 0 waits without limit.</p>
+
+### CMD_ROW register
+
+- Absolute Address: 0x6020
+- Base Offset: 0x20
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|23:0|    row   |  rw  | 0x0 |  — |
+
+#### row field
+
+<p>Row address: the page in bits 5:0, the block above.</p>
+
+### CMD_COL register
+
+- Absolute Address: 0x6024
+- Base Offset: 0x24
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|12:0|    col   |  rw  | 0x0 |  — |
+
+#### col field
+
+<p>Column: the byte in the page, 0 to 4319 (4096 to 4319 are the spare area). For READ_ID, the address byte.</p>
+
+### CMD_LEN register
+
+- Absolute Address: 0x6028
+- Base Offset: 0x28
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|12:0|    len   |  rw  | 0x0 |  — |
+
+#### len field
+
+<p>Bytes to move, 0 to 4320.</p>
+
+### CMD_BUF register
+
+- Absolute Address: 0x602C
+- Base Offset: 0x2C
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|12:0|    off   |  rw  | 0x0 |  — |
+
+#### off field
+
+<p>Byte offset of the data in the page buffer.</p>
+
+### CMD_GO register
+
+- Absolute Address: 0x6030
+- Base Offset: 0x30
+- Size: 0x4
+
+<p>A write queues a command: OP and TAG with CMD_ROW, CMD_COL, CMD_LEN and CMD_BUF as they are then.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+| 2:0|    op    |  rw  | 0x0 |  — |
+|15:8|    tag   |  rw  | 0x0 |  — |
+
+#### op field
+
+<p>0 RESET, 1 READ_ID, 2 READ, 3 PROGRAM, 4 ERASE, 5 STATUS, 6 CHANGE READ COLUMN; 7 completes at once with no bus cycle.</p>
+
+#### tag field
+
+<p>Returned with the completion.</p>
+
+### CPL register
+
+- Absolute Address: 0x6034
+- Base Offset: 0x34
+- Size: 0x4
+
+<p>The oldest completion; reading it removes it. VALID is 0 when none waits.</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 7:0 |    tag   |   r  |  —  |  — |
+| 9:8 |   code   |   r  |  —  |  — |
+|23:16|  status  |   r  |  —  |  — |
+|  31 |   valid  |   r  |  —  |  — |
+
+#### tag field
+
+<p>TAG of the command.</p>
+
+#### code field
+
+<p>0 done, 1 status fail, 2 busy timeout, 3 write protected.</p>
+
+#### status field
+
+<p>The status byte read after a program, an erase or STATUS; 0 otherwise.</p>
+
+### CYCLES register
+
+- Absolute Address: 0x6038
+- Base Offset: 0x38
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   count  |   r  |  —  |  — |
+
+#### count field
+
+<p>clk_sys clocks from the dispatch of the last completed command to its completion.</p>
+
+### BUSY_TIME register
+
+- Absolute Address: 0x603C
+- Base Offset: 0x3C
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|23:0|   count  |   r  |  —  |  — |
+
+#### count field
+
+<p>clk_nand clocks the last completed command waited for R/B# (saturates).</p>
+
+### COUNT register
+
+- Absolute Address: 0x6040
+- Base Offset: 0x40
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 15:0|   done   |   r  |  —  |  — |
+|31:16|    err   |   r  |  —  |  — |
+
+#### done field
+
+<p>Commands completed (wraps).</p>
+
+#### err field
+
+<p>Of them, with a code other than 0 (wraps).</p>
+
+## NAND1 address map
+
+- Absolute Address: 0x7000
+- Base Offset: 0x7000
+- Size: 0x44
+
+<p>One NAND channel (rtl/nand/nand_ctrl.sv, docs/15_nand_channel.md): an 8-bit ONFI-style asynchronous interface run by a sequencer in clk_nand, a command queue of 4, a completion queue of 8, and an 8 KiB page buffer on the crossbar. NAND0 is at 0x4000_6000 with its page buffer at 0x3000_0000, NAND1 at 0x4000_7000 and 0x3001_0000.</p>
+
+|Offset|Identifier|   Name  |
+|------|----------|---------|
+| 0x00 |   CTRL   |   CTRL  |
+| 0x04 |  STATUS  |  STATUS |
+| 0x08 |   EVENT  |  EVENT  |
+| 0x10 |  TIMING0 | TIMING0 |
+| 0x14 |  TIMING1 | TIMING1 |
+| 0x18 |  TIMEOUT | TIMEOUT |
+| 0x20 |  CMD_ROW | CMD_ROW |
+| 0x24 |  CMD_COL | CMD_COL |
+| 0x28 |  CMD_LEN | CMD_LEN |
+| 0x2C |  CMD_BUF | CMD_BUF |
+| 0x30 |  CMD_GO  |  CMD_GO |
+| 0x34 |    CPL   |   CPL   |
+| 0x38 |  CYCLES  |  CYCLES |
+| 0x3C | BUSY_TIME|BUSY_TIME|
+| 0x40 |   COUNT  |  COUNT  |
+
+### CTRL register
+
+- Absolute Address: 0x7000
+- Base Offset: 0x0
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|  0 |    wp    |  rw  | 0x1 |  — |
+|  1 | ien_done |  rw  | 0x0 |  — |
+|  2 |  ien_err |  rw  | 0x0 |  — |
+
+#### wp field
+
+<p>Write protect: WP# is low while this is 1, from reset until firmware clears it.</p>
+
+#### ien_done field
+
+<p>Interrupt (INTC 6 for NAND0, 8 for NAND1) while a completion waits in CPL.</p>
+
+#### ien_err field
+
+<p>Interrupt (INTC 7 for NAND0, 9 for NAND1) while EVENT.ERR or EVENT.OVF is set.</p>
+
+### STATUS register
+
+- Absolute Address: 0x7004
+- Base Offset: 0x4
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+|  0  |   busy   |   r  |  —  |  — |
+|  1  |    rb    |   r  |  —  |  — |
+| 10:8|   cmds   |   r  |  —  |  — |
+|15:12|   cpls   |   r  |  —  |  — |
+
+#### busy field
+
+<p>A command is running.</p>
+
+#### rb field
+
+<p>R/B#, synchronized into clk_sys: 1 ready, 0 busy.</p>
+
+#### cmds field
+
+<p>Commands waiting in the queue, 0 to 4.</p>
+
+#### cpls field
+
+<p>Completions waiting in CPL, 0 to 8.</p>
+
+### EVENT register
+
+- Absolute Address: 0x7008
+- Base Offset: 0x8
+- Size: 0x4
+
+<p>Set by hardware, cleared by writing 1.</p>
+
+|Bits|Identifier|  Access |Reset|Name|
+|----|----------|---------|-----|----|
+|  0 |    err   |rw, woclr| 0x0 |  — |
+|  1 |    ovf   |rw, woclr| 0x0 |  — |
+
+#### err field
+
+<p>A command completed with a code other than 0.</p>
+
+#### ovf field
+
+<p>CMD_GO was written with 4 commands waiting; that command was dropped.</p>
+
+### TIMING0 register
+
+- Absolute Address: 0x7010
+- Base Offset: 0x10
+- Size: 0x4
+
+<p>Bus cycle phases in clk_nand clocks (20 ns), 1 to 15; 0 counts as 1. A command takes TIMING0, TIMING1 and TIMEOUT as they are when it starts. The reset values give 100 ns cycles; 1 and 1 give 40 ns cycles, 25 MB/s.</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 3:0 |    twp   |  rw  | 0x3 |  — |
+| 7:4 |    twh   |  rw  | 0x2 |  — |
+| 11:8|    trp   |  rw  | 0x3 |  — |
+|15:12|   treh   |  rw  | 0x2 |  — |
+
+#### twp field
+
+<p>WE# low (tWP).</p>
+
+#### twh field
+
+<p>WE# high (tWH).</p>
+
+#### trp field
+
+<p>RE# low (tRP); DQ is sampled at the clock edge that raises RE#.</p>
+
+#### treh field
+
+<p>RE# high (tREH).</p>
+
+### TIMING1 register
+
+- Absolute Address: 0x7014
+- Base Offset: 0x14
+- Size: 0x4
+
+<p>Waits in clk_nand clocks, 1 to 63; 0 counts as 1.</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 5:0 |    twb   |  rw  | 0xC |  — |
+| 13:8|   twhr   |  rw  | 0x6 |  — |
+|21:16|   tadl   |  rw  | 0xA |  — |
+|29:24|    trr   |  rw  | 0x2 |  — |
+
+#### twb field
+
+<p>From the confirm command's WE# rising to the first look at R/B# (tWB, plus 2 clocks of synchronizer).</p>
+
+#### twhr field
+
+<p>From the last WE# rising to RE# falling for a status, ID or changed-column read (tWHR).</p>
+
+#### tadl field
+
+<p>From the last address cycle to the first data cycle of a program (tADL).</p>
+
+#### trr field
+
+<p>From R/B# seen ready to the first RE# falling (tRR).</p>
+
+### TIMEOUT register
+
+- Absolute Address: 0x7018
+- Base Offset: 0x18
+- Size: 0x4
+
+|Bits|Identifier|Access| Reset|Name|
+|----|----------|------|------|----|
+|15:0|   busy   |  rw  |0x1000|  — |
+
+#### busy field
+
+<p>R/B# busy for more than this many units of 256 clk_nand clocks ends the command with code 2; 0 waits without limit.</p>
+
+### CMD_ROW register
+
+- Absolute Address: 0x7020
+- Base Offset: 0x20
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|23:0|    row   |  rw  | 0x0 |  — |
+
+#### row field
+
+<p>Row address: the page in bits 5:0, the block above.</p>
+
+### CMD_COL register
+
+- Absolute Address: 0x7024
+- Base Offset: 0x24
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|12:0|    col   |  rw  | 0x0 |  — |
+
+#### col field
+
+<p>Column: the byte in the page, 0 to 4319 (4096 to 4319 are the spare area). For READ_ID, the address byte.</p>
+
+### CMD_LEN register
+
+- Absolute Address: 0x7028
+- Base Offset: 0x28
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|12:0|    len   |  rw  | 0x0 |  — |
+
+#### len field
+
+<p>Bytes to move, 0 to 4320.</p>
+
+### CMD_BUF register
+
+- Absolute Address: 0x702C
+- Base Offset: 0x2C
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|12:0|    off   |  rw  | 0x0 |  — |
+
+#### off field
+
+<p>Byte offset of the data in the page buffer.</p>
+
+### CMD_GO register
+
+- Absolute Address: 0x7030
+- Base Offset: 0x30
+- Size: 0x4
+
+<p>A write queues a command: OP and TAG with CMD_ROW, CMD_COL, CMD_LEN and CMD_BUF as they are then.</p>
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+| 2:0|    op    |  rw  | 0x0 |  — |
+|15:8|    tag   |  rw  | 0x0 |  — |
+
+#### op field
+
+<p>0 RESET, 1 READ_ID, 2 READ, 3 PROGRAM, 4 ERASE, 5 STATUS, 6 CHANGE READ COLUMN; 7 completes at once with no bus cycle.</p>
+
+#### tag field
+
+<p>Returned with the completion.</p>
+
+### CPL register
+
+- Absolute Address: 0x7034
+- Base Offset: 0x34
+- Size: 0x4
+
+<p>The oldest completion; reading it removes it. VALID is 0 when none waits.</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 7:0 |    tag   |   r  |  —  |  — |
+| 9:8 |   code   |   r  |  —  |  — |
+|23:16|  status  |   r  |  —  |  — |
+|  31 |   valid  |   r  |  —  |  — |
+
+#### tag field
+
+<p>TAG of the command.</p>
+
+#### code field
+
+<p>0 done, 1 status fail, 2 busy timeout, 3 write protected.</p>
+
+#### status field
+
+<p>The status byte read after a program, an erase or STATUS; 0 otherwise.</p>
+
+### CYCLES register
+
+- Absolute Address: 0x7038
+- Base Offset: 0x38
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|31:0|   count  |   r  |  —  |  — |
+
+#### count field
+
+<p>clk_sys clocks from the dispatch of the last completed command to its completion.</p>
+
+### BUSY_TIME register
+
+- Absolute Address: 0x703C
+- Base Offset: 0x3C
+- Size: 0x4
+
+|Bits|Identifier|Access|Reset|Name|
+|----|----------|------|-----|----|
+|23:0|   count  |   r  |  —  |  — |
+
+#### count field
+
+<p>clk_nand clocks the last completed command waited for R/B# (saturates).</p>
+
+### COUNT register
+
+- Absolute Address: 0x7040
+- Base Offset: 0x40
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 15:0|   done   |   r  |  —  |  — |
+|31:16|    err   |   r  |  —  |  — |
+
+#### done field
+
+<p>Commands completed (wraps).</p>
+
+#### err field
+
+<p>Of them, with a code other than 0 (wraps).</p>
 
 ## NVME address map
 

@@ -7,6 +7,7 @@ rtl/csr/gen/dma_regs_pkg.sv
 rtl/csr/gen/pmu_regs_pkg.sv
 rtl/csr/gen/host_regs_pkg.sv
 rtl/csr/gen/nvme_regs_pkg.sv
+rtl/csr/gen/nand_regs_pkg.sv
 rtl/csr/gen/sys_regs.sv
 rtl/csr/gen/intc_regs.sv
 rtl/csr/gen/timer_regs.sv
@@ -14,6 +15,7 @@ rtl/csr/gen/dma_regs.sv
 rtl/csr/gen/pmu_regs.sv
 rtl/csr/gen/host_regs.sv
 rtl/csr/gen/nvme_regs.sv
+rtl/csr/gen/nand_regs.sv
 rtl/common/rr_arb.sv
 rtl/common/fifo_sync.sv
 rtl/common/cdc_sync_2ff.sv
@@ -59,4 +61,8 @@ rtl/host/host_stub.sv
 rtl/host/pd_host.sv
 rtl/host/host_if.sv
 rtl/top/soc_pwr.sv
+rtl/nand/nand_pkg.sv
+rtl/nand/nand_seq.sv
+rtl/nand/nand_pbuf.sv
+rtl/nand/nand_ctrl.sv
 rtl/top/soc_top.sv

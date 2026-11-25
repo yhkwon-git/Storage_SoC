@@ -17,7 +17,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 out="${BUILD_DIR:-$root/build/dv}/soc"
-tests=(hello memtest irq buserr perf dma power reset host nvme soc_app nvme_app)
+tests=(hello memtest irq buserr perf dma power reset host nvme nand soc_app nvme_app)
 mkdir -p "$out"
 
 if command -v riscv-none-elf-gcc > /dev/null; then
@@ -38,10 +38,10 @@ src=(
   "$here/lint/waivers.vlt" -F "$rtl/vendor/ibex/ibex.f"
   "$rtl/csr/gen/sys_regs_pkg.sv" "$rtl/csr/gen/intc_regs_pkg.sv" "$rtl/csr/gen/timer_regs_pkg.sv"
   "$rtl/csr/gen/dma_regs_pkg.sv" "$rtl/csr/gen/pmu_regs_pkg.sv" "$rtl/csr/gen/host_regs_pkg.sv"
-  "$rtl/csr/gen/nvme_regs_pkg.sv"
+  "$rtl/csr/gen/nvme_regs_pkg.sv" "$rtl/csr/gen/nand_regs_pkg.sv"
   "$rtl/csr/gen/sys_regs.sv" "$rtl/csr/gen/intc_regs.sv" "$rtl/csr/gen/timer_regs.sv"
   "$rtl/csr/gen/dma_regs.sv" "$rtl/csr/gen/pmu_regs.sv" "$rtl/csr/gen/host_regs.sv"
-  "$rtl/csr/gen/nvme_regs.sv"
+  "$rtl/csr/gen/nvme_regs.sv" "$rtl/csr/gen/nand_regs.sv"
   "$rtl/common/rr_arb.sv" "$rtl/common/fifo_sync.sv" "$rtl/common/cdc_sync_2ff.sv"
   "$rtl/common/cdc_async_fifo.sv" "$rtl/common/rst_sync.sv" "$rtl/common/clk_gate.sv"
   "$rtl/axi/axi_id_tracker.sv" "$rtl/axi/axi_err_slv.sv" "$rtl/axi/axi_xbar.sv" "$rtl/axi/axi2apb.sv"
@@ -55,8 +55,10 @@ src=(
   "$rtl/host/nvme/nvme_ctrl.sv" "$here/sva/nvme_checker.sv" "$here/sva/nvme_bind.sv"
   "$rtl/pmu/iso_clamp.sv" "$rtl/pmu/ret_reg.sv" "$rtl/pmu/apb_cdc.sv" "$rtl/pmu/pmu.sv"
   "$rtl/host/phy_pll_model.sv" "$rtl/host/host_stub.sv" "$rtl/host/pd_host.sv" "$rtl/host/host_if.sv"
+  "$rtl/nand/nand_pkg.sv" "$rtl/nand/nand_seq.sv" "$rtl/nand/nand_pbuf.sv" "$rtl/nand/nand_ctrl.sv"
+  "$here/sva/nand_checker.sv" "$here/sva/nand_bind.sv"
   "$rtl/top/soc_pwr.sv" "$rtl/top/soc_top.sv"
-  "$here/tb/axi4_if.sv" "$here/sva/axi4_checker.sv" "$here/tb/tlp_if.sv" "$here/tb/tlp_tb_pkg.sv" "$here/tb/nvme_host_pkg.sv"
+  "$here/tb/axi4_if.sv" "$here/sva/axi4_checker.sv" "$here/tb/tlp_if.sv" "$here/tb/tlp_tb_pkg.sv" "$here/tb/nvme_host_pkg.sv" "$here/tb/nand_model.sv"
   "$here/tb/tb_soc.sv"
 )
 
