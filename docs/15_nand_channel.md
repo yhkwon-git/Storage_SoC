@@ -98,7 +98,7 @@ Back-to-back data cycles take tWP + tWH clocks (tRP + tREH), so the fastest sett
 ## The NAND model
 
 `dv/tb/nand_model.sv` is a NAND target with the page format above, used by `tb_nand` and by `tb_soc` (one per channel):
-- **Commands:** reset; read ID (address 00h or 20h, "ONFI"); page read into its page register; change read column; program, which ANDs the page register into the page, since flash only clears bits; erase of a block; status. Busy times are fixed knobs in this step, and step 3-2 makes them vary.
+- **Commands:** reset; read ID (address 00h or 20h, "ONFI"); page read into its page register; change read column; program, which ANDs the page register into the page, since flash only clears bits; erase of a block; status. Busy times are fixed knobs in this step, and step 3-2 makes them vary ([16_nand_model.md](16_nand_model.md)).
 - **Refusals and failures:** with WP# low a program or erase is refused (status bit 7 clear). Knobs make the next program or erase fail, or hold R/B# busy until a reset.
 - **Every interface rule the controller must keep, in nanoseconds** against the requirements the testbench sets:
   - WE# and RE# pulse widths and cycle times;
@@ -234,7 +234,7 @@ Back-to-back data cycles take tWP + tWH clocks (tRP + tREH), so the fastest sett
 - **One command at a time per channel and one page buffer:** the bus waits while firmware or the DMA fills the buffer for the next program.
 - **Busy is waited for on R/B# only**, not by polling status.
 - **No ECC:** step 3-3 adds BCH between the page buffer and the bus. Step 3-4 joins NVMe commands to the channels.
-- **Fixed busy times in the model** (step 3-2 varies them and adds bit errors).
+- **Fixed busy times in the model** at this step; step 3-2 ([16_nand_model.md](16_nand_model.md)) draws them per operation and adds wear, bit errors and factory bad blocks.
 - **STA of the NAND pins** uses a plain 30% input and output budget against `clk_nand`; pad and board delays are left to layout.
 
 ## How to run
