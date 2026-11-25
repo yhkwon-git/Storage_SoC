@@ -12,8 +12,8 @@ A RISC-V CPU, an AXI4 interconnect, DMA, SystemRDL-generated CSRs and always-on 
 
 | Item | Value |
 | --- | --- |
-| Current phase | Phase 2, host interface and NVMe front-end: steps 2-1 to 2-5 done (transaction layer, NVMe registers and queues, PRP data and completions, NVMe firmware, NVMe host driver model and verification). Next: phase 3, the storage datapath, from 3-1 (NAND channel controller); steps 2-6 to 2-9 follow it. Phase 1 is done; setup at the ss corner is not met (docs/09 to docs/14) |
-| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 6 AXI4 crossbar, with SRAM, a descriptor-based DMA, and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; an always-on PMU that orders the resets and switches the PD_HOST domain with isolation and retention (UPF); a CPU clock gate; a PCIe-style transaction layer on the host link (inbound BARs, bus master, configuration space, MSI-X); an NVMe-style controller (registers, doorbells, round-robin command fetch into SRAM, PRP data transfers with lists, completion queue entries with phase tags and MSI-X per queue, epochs that make a controller reset safe while firmware holds commands) driven by firmware that serves admin, Read, Write and Flush commands; dual-clock FIFO, 2-flop synchronizer, channel register slice |
+| Current phase | Phase 3, storage datapath: step 3-1 (NAND channel controllers) done. Next: 3-2 (NAND model: busy times that vary, bit errors). Phase 1 and steps 2-1 to 2-5 are done; steps 2-6 to 2-9 follow phase 3. Setup at the ss corner is not met (docs/09 to docs/15) |
+| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 6 AXI4 crossbar, with SRAM, a descriptor-based DMA, and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; an always-on PMU that orders the resets and switches the PD_HOST domain with isolation and retention (UPF); a CPU clock gate; a PCIe-style transaction layer on the host link (inbound BARs, bus master, configuration space, MSI-X); an NVMe-style controller (registers, doorbells, round-robin command fetch into SRAM, PRP data transfers with lists, completion queue entries with phase tags and MSI-X per queue, epochs that make a controller reset safe while firmware holds commands) driven by firmware that serves admin, Read, Write and Flush commands; two NAND channels with an ONFI-style asynchronous interface, each a bus sequencer on clk_nand with command and completion queues and an 8 KiB page buffer; dual-clock FIFO, 2-flop synchronizer, channel register slice |
 | Verification tools | Vivado simulator 2019.2 (UVM 1.2), Verilator 5.052 |
 | Register generation | PeakRDL 1.5.0: register RTL, C header, UVM register model and register document from one source |
 | Implementation tools | sv2v 0.0.13, Yosys 0.52, OpenSTA 3.1.0, Sky130 HD from lambdapdk v0.2.9 (ss/tt/ff corners) |
@@ -73,7 +73,7 @@ flowchart LR
 | 0 | Toolchain checks, repository layout, CI, RISC-V GCC | Done |
 | 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | Done: 1-1 to 1-9; setup at ss not met (docs/09) |
 | 2 | Host interface: transaction layer and NVMe front-end (steps 2-1 to 2-5), then data link layer, PHY with a PIPE-style boundary and link training (steps 2-6 to 2-9) | In progress: 2-1 to 2-5 done; 2-6 to 2-9 after phase 3 |
-| 3 | Storage datapath: NAND channel controllers, NAND model, BCH, NVMe reads and writes through to NAND | Next |
+| 3 | Storage datapath: NAND channel controllers, NAND model, BCH, NVMe reads and writes through to NAND | In progress: 3-1 done |
 | 4 | SoC-level UVM, verification plan, coverage closure | Planned |
 | 5 | Full-chip synthesis and multi-corner STA, documentation | Planned |
 | 6 | Optional: DSP receiver for the PHY (FFE, DFE, Mueller-Muller CDR, real-number analog model) | Optional |
@@ -250,6 +250,19 @@ NVMe host driver model and verification (commit c5e2b96, details in [docs/14_nvm
   - The slot assertion found the command FIFO emptying a clock after a reset had freed the slots: for that clock, CMD offered a stale command with the new epoch.
 - **Synthesis and timing.** The NVMe controller is 10.3% of the standard cells; tt meets every clock; CDC check PASS with no new crossings.
 
+NAND channel controllers (commit f67f5d6, details in [docs/15_nand_channel.md](docs/15_nand_channel.md)):
+
+- **Design.** Two channels replace the plain memories at S3 and S4, at the same addresses.
+  - **Bus side:** a sequencer on `clk_nand` drives an 8-bit ONFI-style asynchronous interface. It runs reset, read ID, page read, change read column, page program, block erase and read status, with timing firmware sets per command. It waits for R/B# with a timeout and turns the status byte into a code.
+  - **`clk_sys` side:** a command queue of 4, a completion queue of 8 (a command goes out only with room for its completion), a data mover, and an 8 KiB page buffer in one SRAM macro. The page buffer serves the bus first, so every earlier firmware test exits after the same number of clocks.
+  - **Crossings:** commands, data and completions cross in four dual-clock FIFOs.
+- **NAND model.** An ONFI-style target answers the commands and checks every interface rule the controller must keep, in nanoseconds: pulse widths, setups and holds, tWHR, tADL, tRR, bus contention.
+- **Block testbench.** 12 directed tests and 10 random seeds at three `clk_nand` periods: 486,922 bytes programmed and 616,328 read under 2,244,656 interface checks, with bus assertions bound; 0 errors, 32 of 32 covergroup bins. Mutation check: 18 of 18.
+- **Throughput.** One byte every two `clk_nand` clocks at the fastest setting, 25 MB/s. A 4,320-byte page programs in 9,689 clocks and reads in 8,924, including the model's busy times.
+- **SoC.** A new firmware test runs both channels: identify, program, read back, the spare area, both at once with their interrupts, and write protect. It passes alone and with background traffic. The UVM register test now covers NAND0 and NAND1: 74 checks, 0 failures.
+- **Synthesis and timing.** The channels are 10.3% of the standard cells. `clk_nand` meets 50 MHz at every corner, ss included. CDC check PASS.
+- **Found on the way.** An inverter in front of a synchronizer, found by the CDC check. Two blind spots of the testbench, found by the mutation check: an address byte stuck at 0 that went unseen because program and read went to the same wrong page, and an R/B# look that came too early. The testbench now checks the model's array, and the model's R/B# falls after 100 ns.
+
 ## How to run
 
 ```bash
@@ -263,12 +276,13 @@ powershell -ExecutionPolicy Bypass -File flow\tools\check_xsim.ps1   # [TOOLS] x
 ```
 
 ```bash
-# Block and SoC checks (Linux or WSL): lint, UPF check, dual-clock FIFO, register slice, crossbar, DMA, transaction layer, NVMe queues, power, firmware on soc_top
-make -C dv                                                           # [LINT] [ISO] PASS ... [XBAR] [DMA] [TL] [NVME] [PWR] [SOC] all runs PASS
+# Block and SoC checks (Linux or WSL): lint, UPF check, dual-clock FIFO, register slice, crossbar, DMA, transaction layer, NVMe queues, NAND channel, power, firmware on soc_top
+make -C dv                                                           # [LINT] [ISO] PASS ... [XBAR] [DMA] [TL] [NVME] [NAND] [PWR] [SOC] all runs PASS
 make -C dv xbar-mut                                                  # [MUT] 7 of 7 mutants caught
 make -C dv dma-mut                                                   # [MUT] 10 of 10 mutants caught
 make -C dv tl-mut                                                    # [MUT] 16 of 16 mutants caught
 make -C dv nvme-mut                                                  # [MUT] 33 of 33 mutants caught
+make -C dv nand-mut                                                  # [MUT] 18 of 18 mutants caught
 make -C dv power-mut                                                 # [MUT] 11 of 11 mutants caught
 make -C dv power-x                                                   # [PWR] X run PASS: power testbench on xsim (WSL calls Windows)
 make -C fw images                                                    # rebuild fw/images (needs riscv-none-elf-gcc on PATH)
@@ -301,6 +315,7 @@ rtl/common/          dual-clock FIFO, 2-flop synchronizer, round-robin arbiter, 
 rtl/cpu/             Ibex wrapper, Ibex-port-to-AXI4 adapter
 rtl/csr/             SystemRDL source (rdl/) and the register blocks generated from it (gen/)
 rtl/dma/             descriptor-based DMA
+rtl/nand/            NAND channel controllers: bus sequencer (clk_nand), command and completion queues, data mover, page buffer
 rtl/host/            PD_HOST boundary, its placeholder logic, core side (HOST registers, FIFOs), PLL model
 rtl/host/tl/         transaction layer: receive buffer, pack and unpack, dispatcher, configuration space, MSI-X, completer, bus master, link-side port
 rtl/host/nvme/       NVMe controller: host registers and doorbells, queue pointers, round-robin fetch, command slots and FIFO, PRP engine, completion poster, controller buffer
@@ -329,13 +344,14 @@ rtl/vendor/ibex/     Ibex v2.1.0, unchanged (VENDOR.md)
 | [docs/10_transaction_layer.md](docs/10_transaction_layer.md) | Transaction layer: what the host and the SoC see (configuration space, BARs, request handling, HOST registers, link hold), design decisions, host model and tests, throughput, mutation check, SoC tests, area, timing and CDC, findings |
 | [docs/11_nvme_queues.md](docs/11_nvme_queues.md) | NVMe registers and queues: what the host and the firmware see, enable, reset and shutdown, doorbells, round-robin fetch, design decisions, block tests, throughput, mutation check, SoC firmware test, area, timing and CDC, findings |
 | [docs/12_nvme_data.md](docs/12_nvme_data.md) | NVMe data and completions: PRP transfers and lists, completion queue entries, phase and MSI-X order, the controller buffer on the crossbar, design decisions, block tests, throughput, mutation check, SoC test, area, timing and CDC, findings |
+| [docs/15_nand_channel.md](docs/15_nand_channel.md) | NAND channel controllers: what firmware sees, the bus operations and timing, design decisions, the NAND model and its checks, tests, assertions, coverage, mutation check, throughput, SoC tests, area, timing and CDC, findings |
 | [docs/14_nvme_host_verification.md](docs/14_nvme_host_verification.md) | NVMe host driver model and verification: why the controller needed epochs and how they work, the host model's checks, the nvme_rand epochs and reset plan, queue assertions, coverage, results, findings |
 | [docs/13_nvme_firmware.md](docs/13_nvme_firmware.md) | NVMe firmware: command loop, admin and I/O commands, statuses, transfer overlap, controller reset, the host's run, latency and IOPS by queue depth, firmware cost per command, what limits it, findings |
 | [docs/regs/soc_apb.md](docs/regs/soc_apb.md) | Generated register reference: every register and field with offset, access and reset value |
 
 ## Limitations
 
-- Built from public material only. The PCIe, M-PHY and UniPro specifications are available to members only, so the host link follows the general structure of those serial links and claims no compliance with any of them. The NVMe front-end follows a subset of the register, queue and PRP structure in the publicly available NVMe Base Specification and claims no compliance either. The PHY-to-controller boundary follows the publicly available PIPE specification in style, not in full.
+- Built from public material only. The PCIe, M-PHY and UniPro specifications are available to members only, so the host link follows the general structure of those serial links and claims no compliance with any of them. The NVMe front-end follows a subset of the register, queue and PRP structure in the publicly available NVMe Base Specification and claims no compliance either, and the NAND channels follow the general structure of the publicly available ONFI specification in the same way. The PHY-to-controller boundary follows the publicly available PIPE specification in style, not in full.
 - Analog behavior (channel, CDR sampling) is modeled behaviorally. There are no transistor-level circuits.
 - Third-party IP keeps its own license and is pinned to the commit it was taken from.
 
@@ -352,7 +368,7 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
 - **Storage path.** NAND channel controller 2개와 BCH ECC, NVMe Read·Write를 SRAM을 거쳐 NAND까지 처리하는 firmware입니다.
 - **진행 순서.** Phase 1 → 2-1~2-5(transaction 수준 host 모델로 NVMe) → Phase 3 → 2-6~2-9(link · PHY) → Phase 4, 5. NVMe 명령이 NAND까지 가는 경로를 serial link보다 먼저 완성합니다.
 - **검증과 구현.** IP별 TB를 먼저 만들고, SoC 전체는 UVM(Vivado simulator 2019.2)으로 sign-off합니다. lint, 빠른 regression, coverage는 Verilator 5.052, 합성과 multi-corner STA는 Yosys, OpenSTA, Sky130으로 합니다.
-- **현재 상태.** Phase 0(도구 확인, repo 구조, CI, RISC-V GCC)과 Phase 1(SoC platform, 1-1~1-9)이 끝났고, ss corner의 setup 미충족은 docs/09에 기록했습니다. Phase 2는 2-1(transaction layer), 2-2(NVMe register와 queue), 2-3(PRP 데이터와 completion), 2-4(SRAM namespace에서 firmware 명령 처리), 2-5(NVMe host driver 모델과 검증)를 마쳤습니다. 다음은 Phase 3(storage datapath)의 3-1(NAND channel controller)이고, 2-6~2-9는 그 뒤입니다.
+- **현재 상태.** Phase 0(도구 확인, repo 구조, CI, RISC-V GCC)과 Phase 1(SoC platform, 1-1~1-9)이 끝났고, ss corner의 setup 미충족은 docs/09에 기록했습니다. Phase 2는 2-1(transaction layer), 2-2(NVMe register와 queue), 2-3(PRP 데이터와 completion), 2-4(SRAM namespace에서 firmware 명령 처리), 2-5(NVMe host driver 모델과 검증)를 마쳤습니다. Phase 3(storage datapath)는 3-1(NAND channel controller)을 마쳤고, 다음은 3-2(busy 시간 변동과 bit error를 넣은 NAND 모델)입니다. 2-6~2-9는 Phase 3 뒤입니다.
   - 1-1 아키텍처 사양([docs/01_soc_architecture.md](docs/01_soc_architecture.md)): clock 5개와 crossing 규칙, reset 해제 순서, PD_HOST의 isolation·retention·power sequence, AXI4 규칙, address·interrupt map, 목표 주파수를 정했습니다.
   - 1-2 공통 블록([docs/02_common_blocks.md](docs/02_common_blocks.md)): 이전 프로젝트의 2-FF synchronizer와 register slice는 로직을 그대로 가져왔습니다. dual-clock FIFO는 같은 TB로 측정한 결과 처리량이 상한의 12.5~24.8%(4:1 비율만 50~68%)에 그쳐서 새로 설계했고, 새 FIFO는 12개 run 모두 데이터 오류 0, 상한의 97.9~101.0%를 냈습니다(commit 8ce1fac).
   - 1-3 AXI4 crossbar([docs/03_axi_crossbar.md](docs/03_axi_crossbar.md)): 4×5 sparse 구조이고, 같은 ID가 outstanding인 동안 다른 slave로 넘어가지 않게 해서 reorder buffer 없이 응답 순서를 지킵니다. master마다 DECERR slave를 두고, W는 master와 slave 양쪽의 AW 순서를 따르게 했습니다(commit 76fd272).
@@ -446,5 +462,18 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
     - **SoC 테스트.** nvme_rand가 이 모델을 2-4 firmware에 돌립니다. 4번 실행에서 명령 5,358개, controller reset 20회(버린 명령 330개), 6.6 MB를 읽어 비교했고 오류 0, covergroup 81/81입니다. 그동안 하드웨어가 stale 명령에 대한 firmware의 전송 시작 8회와 completion post 9회를 거부했습니다.
     - **SVA.** controller queue 상태 assertion 13개를 두 NVMe TB에 bind했습니다. tb_nvme는 epoch test를 더해 bin 101/101, mutation 33/33(epoch용 6개 추가)입니다.
     - **찾은 문제.** I/O completion을 SQ 번호와 같은 CQ에 쓰던 firmware, 그리고 reset이 slot을 비운 뒤 한 clock 늦게 비던 명령 FIFO(그 clock에 CMD가 stale 명령을 새 epoch로 내보냄, slot SVA가 발견)를 고쳤습니다(commit c5e2b96).
-- **범위.** 공개 자료만으로 구성하며 PCIe, NVMe, M-PHY, UniPro 규격 준수를 주장하지 않습니다. NVMe는 공개된 Base Specification의 register · queue · PRP 구조 일부만 따릅니다.
+  - 3-1 NAND channel controller([docs/15_nand_channel.md](docs/15_nand_channel.md)):
+    - **구조.** S3·S4의 단순 메모리를 같은 주소의 NAND channel 두 개로 바꿨습니다.
+      - clk_nand의 bus sequencer가 ONFI 방식 8-bit 비동기 interface로 reset, read ID, page read, change read column, page program, block erase, read status를 실행합니다. 타이밍은 firmware가 명령마다 정하고, R/B#를 timeout과 함께 기다린 뒤 status byte로 결과 code를 만듭니다.
+      - clk_sys 쪽에는 command queue 4개, completion queue 8개(자리가 있을 때만 명령을 내보냄), data mover, SRAM macro 하나로 된 8 KiB page buffer가 있습니다. page buffer는 bus를 먼저 처리하므로 기존 firmware test의 clock 수가 모두 그대로입니다.
+      - 명령, 데이터, completion은 dual-clock FIFO 4개로 clock domain을 건넙니다.
+    - **NAND 모델.** ONFI 방식 target이 명령에 답하고, 컨트롤러가 지켜야 할 interface 규칙(pulse 폭, setup·hold, tWHR, tADL, tRR, bus 충돌)을 ns 단위로 모두 검사합니다.
+    - **검증.** directed 12종과 random 10 seed를 clk_nand 주기 세 가지에서 돌려 486,922 B를 program하고 616,328 B를 읽었습니다. interface 검사 2,244,656건과 bus SVA에서 오류 0, covergroup 32/32, mutation 18/18입니다.
+    - **성능.** 가장 빠른 설정에서 clk_nand 2 clock마다 1 byte(25 MB/s)입니다. 4,320 B page는 모델의 busy 시간을 포함해 9,689 clock에 program되고 8,924 clock에 읽힙니다.
+    - **SoC 테스트.** 새 firmware test가 두 채널에서 ID, program, read-back, spare area, 두 채널 동시 동작과 interrupt, write protect를 확인하며, 배경 트래픽이 있을 때도 통과합니다. UVM register test에 NAND0·NAND1을 더해 74건을 확인했고 실패 0입니다.
+    - **합성과 타이밍.** NAND channel은 표준 cell 면적의 10.3%이고, clk_nand는 ss를 포함한 모든 corner에서 50 MHz를 만족합니다. CDC 검사는 PASS입니다.
+    - **찾은 문제.** 동기화기 앞의 inverter(CDC 검사)를 고쳤습니다. mutation 검사가 찾은 TB 사각지대 두 곳도 고쳤습니다.
+      - 주소 byte가 0으로 고정돼도 program과 read가 같은 잘못된 page로 가서 맞아떨어지던 문제: 이제 TB가 모델 array를 직접 확인합니다.
+      - R/B#를 너무 일찍 보던 문제: 모델의 R/B#가 이제 100 ns 뒤에 내려갑니다(commit f67f5d6).
+- **범위.** 공개 자료만으로 구성하며 PCIe, NVMe, ONFI, M-PHY, UniPro 규격 준수를 주장하지 않습니다. NVMe는 공개된 Base Specification의 register · queue · PRP 구조 일부만, NAND channel은 공개된 ONFI 규격의 일반 구조만 따릅니다.
 - **LLM 사용.** 코드, 테스트, 문서 초안에 LLM(Claude)을 쓰고, repo 안의 regression과 검사를 통과한 결과만 반영합니다.

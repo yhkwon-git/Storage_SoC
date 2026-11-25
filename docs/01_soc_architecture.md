@@ -60,7 +60,7 @@ As built in step 2-1 ([10_transaction_layer.md](10_transaction_layer.md)), the `
 - **Link rate.** 2 lanes at 2.5 GT/s with 8b/10b give 500 MB/s of symbols. With a 128-byte maximum payload, header, sequence number, LCRC and framing cost about 24 bytes per packet, so payload bandwidth is about 420 MB/s before DLLPs and SKP sets.
 - **Fabric rate.** 64 bits at 50 MHz give 400 MB/s, close to the link. A 128-byte payload is one AXI burst of 16 beats.
 - **PIPE width.** 32 bits (4 symbols) per lane at `pclk` 62.5 MHz is the 2.5 GT/s, 32-bit configuration of the public PIPE specification.
-- **NAND.** The NAND channels are deliberately much slower than the host (8-bit asynchronous interface, about 25 MB/s per channel). That is the model's scale, not a target.
+- **NAND.** The NAND channels are deliberately much slower than the host (8-bit asynchronous interface, about 25 MB/s per channel). That is the model's scale, not a target. Step 3-1 measures 25 MB/s on the bus: two `clk_nand` clocks per byte at the fastest setting ([15_nand_channel.md](15_nand_channel.md)).
 - **`clk_aon`.** 1 MHz instead of a 32.768 kHz RTC keeps power sequences short in simulation. All PMU delays are counted in `clk_aon` cycles and set by CSR.
 
 ### Crossings
@@ -86,7 +86,7 @@ CSRs for every block live in `clk_sys`, inside PD_CORE. Configuration crosses in
 | `rst_phy_n` | `rclk` | Same as `rst_host_n` | Inside the PHY, after CDR lock |
 
 - **Synchronizers.** Every reset is asserted asynchronously and released synchronously through a 2-flop reset synchronizer in its own clock. Release order is AON, then core, then NAND, then host.
-- **Soft resets.** DMA, NAND0, NAND1 and the host stack each have a soft reset bit. The PMU sequences the host soft reset like a power-down without the switch, so both halves of the TLP bridge FIFOs reset together.
+- **Soft resets.** DMA, NAND0, NAND1 and the host stack each have a soft reset bit (SYS SOFT_RESET; the NAND bits since step 3-1 reset both clock domains of their channel, each through its own synchronizer). The PMU sequences the host soft reset like a power-down without the switch, so both halves of the TLP bridge FIFOs reset together.
 - **Reset-domain crossing.** A domain held in reset drives its outputs idle (`valid` low). A domain that is still running and receives from a domain in reset does not depend on that domain's data until both have left reset.
 
 ## 4. Power domains
@@ -197,8 +197,8 @@ The ID-ordering rule is the usual deadlock-free choice for a crossbar without re
 | --- | --- | --- |
 | `0x0000_0000` – `0x0000_3FFF` | 16 KiB | Boot ROM |
 | `0x1000_0000` – `0x1000_FFFF` | 64 KiB | SRAM |
-| `0x3000_0000` – `0x3000_0FFF` | 4 KiB | NAND0 page buffer |
-| `0x3001_0000` – `0x3001_0FFF` | 4 KiB | NAND1 page buffer |
+| `0x3000_0000` – `0x3000_1FFF` | 8 KiB | NAND0 page buffer (4 KiB until step 3-1) |
+| `0x3001_0000` – `0x3001_1FFF` | 8 KiB | NAND1 page buffer (4 KiB until step 3-1) |
 | `0x4000_0000` – `0x4000_FFFF` | 64 KiB | APB, 4 KiB per block (16 slots), below |
 | `0x5000_0000` – `0x5000_0FFF` | 4 KiB | NVMe controller buffer (128 bytes, repeated), host port only |
 | Everything else | | DECERR |
@@ -211,11 +211,11 @@ The ID-ordering rule is the usual deadlock-free choice for a crossbar without re
 | TIMER | `0x4000_3000` | `mtime`, `mtimecmp` |
 | DMA | `0x4000_4000` | Channel control, descriptor pointer, status |
 | HOST | `0x4000_5000` | Link hold and status, BAR window bases, bus master, MSI-X requests, error status, TLP counts |
-| NAND0 | `0x4000_6000` | Channel timing, command queue, status, ECC counters |
+| NAND0 | `0x4000_6000` | Channel (step 3-1): write protect, interrupt enables, status, bus timing, busy timeout, command queue, completions, clock counts; ECC counters come with step 3-3 |
 | NAND1 | `0x4000_7000` | Same as NAND0 |
 | NVME | `0x4000_8000` | NVMe controller, firmware side: controller state and events, command FIFO, command-buffer slots, I/O queue setup, queue pointers |
 
-A slot without a peripheral, and an undefined offset inside one, answer SLVERR (PSLVERR on the APB side). As of step 2-2, SYS, PMU, INTC, TIMER, DMA, HOST and NVME exist ([06_dma.md](06_dma.md) for the DMA, [07_clock_reset_power.md](07_clock_reset_power.md) for the PMU, [10_transaction_layer.md](10_transaction_layer.md) for HOST, which still holds the PD_HOST placeholder's command registers too, [11_nvme_queues.md](11_nvme_queues.md) for NVME). The PMU is in PD_AON and is reached through an APB clock-domain crossing. Their register files are generated from one SystemRDL source, `rtl/csr/rdl/soc_apb.rdl` ([05_csr.md](05_csr.md)), and every register and field is listed in [regs/soc_apb.md](regs/soc_apb.md). Blocks added later put their registers in the same source.
+A slot without a peripheral, and an undefined offset inside one, answer SLVERR (PSLVERR on the APB side). As of step 3-1, SYS, PMU, INTC, TIMER, DMA, HOST, NAND0, NAND1 and NVME exist ([06_dma.md](06_dma.md) for the DMA, [15_nand_channel.md](15_nand_channel.md) for NAND0 and NAND1, [07_clock_reset_power.md](07_clock_reset_power.md) for the PMU, [10_transaction_layer.md](10_transaction_layer.md) for HOST, which still holds the PD_HOST placeholder's command registers too, [11_nvme_queues.md](11_nvme_queues.md) for NVME). The PMU is in PD_AON and is reached through an APB clock-domain crossing. Their register files are generated from one SystemRDL source, `rtl/csr/rdl/soc_apb.rdl` ([05_csr.md](05_csr.md)), and every register and field is listed in [regs/soc_apb.md](regs/soc_apb.md). Blocks added later put their registers in the same source.
 
 The host sees two memory BARs (step 2-1; the plan of one 64 KiB window was split for NVMe):
 - **BAR0**, 16 KiB, 64-bit: offsets `0x0000`–`0x1FFF` are the NVMe controller's registers (CAP, VS, CC, CSTS, AQA, ASQ, ACQ, doorbells at `0x1000`), reached through the transaction layer's register port without AXI (step 2-2, [11_nvme_queues.md](11_nvme_queues.md)); `0x2000` holds the MSI-X table and `0x3000` its Pending Bit Array, both inside the transaction layer.
@@ -234,7 +234,7 @@ SRAM use in the NVMe firmware (`nvme_app`, step 2-4, [13_nvme_firmware.md](13_nv
 
 ## 7. Interrupts
 
-Ibex has dedicated timer and external interrupt inputs. The timer drives `irq_timer`, and everything else goes through the INTC to `irq_external`. Sources are levels: a source in another clock domain sets a sticky status bit in its CSR block, and the INTC sees status AND enable. As of step 2-2, sources 1 and 2 (the DMA's STATUS.DONE and STATUS.ERR), 3 (NVME: a command waiting, or a controller event), 5 (HOST ERR_STATUS), 10 (the PMU's PWR_IRQ) and 12 (HOST BM_STATUS.DONE or ERR) are wired; the others follow with their blocks.
+Ibex has dedicated timer and external interrupt inputs. The timer drives `irq_timer`, and everything else goes through the INTC to `irq_external`. Sources are levels: a source in another clock domain sets a sticky status bit in its CSR block, and the INTC sees status AND enable. As of step 3-1, sources 1 and 2 (the DMA's STATUS.DONE and STATUS.ERR), 3 (NVME: a command waiting, or a controller event), 5 (HOST ERR_STATUS), 6 to 9 (NAND0 and NAND1: a completion waiting, and EVENT.ERR or EVENT.OVF, each with its enable in CTRL), 10 (the PMU's PWR_IRQ) and 12 (HOST BM_STATUS.DONE or ERR) are wired; the others follow with their blocks.
 
 | ID | Source |
 | --- | --- |
@@ -293,6 +293,7 @@ rtl/mem/      ROM and SRAM models
 rtl/csr/      SystemRDL source (rdl/) and the register blocks generated from it (gen/)
 rtl/periph/   SYS, INTC and timer: logic around the generated register blocks
 rtl/dma/      DMA
+rtl/nand/     NAND channel controllers (step 3-1)
 rtl/pmu/      PMU, reset controller, wake detect, isolation and retention cells
 rtl/common/   synchronizers, async FIFO, clock gate
 rtl/vendor/   third-party sources, each pinned to a commit
