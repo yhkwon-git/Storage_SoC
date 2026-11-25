@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Builds tb_nand once (with assertions and coverage) and runs the directed
 # tests, then for seeds 1..SEEDS the random test, with clk_nand at 20, 17 and
-# 23 ns in turn (clk_sys is 20 ns). Fails unless every run passes and every
-# covergroup bin is hit.
+# 23 ns in turn (clk_sys is 20 ns); even seeds run the model with busy times
+# drawn per operation and NAND_PPM bit errors per million bits (step 3-2).
+# Fails unless every run passes and every covergroup bin is hit.
 #
 #   SEEDS      random seeds to run (default 10)
 #   NAND_N     commands per random run (default 300)
+#   NAND_PPM   bit error rate of the even seeds (default 200)
 #   BUILD_DIR  build root (default: build/dv in the repository)
 set -euo pipefail
 
@@ -14,6 +16,7 @@ root="$(cd "$here/.." && pwd)"
 out="${BUILD_DIR:-$root/build/dv}/nand"
 seeds="${SEEDS:-10}"
 n="${NAND_N:-300}"
+ppm="${NAND_PPM:-200}"
 mkdir -p "$out"
 
 r="$root/rtl"
@@ -42,13 +45,16 @@ run() {
   grep -E '^\[NAND\]|%Error|Assertion' "$out/$name.log" | sed "s/^/$name: /" | head -40
 }
 
-for t in regs reset id rw erase fail wp timeout timing queue arb softreset; do
+for t in regs reset id rw erase fail wp timeout timing queue arb softreset busy wear abort rules biterr; do
   run "$t" +test="$t" +verilator+seed+1
 done
 periods=(20000 17000 23000)
 for s in $(seq 1 "$seeds"); do
   p="${periods[$(( (s - 1) % 3 ))]}"
-  run "seed$s" +test=random +n="$n" +nand_ps="$p" +verilator+seed+"$s" | grep -E 'test random|ERROR|FAIL|%Error|Assertion' || true
+  dev=()
+  [ $(( s % 2 )) -eq 0 ] && dev=(+profile=1 +rber_ppm="$ppm")
+  run "seed$s" +test=random +n="$n" +nand_ps="$p" "${dev[@]}" +verilator+seed+"$s" \
+    | grep -E 'test random|ERROR|FAIL|%Error|Assertion' || true
 done
 
 verilator_coverage --write "$out/merged.dat" "$out"/cov_*.dat > /dev/null

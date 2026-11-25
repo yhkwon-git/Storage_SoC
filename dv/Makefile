@@ -1,5 +1,5 @@
 # Block-level checks: lint of rtl/ and the block testbenches.
-#   make -C dv            lint, fifo, slice, xbar, dma, tl, nvme, power, soc
+#   make -C dv            lint, iso-check, fifo, slice, xbar, dma, tl, nvme, nand, power, soc
 #   make -C dv fifo       FIFO at six clock pairs (FIFO_SRC, MIN_EFF: see run_fifo.sh)
 #   make -C dv xbar       crossbar: directed test and SEEDS random seeds (SEEDS, N: see run_xbar.sh)
 #   make -C dv xbar-mut   crossbar testbench against seven planted bugs (not part of all)
@@ -11,6 +11,10 @@
 #   make -C dv nvme       NVMe controller: directed tests, SEEDS random queue and random I/O seeds
 #                         (SEEDS, NVME_N, NVME_IO_N: see run_nvme.sh)
 #   make -C dv nvme-mut   NVMe testbench against 27 planted bugs (not part of all)
+#   make -C dv nand       NAND channel and model: directed tests, SEEDS random seeds (SEEDS, NAND_N,
+#                         NAND_PPM: see run_nand.sh)
+#   make -C dv nand-mut   NAND channel testbench against 18 planted bugs in the RTL (not part of all)
+#   make -C dv nand-model-mut  the same testbench against 21 planted bugs in the NAND model (not part of all)
 #   make -C dv power      PMU, PD_HOST and resets: directed and PLL-stuck tests, random off-state values
 #   make -C dv power-x    the same on Vivado's simulator with X off-state values (Windows, not part of all)
 #   make -C dv power-mut  power testbench against eleven planted bugs (not part of all)
@@ -60,7 +64,7 @@ SOC_RTL  := $(CSR_GEN) $(XBAR_RTL) $(RTL)/axi/axi2apb.sv $(RTL)/cpu/cpu_ibex.sv 
             $(RTL)/pmu/pmu.sv $(RTL)/host/phy_pll_model.sv $(RTL)/host/host_stub.sv $(RTL)/host/pd_host.sv \
             $(RTL)/host/host_if.sv $(RTL)/top/soc_pwr.sv $(NAND_RTL) $(RTL)/top/soc_top.sv
 
-.PHONY: all lint fifo slice xbar xbar-mut dma dma-mut tl tl-mut nvme nvme-mut nand nand-mut power power-x \
+.PHONY: all lint fifo slice xbar xbar-mut dma dma-mut tl tl-mut nvme nvme-mut nand nand-mut nand-model-mut power power-x \
         power-mut iso-check soc ral ral-mut rdl-check
 
 all: lint iso-check fifo slice xbar dma tl nvme nand power soc
@@ -123,6 +127,9 @@ nand:
 
 nand-mut:
 	bash mutate_nand.sh
+
+nand-model-mut:
+	bash mutate_nand_model.sh
 
 power:
 	bash run_power.sh

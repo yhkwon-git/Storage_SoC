@@ -67,7 +67,7 @@ for entry in "${mutants[@]}"; do
   first=""
   for args in "+test=regs" "+test=reset" "+test=id" "+test=rw" "+test=erase" "+test=fail" "+test=wp" \
               "+test=timeout" "+test=timing" "+test=queue" "+test=arb" "+test=softreset" \
-              "+test=random +n=150"; do
+              "+test=busy" "+test=wear" "+test=abort" "+test=rules" "+test=biterr" "+test=random +n=150"; do
     # shellcheck disable=SC2086
     if ! (cd "$dir" && timeout 900 "$base/obj/Vtb_nand" $args +verilator+seed+1) > "$dir/run.log" 2>&1; then
       first=$( (grep -m1 -E 'ERROR|%Error|Assertion|FAIL' "$dir/run.log" || true) | cut -c1-150)

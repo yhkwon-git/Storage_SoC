@@ -15,6 +15,12 @@
 //   +apb_check       after the firmware ends, the host checks the APB bridge
 //                    with DW, QW and burst reads through BAR2 (apb_check below)
 //
+// With +test=nand_char (step 3-2) the NAND models draw busy times per
+// operation and flip bits at 200 per million; NAND0 has factory bad blocks 7
+// and 40 and its block 3 at the rated endurance, NAND1 bad block 13. The
+// firmware's count of raw bit errors must equal the bits the model flipped in
+// the pages it read.
+//
 // Since step 2-1, M3 is the transaction layer: the host model (tlp_tb_pkg) on
 // the host_rx_* and host_tx_* pins, on pclk_in, enumerates the device once
 // PD_HOST is up (BARs, Memory Space and Bus Master Enable, Max_Payload_Size
@@ -204,6 +210,8 @@ module tb_soc;
   // ---------------------------------------------------------------------------
   string  line = "";
   string  test = "fw";
+  int     fw_flips;
+  bit     fw_flips_seen;
   bit     fw_done = 1'b0;
   int     fw_code;
   longint cycles = 0;
@@ -216,6 +224,7 @@ module tb_soc;
       if (console_valid) begin
         if (console_char == 8'h0A) begin
           $display("[FW] %s", line);
+          if ($sscanf(line, "nand_char: raw bit errors total %d", fw_flips) == 1) fw_flips_seen = 1'b1;
           line = "";
         end else begin
           line = {line, string'(console_char)};
@@ -1238,9 +1247,37 @@ module tb_soc;
   int    errs;
   string mode;
 
+  // NAND models for nand_char; the eight pages its survey reads.
+  task automatic nand_char_setup();
+    g_nm[0].u_m.profile = 1'b1;
+    g_nm[1].u_m.profile = 1'b1;
+    g_nm[0].u_m.rber    = 200.0e-6;
+    g_nm[1].u_m.rber    = 200.0e-6;
+    g_nm[0].u_m.set_bad(7);
+    g_nm[0].u_m.set_bad(40);
+    g_nm[1].u_m.set_bad(13);
+    g_nm[0].u_m.pe[3]   = g_nm[0].u_m.endurance;
+  endtask
+  int nand_errors;
+  task automatic nand_char_check();
+    int m = 0;
+    for (int r = 0; r < 4; r++) begin
+      if (g_nm[0].u_m.flip_log.exists(128 + r)) m += g_nm[0].u_m.flip_log[128 + r].size();
+      if (g_nm[0].u_m.flip_log.exists(192 + r)) m += g_nm[0].u_m.flip_log[192 + r].size();
+    end
+    $display("[SOC] nand_char: the model flipped %0d bits in the eight pages read, firmware counted %0d; NAND0 %0d busy operations, %0d bits flipped in %0d page reads; NAND1 %0d, %0d in %0d",
+             m, fw_flips, g_nm[0].u_m.n_ops, g_nm[0].u_m.n_flips, g_nm[0].u_m.n_flip_reads,
+             g_nm[1].u_m.n_ops, g_nm[1].u_m.n_flips, g_nm[1].u_m.n_flip_reads);
+    if (!fw_flips_seen || fw_flips != m) begin
+      nand_errors++;
+      $display("[SOC] ERROR: nand_char: raw bit errors counted by firmware and flipped by the model differ");
+    end
+  endtask
+
   initial begin
     void'($value$plusargs("test=%s", test));
     if (!$value$plusargs("max_cycles=%d", max_cycles) && test == "nvme_rand") max_cycles = 80_000_000;
+    if (test == "nand_char") nand_char_setup();
     bg = $test$plusargs("bg");
     host = new(hif);
     host.clk_period = 16;
@@ -1272,9 +1309,10 @@ module tb_soc;
     repeat (200) @(negedge clk);
     if (test != "reset") while (!host.idle()) @(negedge clk);
     if (test == "host") host_check();
+    if (test == "nand_char") nand_char_check();
     if ($test$plusargs("apb_check")) apb_check();
 
-    errs = host.errors + host_errors + apb_errors + g_nm[0].u_m.errors + g_nm[1].u_m.errors;
+    errs = host.errors + host_errors + apb_errors + nand_errors + g_nm[0].u_m.errors + g_nm[1].u_m.errors;
     mode = "";
     if (bg) mode = " with background traffic";
     $display("[SOC] %s%s: exit code %0d after %0d cycles; host requests %0d (%0d bytes), errors %0d",
