@@ -211,11 +211,11 @@ The ID-ordering rule is the usual deadlock-free choice for a crossbar without re
 | TIMER | `0x4000_3000` | `mtime`, `mtimecmp` |
 | DMA | `0x4000_4000` | Channel control, descriptor pointer, status |
 | HOST | `0x4000_5000` | Link hold and status, BAR window bases, bus master, MSI-X requests, error status, TLP counts |
-| NAND0 | `0x4000_6000` | Channel (step 3-1): write protect, interrupt enables, status, bus timing, busy timeout, command queue, completions, clock counts; ECC counters come with step 3-3 |
+| NAND0 | `0x4000_6000` | Channel (step 3-1): write protect, interrupt enables, status, bus timing, busy timeout, command queue, completions, clock counts; BCH on whole pages and its results and counters (step 3-3, [17_bch.md](17_bch.md)) |
 | NAND1 | `0x4000_7000` | Same as NAND0 |
 | NVME | `0x4000_8000` | NVMe controller, firmware side: controller state and events, command FIFO, command-buffer slots, I/O queue setup, queue pointers |
 
-A slot without a peripheral, and an undefined offset inside one, answer SLVERR (PSLVERR on the APB side). As of step 3-1, SYS, PMU, INTC, TIMER, DMA, HOST, NAND0, NAND1 and NVME exist ([06_dma.md](06_dma.md) for the DMA, [15_nand_channel.md](15_nand_channel.md) for NAND0 and NAND1, [07_clock_reset_power.md](07_clock_reset_power.md) for the PMU, [10_transaction_layer.md](10_transaction_layer.md) for HOST, which still holds the PD_HOST placeholder's command registers too, [11_nvme_queues.md](11_nvme_queues.md) for NVME). The PMU is in PD_AON and is reached through an APB clock-domain crossing. Their register files are generated from one SystemRDL source, `rtl/csr/rdl/soc_apb.rdl` ([05_csr.md](05_csr.md)), and every register and field is listed in [regs/soc_apb.md](regs/soc_apb.md). Blocks added later put their registers in the same source.
+A slot without a peripheral, and an undefined offset inside one, answer SLVERR (PSLVERR on the APB side). As of step 3-3, SYS, PMU, INTC, TIMER, DMA, HOST, NAND0, NAND1 and NVME exist ([06_dma.md](06_dma.md) for the DMA, [15_nand_channel.md](15_nand_channel.md) and [17_bch.md](17_bch.md) for NAND0 and NAND1, [07_clock_reset_power.md](07_clock_reset_power.md) for the PMU, [10_transaction_layer.md](10_transaction_layer.md) for HOST, which still holds the PD_HOST placeholder's command registers too, [11_nvme_queues.md](11_nvme_queues.md) for NVME). The PMU is in PD_AON and is reached through an APB clock-domain crossing. Their register files are generated from one SystemRDL source, `rtl/csr/rdl/soc_apb.rdl` ([05_csr.md](05_csr.md)), and every register and field is listed in [regs/soc_apb.md](regs/soc_apb.md). Blocks added later put their registers in the same source.
 
 The host sees two memory BARs (step 2-1; the plan of one 64 KiB window was split for NVMe):
 - **BAR0**, 16 KiB, 64-bit: offsets `0x0000`–`0x1FFF` are the NVMe controller's registers (CAP, VS, CC, CSTS, AQA, ASQ, ACQ, doorbells at `0x1000`), reached through the transaction layer's register port without AXI (step 2-2, [11_nvme_queues.md](11_nvme_queues.md)); `0x2000` holds the MSI-X table and `0x3000` its Pending Bit Array, both inside the transaction layer.
@@ -294,6 +294,7 @@ rtl/csr/      SystemRDL source (rdl/) and the register blocks generated from it 
 rtl/periph/   SYS, INTC and timer: logic around the generated register blocks
 rtl/dma/      DMA
 rtl/nand/     NAND channel controllers (step 3-1)
+rtl/ecc/      BCH encoder and decoder of the NAND channels (step 3-3)
 rtl/pmu/      PMU, reset controller, wake detect, isolation and retention cells
 rtl/common/   synchronizers, async FIFO, clock gate
 rtl/vendor/   third-party sources, each pinned to a commit

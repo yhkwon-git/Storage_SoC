@@ -233,7 +233,7 @@ Back-to-back data cycles take tWP + tWH clocks (tRP + tREH), so the fastest sett
 - **One target per channel.** No CE# interleaving, cache or multi-plane operations, synchronous modes, parameter page, or SET FEATURES (the timing comes from TIMING0 and TIMING1).
 - **One command at a time per channel and one page buffer:** the bus waits while firmware or the DMA fills the buffer for the next program.
 - **Busy is waited for on R/B# only**, not by polling status.
-- **No ECC:** step 3-3 adds BCH between the page buffer and the bus. Step 3-4 joins NVMe commands to the channels.
+- **No ECC** at this step: step 3-3 ([17_bch.md](17_bch.md)) adds BCH between the page buffer and the bus. Step 3-4 joins NVMe commands to the channels.
 - **Fixed busy times in the model** at this step; step 3-2 ([16_nand_model.md](16_nand_model.md)) draws them per operation and adds wear, bit errors and factory bad blocks.
 - **STA of the NAND pins** uses a plain 30% input and output budget against `clk_nand`; pad and board delays are left to layout.
 

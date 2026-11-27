@@ -12,8 +12,8 @@ A RISC-V CPU, an AXI4 interconnect, DMA, SystemRDL-generated CSRs and always-on 
 
 | Item | Value |
 | --- | --- |
-| Current phase | Phase 3, storage datapath: steps 3-1 (NAND channel controllers) and 3-2 (NAND model: busy times, wear, bit errors) done. Next: 3-3 (BCH encoder and decoder). Phase 1 and steps 2-1 to 2-5 are done; steps 2-6 to 2-9 follow phase 3. Setup at the ss corner is not met (docs/09 to docs/15) |
-| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 6 AXI4 crossbar, with SRAM, a descriptor-based DMA, and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; an always-on PMU that orders the resets and switches the PD_HOST domain with isolation and retention (UPF); a CPU clock gate; a PCIe-style transaction layer on the host link (inbound BARs, bus master, configuration space, MSI-X); an NVMe-style controller (registers, doorbells, round-robin command fetch into SRAM, PRP data transfers with lists, completion queue entries with phase tags and MSI-X per queue, epochs that make a controller reset safe while firmware holds commands) driven by firmware that serves admin, Read, Write and Flush commands; two NAND channels with an ONFI-style asynchronous interface, each a bus sequencer on clk_nand with command and completion queues and an 8 KiB page buffer; dual-clock FIFO, 2-flop synchronizer, channel register slice |
+| Current phase | Phase 3, storage datapath: steps 3-1 (NAND channel controllers), 3-2 (NAND model: busy times, wear, bit errors) and 3-3 (BCH error correction) done. Next: 3-4 (NVMe reads and writes through to NAND). Phase 1 and steps 2-1 to 2-5 are done; steps 2-6 to 2-9 follow phase 3. Setup at the ss corner is not met (docs/09 to docs/17) |
+| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 6 AXI4 crossbar, with SRAM, a descriptor-based DMA, and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; an always-on PMU that orders the resets and switches the PD_HOST domain with isolation and retention (UPF); a CPU clock gate; a PCIe-style transaction layer on the host link (inbound BARs, bus master, configuration space, MSI-X); an NVMe-style controller (registers, doorbells, round-robin command fetch into SRAM, PRP data transfers with lists, completion queue entries with phase tags and MSI-X per queue, epochs that make a controller reset safe while firmware holds commands) driven by firmware that serves admin, Read, Write and Flush commands; two NAND channels with an ONFI-style asynchronous interface, each a bus sequencer on clk_nand with command and completion queues, an 8 KiB page buffer and a BCH encoder and decoder correcting 8 bits per 512 bytes; dual-clock FIFO, 2-flop synchronizer, channel register slice |
 | Verification tools | Vivado simulator 2019.2 (UVM 1.2), Verilator 5.052 |
 | Register generation | PeakRDL 1.5.0: register RTL, C header, UVM register model and register document from one source |
 | Implementation tools | sv2v 0.0.13, Yosys 0.52, OpenSTA 3.1.0, Sky130 HD from lambdapdk v0.2.9 (ss/tt/ff corners) |
@@ -73,7 +73,7 @@ flowchart LR
 | 0 | Toolchain checks, repository layout, CI, RISC-V GCC | Done |
 | 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | Done: 1-1 to 1-9; setup at ss not met (docs/09) |
 | 2 | Host interface: transaction layer and NVMe front-end (steps 2-1 to 2-5), then data link layer, PHY with a PIPE-style boundary and link training (steps 2-6 to 2-9) | In progress: 2-1 to 2-5 done; 2-6 to 2-9 after phase 3 |
-| 3 | Storage datapath: NAND channel controllers, NAND model, BCH, NVMe reads and writes through to NAND | In progress: 3-1 and 3-2 done |
+| 3 | Storage datapath: NAND channel controllers, NAND model, BCH, NVMe reads and writes through to NAND | In progress: 3-1 to 3-3 done |
 | 4 | SoC-level UVM, verification plan, coverage closure | Planned |
 | 5 | Full-chip synthesis and multi-corner STA, documentation | Planned |
 | 6 | Optional: DSP receiver for the PHY (FFE, DFE, Mueller-Muller CDR, real-number analog model) | Optional |
@@ -279,6 +279,23 @@ NAND model (commit 6b4fc0a, details in [docs/16_nand_model.md](docs/16_nand_mode
   - measures busy times on a fresh and a worn block: erases of 50 and 150 µs, and faster programs on the worn one;
   - counts raw bit errors: 20 in four fresh pages, 254 in four worn ones, and the 274 match the bits the model flipped.
 
+BCH error correction (commit 2c9bc8b, details in [docs/17_bch.md](docs/17_bch.md)):
+
+- **Code.** Binary BCH over GF(2^13) correcting 8 bit errors in each codeword of 512 data bytes, 4 metadata bytes and 13 parity bytes. A Python reference model defines it, generates the RTL's constants and the test vectors, and holds the decoder in both its textbook and its hardware form.
+- **Design.** Each NAND channel has an encoder on the program path and a decoder on the read path, in `clk_sys` between the page buffer and the bus.
+  - **Decoder:** syndromes 8 bits a clock; inversionless binary Berlekamp-Massey, 144 clocks on two multipliers; a Chien search 8 bits a clock, 529 clocks.
+  - **Page layout:** the 8 codewords of a page lie one after the other, the bad-block marker column left out. Each is decoded while the next one arrives, so a read takes 682 clocks more with ECC, the decode of the last codeword.
+  - **Corrections** are written into the page buffer a byte at a time, only once a codeword is known correctable. A parity mask makes erased pages read as valid codewords of FFh.
+- **Block tests.** 1,800 vectors of the model with 0 to 11 errors, the codec checked bit for bit: 1,191 codewords corrected (5,404 bits) and 443 past correcting, each as the model decodes it. Mutation check of the codec: 17 of 17, after two blind spots it found were closed.
+- **Channel tests.** Three ECC tests in `tb_nand` check the page layout and parity in the model's array, and every codeword of every read against the model's flip log; 85 of 85 covergroup bins. Mutation check: 28 of 28, 10 of them in the ECC path.
+- **SoC.** A firmware test programs and reads pages with ECC under raw bit errors:
+  - its 76 corrected bits are the ones the model flipped;
+  - an erased page reads as FFh;
+  - a worn block is past correcting in every codeword.
+
+  Every earlier firmware run exits after the same number of clocks as before.
+- **Synthesis and timing.** BCH is 9.9% of the standard cells, both channels. It meets 50 MHz at tt and ff with 12 ns or more to spare. At ss, `clk_nand` now misses by 0.311 ns in the sequencer, which this step did not change; it is left to step 5-1 with the rest of that corner. CDC check PASS with no new crossings.
+
 ## How to run
 
 ```bash
@@ -292,13 +309,14 @@ powershell -ExecutionPolicy Bypass -File flow\tools\check_xsim.ps1   # [TOOLS] x
 ```
 
 ```bash
-# Block and SoC checks (Linux or WSL): lint, UPF check, dual-clock FIFO, register slice, crossbar, DMA, transaction layer, NVMe queues, NAND channel and model, power, firmware on soc_top
-make -C dv                                                           # [LINT] [ISO] PASS ... [XBAR] [DMA] [TL] [NVME] [NAND] [PWR] [SOC] all runs PASS
+# Block and SoC checks (Linux or WSL): lint, UPF check, dual-clock FIFO, register slice, crossbar, DMA, transaction layer, NVMe queues, BCH against its Python model (needs python3), NAND channel and model, power, firmware on soc_top
+make -C dv                                                           # [LINT] [ISO] PASS ... [XBAR] [DMA] [TL] [NVME] [BCH] [NAND] [PWR] [SOC] all runs PASS
 make -C dv xbar-mut                                                  # [MUT] 7 of 7 mutants caught
 make -C dv dma-mut                                                   # [MUT] 10 of 10 mutants caught
 make -C dv tl-mut                                                    # [MUT] 16 of 16 mutants caught
 make -C dv nvme-mut                                                  # [MUT] 33 of 33 mutants caught
-make -C dv nand-mut                                                  # [MUT] 18 of 18 mutants caught
+make -C dv bch-mut                                                   # [MUT] 17 of 17 mutants in the BCH codec caught
+make -C dv nand-mut                                                  # [MUT] 28 of 28 mutants caught
 make -C dv nand-model-mut                                            # [MUT] 21 of 21 mutants in the NAND model caught
 make -C dv power-mut                                                 # [MUT] 11 of 11 mutants caught
 make -C dv power-x                                                   # [PWR] X run PASS: power testbench on xsim (WSL calls Windows)
@@ -321,6 +339,7 @@ dv/                  testbenches (dv/tb/), SVA checkers (dv/sva/), lint waivers 
 dv/ral/              UVM register model generated from SystemRDL
 dv/uvm/              APB agent and UVM register tests (xsim)
 flow/rdl/            register generation script and pinned PeakRDL versions
+flow/bch/            Python reference model of the BCH code: RTL constants, test vectors
 flow/cdc/            structural clock-domain-crossing check of the netlist
 flow/power/          check that the UPF and the RTL agree on isolation and retention
 flow/sta/            OpenSTA at three corners
@@ -333,6 +352,7 @@ rtl/cpu/             Ibex wrapper, Ibex-port-to-AXI4 adapter
 rtl/csr/             SystemRDL source (rdl/) and the register blocks generated from it (gen/)
 rtl/dma/             descriptor-based DMA
 rtl/nand/            NAND channel controllers: bus sequencer (clk_nand), command and completion queues, data mover, page buffer
+rtl/ecc/             BCH encoder and decoder (syndromes, Berlekamp-Massey, Chien search) and its generated constants
 rtl/host/            PD_HOST boundary, its placeholder logic, core side (HOST registers, FIFOs), PLL model
 rtl/host/tl/         transaction layer: receive buffer, pack and unpack, dispatcher, configuration space, MSI-X, completer, bus master, link-side port
 rtl/host/nvme/       NVMe controller: host registers and doorbells, queue pointers, round-robin fetch, command slots and FIFO, PRP engine, completion poster, controller buffer
@@ -365,6 +385,7 @@ rtl/vendor/ibex/     Ibex v2.1.0, unchanged (VENDOR.md)
 | [docs/14_nvme_host_verification.md](docs/14_nvme_host_verification.md) | NVMe host driver model and verification: why the controller needed epochs and how they work, the host model's checks, the nvme_rand epochs and reset plan, queue assertions, coverage, results, findings |
 | [docs/15_nand_channel.md](docs/15_nand_channel.md) | NAND channel controllers: what firmware sees, the bus operations and timing, design decisions, the NAND model and its checks, tests, assertions, coverage, mutation check, throughput, SoC tests, area, timing and CDC, findings |
 | [docs/16_nand_model.md](docs/16_nand_model.md) | NAND model: busy times from program loops and erase pulses, wear and endurance, raw bit errors and their log, factory bad blocks, program rules, stopped operations, its knobs, tests, mutation check of the model, the SoC characterization test, findings |
+| [docs/17_bch.md](docs/17_bch.md) | BCH error correction: the code, what firmware sees (page layout, the marker column, erased pages), encoder and decoder, design decisions, the Python reference model, codec and channel tests, mutation checks, the SoC test, area, timing and CDC, findings |
 | [docs/regs/soc_apb.md](docs/regs/soc_apb.md) | Generated register reference: every register and field with offset, access and reset value |
 
 ## Limitations
@@ -386,7 +407,7 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
 - **Storage path.** NAND channel controller 2개와 BCH ECC, NVMe Read·Write를 SRAM을 거쳐 NAND까지 처리하는 firmware입니다.
 - **진행 순서.** Phase 1 → 2-1~2-5(transaction 수준 host 모델로 NVMe) → Phase 3 → 2-6~2-9(link · PHY) → Phase 4, 5. NVMe 명령이 NAND까지 가는 경로를 serial link보다 먼저 완성합니다.
 - **검증과 구현.** IP별 TB를 먼저 만들고, SoC 전체는 UVM(Vivado simulator 2019.2)으로 sign-off합니다. lint, 빠른 regression, coverage는 Verilator 5.052, 합성과 multi-corner STA는 Yosys, OpenSTA, Sky130으로 합니다.
-- **현재 상태.** Phase 0(도구 확인, repo 구조, CI, RISC-V GCC)과 Phase 1(SoC platform, 1-1~1-9)이 끝났고, ss corner의 setup 미충족은 docs/09에 기록했습니다. Phase 2는 2-1(transaction layer), 2-2(NVMe register와 queue), 2-3(PRP 데이터와 completion), 2-4(SRAM namespace에서 firmware 명령 처리), 2-5(NVMe host driver 모델과 검증)를 마쳤습니다. Phase 3(storage datapath)는 3-1(NAND channel controller)과 3-2(busy 시간, 마모, bit error를 넣은 NAND 모델)를 마쳤고, 다음은 3-3(BCH encoder·decoder)입니다. 2-6~2-9는 Phase 3 뒤입니다.
+- **현재 상태.** Phase 0(도구 확인, repo 구조, CI, RISC-V GCC)과 Phase 1(SoC platform, 1-1~1-9)이 끝났고, ss corner의 setup 미충족은 docs/09에 기록했습니다. Phase 2는 2-1(transaction layer), 2-2(NVMe register와 queue), 2-3(PRP 데이터와 completion), 2-4(SRAM namespace에서 firmware 명령 처리), 2-5(NVMe host driver 모델과 검증)를 마쳤습니다. Phase 3(storage datapath)는 3-1(NAND channel controller), 3-2(busy 시간, 마모, bit error를 넣은 NAND 모델), 3-3(BCH 오류 정정)을 마쳤고, 다음은 3-4(NVMe Read·Write가 NAND까지 가는 datapath)입니다. 2-6~2-9는 Phase 3 뒤입니다.
   - 1-1 아키텍처 사양([docs/01_soc_architecture.md](docs/01_soc_architecture.md)): clock 5개와 crossing 규칙, reset 해제 순서, PD_HOST의 isolation·retention·power sequence, AXI4 규칙, address·interrupt map, 목표 주파수를 정했습니다.
   - 1-2 공통 블록([docs/02_common_blocks.md](docs/02_common_blocks.md)): 이전 프로젝트의 2-FF synchronizer와 register slice는 로직을 그대로 가져왔습니다. dual-clock FIFO는 같은 TB로 측정한 결과 처리량이 상한의 12.5~24.8%(4:1 비율만 50~68%)에 그쳐서 새로 설계했고, 새 FIFO는 12개 run 모두 데이터 오류 0, 상한의 97.9~101.0%를 냈습니다(commit 8ce1fac).
   - 1-3 AXI4 crossbar([docs/03_axi_crossbar.md](docs/03_axi_crossbar.md)): 4×5 sparse 구조이고, 같은 ID가 outstanding인 동안 다른 slave로 넘어가지 않게 해서 reorder buffer 없이 응답 순서를 지킵니다. master마다 DECERR slave를 두고, W는 master와 slave 양쪽의 AW 순서를 따르게 했습니다(commit 76fd272).
@@ -507,5 +528,19 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
       - 두 채널의 factory bad block을 scan해, marker에 bit error가 있어도 심어 둔 3개만 정확히 찾습니다.
       - 신품 block과 마모된 block의 busy 시간을 잽니다. erase는 50 µs와 150 µs이고, program은 마모된 쪽이 더 빠릅니다.
       - raw bit error는 신품 4 page에서 20개, 마모된 4 page에서 254개이며, 합계 274개가 모델이 뒤집은 bit 수와 같습니다(commit 6b4fc0a).
+  - 3-3 BCH 오류 정정([docs/17_bch.md](docs/17_bch.md)):
+    - **부호.** GF(2^13) binary BCH로, data 512 B, metadata 4 B, parity 13 B로 된 codeword마다 8 bit를 정정합니다. Python 기준 모델이 부호를 정의하고 RTL 상수와 test vector를 만들며, decoder를 교과서 형태와 하드웨어 형태 둘 다 갖고 있습니다.
+    - **구조.** NAND channel마다 page buffer와 bus 사이 clk_sys에 encoder(program 경로)와 decoder(read 경로)를 넣었습니다.
+      - decoder: syndrome은 clock마다 8 bit, Berlekamp-Massey는 역원 없는 binary 형태로 multiplier 2개에서 144 clock, Chien search는 clock마다 8 bit로 529 clock입니다.
+      - page layout: page의 codeword 8개를 차례로 놓고 bad-block marker column은 뺐습니다. 각 codeword를 다음 codeword가 들어오는 동안 decode하므로, ECC read는 마지막 codeword의 decode만큼인 682 clock만 늘어납니다.
+      - 정정은 codeword가 정정 가능하다고 판정된 뒤에만 page buffer에 byte 단위로 씁니다. parity mask로 erased page가 FFh의 유효한 codeword로 읽힙니다.
+    - **Block 검증.** 오류 0~11개를 넣은 모델 벡터 1,800개로 codec을 bit 단위로 대조했습니다. 1,191개 codeword를 정정했고(5,404 bit), 443개를 정정 불가로 판정했으며 모두 모델과 같습니다. codec mutation은 17/17이고, mutation이 찾은 TB 사각지대 두 곳을 막은 결과입니다.
+    - **Channel 검증.** tb_nand의 ECC test 3종이 모델 array에서 page layout과 parity를 확인하고, 모든 read의 codeword를 모델 flip log와 대조합니다. covergroup 85/85, mutation 28/28(ECC 경로 10개 포함)입니다.
+    - **SoC 테스트.** firmware가 raw bit error 속에서 ECC로 page를 program하고 읽습니다.
+      - 정정한 76 bit가 모델이 뒤집은 bit와 같습니다.
+      - erased page는 FFh로 읽힙니다.
+      - 마모된 block은 모든 codeword가 정정 불가입니다.
+      - 기존 firmware 실행은 모두 clock 수가 그대로입니다.
+    - **합성과 타이밍.** BCH는 두 channel 합쳐 표준 cell 면적의 9.9%이고, tt와 ff에서 12 ns 이상 여유로 50 MHz를 만족합니다. ss에서는 이번 step에서 바꾸지 않은 sequencer의 clk_nand 경로가 0.311 ns 부족해졌고, 이 corner의 나머지 문제와 함께 5-1로 넘깁니다. CDC 검사는 새 crossing 없이 PASS입니다(commit 2c9bc8b).
 - **범위.** 공개 자료만으로 구성하며 PCIe, NVMe, ONFI, M-PHY, UniPro 규격 준수를 주장하지 않습니다. NVMe는 공개된 Base Specification의 register · queue · PRP 구조 일부만, NAND channel은 공개된 ONFI 규격의 일반 구조만 따릅니다.
 - **LLM 사용.** 코드, 테스트, 문서 초안에 LLM(Claude)을 쓰고, repo 안의 regression과 검사를 통과한 결과만 반영합니다.
