@@ -7,10 +7,12 @@
 # outstanding reads and its enumeration. Then the NVMe host driver model runs
 # against nvme_app (+test=nvme_rand, step 2-5): NVME_RAND_SEEDS seeds of
 # NVME_RAND_N commands, seed 1 also with background traffic, and every bin of
-# its covergroups must be hit.
+# its covergroups must be hit. Last, nvme_rand runs against ssd_app, whose
+# namespace is on NAND (+ssd, step 3-4), alone and with background traffic.
 #
 #   NVME_RAND_SEEDS  seeds of nvme_rand (default 3)
 #   NVME_RAND_N      I/O commands per nvme_rand run (default 1200)
+#   SSD_N            I/O commands of each ssd_app run (default 600)
 #   BUILD_DIR  build root (default: build/dv in the repository)
 set -euo pipefail
 
@@ -98,6 +100,19 @@ for s in $(seq 1 "$rand_seeds"); do
     grep -E '^\[(FW|SOC|NVMEH)\]|%Error|Assertion' "$out/$name.log" | sed "s/^/$name: /"
   done
 done
+
+ssd_n="${SSD_N:-600}"
+for mode in "" "+bg"; do
+  name="ssd${mode:+_bg}"
+  # shellcheck disable=SC2086
+  if ! (cd "$out" && ./obj/Vtb_soc +rom="$img/ssd_app.hex" +test=nvme_rand +ssd +nvme_n="$ssd_n" $mode \
+          +verilator+seed+1 +verilator+coverage+file+"cov_ssd${mode:+_bg}.dat") > "$out/$name.log" 2>&1; then
+    fail=1
+  fi
+  grep -q '\[SOC\] nvme_rand: PASS' "$out/$name.log" || fail=1
+  grep -E '^\[(FW|SOC|NVMEH)\]|%Error|Assertion' "$out/$name.log" | sed "s/^/$name: /"
+done
+
 verilator_coverage --write "$out/merged.dat" "$out"/cov_nvme_rand*.dat > /dev/null
 bins=$(grep -c 't.covergroup' "$out/merged.dat" || true)
 hit=$(grep 't.covergroup' "$out/merged.dat" | awk '$NF > 0' | wc -l)

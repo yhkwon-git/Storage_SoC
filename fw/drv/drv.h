@@ -11,7 +11,8 @@
  *   pmu    PD_HOST power-down and power-up by interrupt, chip reset
  *   host   one command to the PD_HOST placeholder and its response
  *   crc32  table-driven CRC-32 (reflected, polynomial 0xEDB88320)
- *   nvme   NVMe admin and I/O commands on an SRAM namespace (step 2-4)
+ *   nvme   NVMe admin and I/O commands on an SRAM namespace (step 2-4), or
+ *          built with NS_NAND on NAND through ftl (step 3-4)
  */
 #ifndef DRV_H
 #define DRV_H
@@ -83,5 +84,22 @@ extern nvme_stats_t nvme_stats;
 void     nvme_init(void);
 int      nvme_service(void);
 uint32_t nvme_events(void);
+
+/* ftl: the flash translation layer of ssd_app (step 3-4,
+ * docs/18_nvme_nand.md): logical pages of 4 KiB, eight namespace blocks, on
+ * both NAND channels through the BCH path. ftl_read() and ftl_write() move
+ * one logical page between SRAM and NAND and return 0, or -1 when a
+ * codeword was past correcting or no page could be programmed. */
+#define FTL_LPNS 32u
+typedef struct {
+  uint32_t reads, writes, unmapped;          /* logical pages read, written, read before any write */
+  uint32_t erases, bad_blocks, prog_fails;
+  uint32_t ecc_bits, ecc_unc, meta_errors;   /* bits corrected, codewords past correcting */
+  uint32_t read_clocks, write_clocks;
+} ftl_stats_t;
+extern ftl_stats_t ftl_stats;
+int ftl_init(void);
+int ftl_read(uint32_t lpn, uint32_t sram);
+int ftl_write(uint32_t lpn, uint32_t sram);
 
 #endif

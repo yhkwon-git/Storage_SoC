@@ -925,6 +925,8 @@ module tb_soc;
   // ---------------------------------------------------------------------------
   nvme_host_pkg::nvme_host nh;
   int nr_live [$], nr_cqs [$];
+  bit ssd;                 // +ssd: ssd_app's namespace on NAND (step 3-4)
+  int nr_slow = 1;         // how much longer the host waits with +ssd
 
   wire        nv_cc_en   = dut.u_pwr.u_host_if.u_nvme.cc[0];
   wire        nv_f_busy  = dut.u_pwr.u_host_if.u_nvme.f_busy;
@@ -1049,8 +1051,10 @@ module tb_soc;
       bit ok = 1'b0;
       for (int t = 0; t < 6 && !ok; t++) begin
         int nb  = ($urandom_range(9) < 7) ? $urandom_range(8, 1) : ($urandom_range(2) == 0) ? 1 : $urandom_range(24, 9);
-        int lba = $urandom_range(nvme_host_pkg::NSB - nb);
-        int off = ($urandom_range(1) == 0) ? 0 : 4 * $urandom_range(1023);
+        int lba, off;
+        if (nb > nh.mxb) nb = nh.mxb;
+        lba = $urandom_range(nh.nsb - nb);
+        off = ($urandom_range(1) == 0) ? 0 : 4 * $urandom_range(1023);
         ok = nh.io(q, k, lba, nb, off);
         if (nh.sq_room(q) == 0) break;
       end
@@ -1078,7 +1082,8 @@ module tb_soc;
     int        layout, nio, sqs, cqs;
     nh.enable((e == 0) ? 4 : $urandom_range(16, 2));
     nh.admin(0, 8'h06, 32'd0, HBUF, 32'h1, 32'd0, nvme_host_pkg::ST_OK, dw0);
-    if (host.hget(HBUF + 64'd77) != 8'd5) nh.err("Identify Controller: MDTS");
+    // MDTS: 128 KiB, or 8 KiB for ssd_app (+ssd)
+    if (host.hget(HBUF + 64'd77) != (ssd ? 8'd1 : 8'd5)) nh.err("Identify Controller: MDTS");
     layout = (e == 0) ? 0 : $urandom_range(2);
     nio    = (e == 0 || e == 1) ? 4 : $urandom_range(4, 2);
     nr_live.delete();
@@ -1124,17 +1129,18 @@ module tb_soc;
     int big_nb [4]  = '{24, 16, 24, 9};
     int big_off [4] = '{0, 2048, 3584, 1024};
     for (int i = 0; i < 4; i++) begin
+      if (big_nb[i] > nh.mxb) big_nb[i] = nh.mxb;
       n = 0;
       while (!nh.io(i + 1, (i % 2 == 0) ? nvme_host_pkg::K_WRITE : nvme_host_pkg::K_READ,
                     big_lba[i], big_nb[i], big_off[i])) begin
         nh.ring_all(); nh.poll(); @(negedge clk);
-        if (++n > 100000) begin nh.err("large transfer could not be issued"); break; end
+        if (++n > 100000 * nr_slow) begin nh.err("large transfer could not be issued"); break; end
       end
       nh.drain();
       n = 0;
       while (!nh.io(i + 1, nvme_host_pkg::K_READ, big_lba[i], big_nb[i], big_off[i])) begin
         nh.ring_all(); nh.poll(); @(negedge clk);
-        if (++n > 100000) begin nh.err("large read could not be issued"); break; end
+        if (++n > 100000 * nr_slow) begin nh.err("large read could not be issued"); break; end
       end
       nh.drain();
     end
@@ -1153,7 +1159,7 @@ module tb_soc;
         if (nv_c_wait && nv_c_cq == 3'(c)) waited = 1'b1;
         if (waited) nh.cq_hold[c] = 1'b0;
         repeat (4) @(negedge clk);
-        if (++n > 100000) begin nh.err($sformatf("CQ%0d never filled", c)); break; end
+        if (++n > 100000 * nr_slow) begin nh.err($sformatf("CQ%0d never filled", c)); break; end
       end
       nh.drain();
     end
@@ -1174,33 +1180,100 @@ module tb_soc;
   int nr_plan_hi [5]   = '{15, 999, 3, 0, 999};
   int nr_plan_busy [5] = '{3, 2, 1, 5, 4};
 
+  // +ssd (step 3-4): nvme_rand against ssd_app, whose namespace is on NAND:
+  // 256 blocks, at most 16 a command, every limit on waiting 50 times longer.
+  // The NAND models flip bits at 200 per million with busy times drawn per
+  // operation. NAND0 has factory bad block 1, and the first erase it gets
+  // fails; the first program NAND1 gets fails: the firmware must leave those
+  // blocks and lose no data.
+  task automatic ssd_setup();
+    ssd = 1'b1;
+    nr_slow = 50;
+    g_nm[0].u_m.profile    = 1'b1;
+    g_nm[1].u_m.profile    = 1'b1;
+    g_nm[0].u_m.rber       = 200.0e-6;
+    g_nm[1].u_m.rber       = 200.0e-6;
+    g_nm[0].u_m.set_bad(1);
+    g_nm[0].u_m.fail_erase = 1;
+    g_nm[1].u_m.fail_prog  = 1;
+  endtask
+
+  // ssd_app's pace (step 3-4), after the namespace is written: one command at
+  // a time on queue 1, 16 each of 4 KiB reads and writes of whole logical
+  // pages and 512-byte reads and writes; then 32 reads of 4 KiB with four
+  // outstanding, one on each I/O queue. Clocks from the submission to the
+  // completion, as the host sees them.
+  longint sp_lat [4];
+  longint sp_qd4;
+  task automatic ssd_qd1(int k, int nb, int idx);
+    longint t0 = cycles;
+    for (int i = 0; i < 16; i++) begin
+      int lba = (nb == 8) ? 8 * $urandom_range(nh.nsb / 8 - 1) : $urandom_range(nh.nsb - 1);
+      int n = 0;
+      while (!nh.io(1, k, lba, nb, 0)) begin
+        nh.ring_all(); nh.poll(); @(negedge clk);
+        if (++n > 100000 * nr_slow) begin nh.err("ssd perf: command not issued"); break; end
+      end
+      nh.drain();
+    end
+    sp_lat[idx] = (cycles - t0) / 16;
+  endtask
+  task automatic ssd_perf();
+    longint t0;
+    int     sent = 0, n = 0;
+    ssd_qd1(nvme_host_pkg::K_READ, 8, 0);
+    ssd_qd1(nvme_host_pkg::K_WRITE, 8, 1);
+    ssd_qd1(nvme_host_pkg::K_READ, 1, 2);
+    ssd_qd1(nvme_host_pkg::K_WRITE, 1, 3);
+    t0 = cycles;
+    while (sent < 32) begin
+      if (nh.out.size() < 4 && nh.io(1 + sent % 4, nvme_host_pkg::K_READ, 8 * $urandom_range(nh.nsb / 8 - 1), 8, 0))
+        sent++;
+      nh.ring_all();
+      nh.poll();
+      @(negedge clk);
+      if (++n > 1000000 * nr_slow) begin nh.err("ssd perf: QD4 reads not issued"); break; end
+    end
+    nh.drain();
+    sp_qd4 = cycles - t0;
+    $display("[SOC] ssd perf: one command at a time: 4 KiB read %0d clocks, write %0d; 512 B read %0d, write %0d; 32 reads of 4 KiB, four outstanding: %0d clocks (%0d IOPS at 50 MHz)",
+             sp_lat[0], sp_lat[1], sp_lat[2], sp_lat[3], sp_qd4, 32 * 50_000_000 / sp_qd4);
+  endtask
+
   task automatic nvme_rand_host();
     int ncmd = 1200, nep = 6, issued, per, n, p;
     longint t0;
     void'($value$plusargs("nvme_n=%d", ncmd));
     void'($value$plusargs("nvme_epochs=%d", nep));
     nh = new(host, BAR0, MSI);
+    if (ssd) begin
+      // ssd_app (step 3-4): its namespace and MDTS, and NAND's pace.
+      nh.nsb = 256;
+      nh.mxb = 16;
+      nh.timeout = nh.timeout * nr_slow;
+    end
     per = ncmd / nep;
     for (int e = 0; e < nep; e++) begin
       nr_setup(e);
       if (e == 0) begin
         // The whole namespace written, so that every block is known.
-        for (int b = 0; b < nvme_host_pkg::NSB; b += 8) begin
+        for (int b = 0; b < nh.nsb; b += 8) begin
           n = 0;
           while (!nh.io(1, nvme_host_pkg::K_WRITE, b, 8, 0)) begin
             nh.ring_all(); nh.poll(); @(negedge clk);
-            if (++n > 100000) begin nh.err("namespace fill stuck"); break; end
+            if (++n > 100000 * nr_slow) begin nh.err("namespace fill stuck"); break; end
           end
         end
         nh.drain();
         nr_directed();
+        if (ssd) ssd_perf();
       end
       issued = 0;
       n = 0;
       while (issued < per) begin
         int qd = (e == 1) ? 40 : (e == 0) ? 12 : $urandom_range(32, 1);
         nr_step(qd, issued);
-        if (++n > 400000) begin nh.err($sformatf("epoch %0d: workload stuck", e)); break; end
+        if (++n > 400000 * nr_slow) begin nh.err($sformatf("epoch %0d: workload stuck", e)); break; end
       end
       if (e == nep - 1) begin
         // Last epoch: complete everything, delete the queues, shut down.
@@ -1227,7 +1300,7 @@ module tb_soc;
               default: busy_ok = 1'b1;
             endcase
             if (nh.out.size() >= nr_plan_lo[p] && nh.out.size() <= nr_plan_hi[p] && busy_ok) break;
-            if (++n > 200000) begin
+            if (++n > 200000 * nr_slow) begin
               $display("[SOC] nvme_rand: epoch %0d reset without the planned state (%0d outstanding)", e, nh.out.size());
               break;
             end
@@ -1325,6 +1398,7 @@ module tb_soc;
     if (!$value$plusargs("max_cycles=%d", max_cycles) && test == "nvme_rand") max_cycles = 80_000_000;
     if (test == "nand_char") nand_char_setup();
     if (test == "nand_ecc") nand_ecc_setup();
+    if ($test$plusargs("ssd")) ssd_setup();
     bg = $test$plusargs("bg");
     host = new(hif);
     host.clk_period = 16;

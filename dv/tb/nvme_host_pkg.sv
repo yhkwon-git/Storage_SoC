@@ -28,7 +28,8 @@ package nvme_host_pkg;
   import tlp_tb_pkg::*;
 
   localparam int NQ   = 5;            // admin queue pair and four I/O queue pairs
-  localparam int NSB  = 24;           // namespace 1: blocks of 512 bytes
+  localparam int NSB  = 24;           // namespace 1: blocks of 512 bytes (nvme_app)
+  localparam int NSB_MAX = 256;       // the most a namespace may have (ssd_app, step 3-4)
   localparam int NBUF = 128;          // data buffers: 5 pages, then a PRP list page
 
   // Statuses as DW3 bits 31:17 carry them ({DNR, M, CRD, SCT, SC})
@@ -101,9 +102,11 @@ package nvme_host_pkg;
     bit        overlap;                         // the firmware's transfer overlap, as last set
 
     // Namespace copy
-    bit [7:0]  ns [NSB * 512];
-    bit        known [NSB];
-    int        wlock [NSB], rlock [NSB];
+    int        nsb = NSB;               // blocks of namespace 1
+    int        mxb = NSB;               // the most blocks a command moves (MDTS)
+    bit [7:0]  ns [NSB_MAX * 512];
+    bit        known [NSB_MAX];
+    int        wlock [NSB_MAX], rlock [NSB_MAX];
 
     // Data buffers
     int        free_buf [$];
@@ -123,7 +126,7 @@ package nvme_host_pkg;
       bar0 = b0;
       msi = msi_addr;
       for (int b = 0; b < NBUF; b++) free_buf.push_back(b);
-      for (int b = 0; b < NSB; b++) begin known[b] = 1'b0; wlock[b] = 0; rlock[b] = 0; end
+      for (int b = 0; b < NSB_MAX; b++) begin known[b] = 1'b0; wlock[b] = 0; rlock[b] = 0; end
       for (int q = 0; q < NQ; q++) begin sq_on[q] = 1'b0; cq_on[q] = 1'b0; end
     endfunction
 
@@ -572,7 +575,7 @@ package nvme_host_pkg;
         K_WRITE:   opc = 8'h01;
         K_FLUSH:   opc = 8'h00;
         K_BAD_OPC: begin opc = 8'h7F; want = ST_OPC; end
-        K_BAD_LBA: begin opc = 8'h02; want = ST_LBA; lba = NSB - 1; nblk = 2; len = 1024; end
+        K_BAD_LBA: begin opc = 8'h02; want = ST_LBA; lba = nsb - 1; nblk = 2; len = 1024; end
         K_BAD_NS:  begin opc = 8'h02; want = ST_NS; nsid = 32'd2; end
         default:   begin opc = 8'h01; want = ST_PRP; end   // K_BAD_PRP: PRP1 not DW aligned
       endcase

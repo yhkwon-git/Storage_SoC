@@ -7,7 +7,9 @@
  *          Create and Delete I/O Submission and Completion Queue, Set and
  *          Get Features Number of Queues
  *   I/O    Read, Write, Flush on namespace 1: NS_BLOCKS blocks of 512 bytes
- *          in SRAM at NS_BASE
+ *          in SRAM at NS_BASE; built with NS_NAND (ssd_app, step 3-4), on
+ *          NAND through the flash translation layer (ftl.c), the data
+ *          staged in SRAM at NS_BASE
  * Anything else is completed with the status the specification gives it
  * (Invalid Command Opcode, Invalid Field, Invalid Namespace, LBA Out of
  * Range, queue errors, PRP Offset Invalid, Data Transfer Error).
@@ -51,7 +53,15 @@
 #include "lib.h"
 
 #define NS_BASE   (SRAM_BASE + 0x8000u)
+#ifdef NS_NAND
+/* 32 logical pages of 8 blocks. A command moves at most 8 KiB (MDTS 1), so
+ * its logical pages fit in the 12 KiB staging area at NS_BASE. */
+#define NS_BLOCKS (8u * FTL_LPNS)
+#define NS_MDTS   1u
+#else
 #define NS_BLOCKS 24u
+#define NS_MDTS   5u
+#endif
 
 /* Status field (DW3 bits 31:17): DNR 14, SCT 10:8, SC 7:0 */
 #define ST(sct, sc, dnr) ((uint32_t)(((dnr) << 14) | ((sct) << 8) | (sc)))
@@ -67,6 +77,8 @@
 #define ST_QSIZE     ST(1, 0x02, 1)
 #define ST_IV        ST(1, 0x08, 1)
 #define ST_QDEL      ST(1, 0x0C, 1)
+#define ST_WFAULT    ST(2, 0x80, 0)       /* Write Fault */
+#define ST_UNREC     ST(2, 0x81, 0)       /* Unrecovered Read Error */
 /* Not a status: the command came before a controller reset (its epoch is
  * not the controller's). Nothing is posted for it. */
 #define ST_STALE     0x80000000u
@@ -184,7 +196,7 @@ static uint32_t identify(const uint32_t *c, uint32_t *dw0, uint32_t ep)
     put_str(24, 40, "Storage_SoC NVMe front-end");
     put_str(64, 8, "2.4");              /* FR */
     id_buf[72] = 0u;                    /* RAB */
-    id_buf[77] = 5u;                    /* MDTS: 2^5 x 4 KiB = 128 KiB */
+    id_buf[77] = NS_MDTS;               /* MDTS: 2^MDTS x 4 KiB (128 KiB, or 8 KiB on NAND) */
     put16(78, 1u);                      /* CNTLID */
     put32(80, 0x00010400u);             /* VER 1.4.0 */
     id_buf[512] = 0x66u;                /* SQES: 64 bytes */
@@ -324,6 +336,34 @@ static uint32_t io_check(const uint32_t *c, uint32_t *laddr, uint32_t *len)
   return ST_OK;
 }
 
+#ifdef NS_NAND
+/* A Read or a Write on NAND (step 3-4): the command's logical pages through
+ * the staging area. A Read fetches them, then moves the blocks asked for to
+ * the host. A Write first fetches the pages it covers only in part, so that
+ * their other blocks are kept, then takes the host's data over them and
+ * writes every page. */
+static uint32_t nand_io(const uint32_t *c, uint32_t len, uint32_t ep)
+{
+  uint32_t slba = c[10], nblk = len / 512u;
+  uint32_t lpn0 = slba / 8u, lpn1 = (slba + nblk - 1u) / 8u;
+  uint32_t off = 512u * (slba % 8u), st;
+  if (len > (4096u << NS_MDTS)) return ST_FIELD;   /* more than MDTS */
+  if ((c[0] & 0xFFu) == 0x02u) {
+    for (uint32_t l = lpn0; l <= lpn1; l++)
+      if (ftl_read(l, NS_BASE + 4096u * (l - lpn0)) != 0) return ST_UNREC;
+    return xfer_status(xfer(1, c, NS_BASE + off, len, ep));
+  }
+  if (slba % 8u != 0u && ftl_read(lpn0, NS_BASE) != 0) return ST_UNREC;
+  if ((slba + nblk) % 8u != 0u && (lpn1 != lpn0 || slba % 8u == 0u) &&
+      ftl_read(lpn1, NS_BASE + 4096u * (lpn1 - lpn0)) != 0) return ST_UNREC;
+  st = xfer_status(xfer(0, c, NS_BASE + off, len, ep));
+  if (st != ST_OK) return st;
+  for (uint32_t l = lpn0; l <= lpn1; l++)
+    if (ftl_write(l, NS_BASE + 4096u * (l - lpn0)) != 0) return ST_WFAULT;
+  return ST_OK;
+}
+#endif
+
 /* Post the completion of a command from submission queue sq to that queue's
  * completion queue, or count the command if it was found stale. */
 static void post(uint32_t sq, uint32_t cid, uint32_t status, uint32_t dw0, uint32_t ep)
@@ -372,6 +412,12 @@ static void drain(void)
       st = admin(sqe, &dw0, ep);
     } else {
       st = io_check(sqe, &laddr, &len);
+#ifdef NS_NAND
+      (void)laddr;
+      if (st == ST_OK && len != 0u) st = nand_io(sqe, len, ep);
+      post(q, sqe[0] >> 16, st, dw0, ep);
+      continue;
+#endif
       if (st == ST_OK && len != 0u) {
         int d2h = ((sqe[0] & 0xFFu) == 0x02u);
         if (overlap) {

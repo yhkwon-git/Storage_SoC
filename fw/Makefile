@@ -16,11 +16,14 @@ CFLAGS  := $(ARCH) -O2 -g -Wall -Wextra -ffreestanding -fno-builtin -nostdlib -I
 LDFLAGS := $(ARCH) -nostdlib -nostartfiles -T common/link.ld
 
 TESTS   := hello memtest irq buserr perf dma power reset host nvme nand nand_char nand_ecc
-APPS    := soc_app nvme_app
+APPS    := soc_app nvme_app ssd_app
 COMMON  := common/crt0.S common/lib.c
 DRV     := drv/irq.c drv/timer.c drv/dma.c drv/pmu.c drv/crc32.c
-# Drivers only one application links (DRV_<app>).
+# Drivers only one application links (DRV_<app>), and flags only it is built
+# with (CFLAGS_<app>).
 DRV_nvme_app := drv/nvme.c
+DRV_ssd_app  := drv/nvme.c drv/ftl.c
+CFLAGS_ssd_app := -DNS_NAND
 
 .PHONY: all images clean
 
@@ -35,7 +38,7 @@ $(BUILD)/%.elf: tests/%.c $(COMMON) common/lib.h common/soc.h common/link.ld
 .SECONDEXPANSION:
 $(BUILD)/%.elf: app/%.c $(COMMON) $(DRV) $$(DRV_$$*) drv/drv.h common/lib.h common/soc.h common/link.ld
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -Idrv $(LDFLAGS) -Wl,-Map=$(BUILD)/$*.map -o $@ $(COMMON) $(DRV) $(DRV_$*) $< -lgcc
+	$(CC) $(CFLAGS) $(CFLAGS_$*) -Idrv $(LDFLAGS) -Wl,-Map=$(BUILD)/$*.map -o $@ $(COMMON) $(DRV) $(DRV_$*) $< -lgcc
 	$(CROSS)size $@ > $(BUILD)/$*.size
 
 $(BUILD)/%.hex: $(BUILD)/%.elf bin2hex64.py
