@@ -12,8 +12,8 @@ A RISC-V CPU, an AXI4 interconnect, DMA, SystemRDL-generated CSRs and always-on 
 
 | Item | Value |
 | --- | --- |
-| Current phase | Phase 3, storage datapath: steps 3-1 (NAND channel controllers), 3-2 (NAND model: busy times, wear, bit errors) and 3-3 (BCH error correction) done. Next: 3-4 (NVMe reads and writes through to NAND). Phase 1 and steps 2-1 to 2-5 are done; steps 2-6 to 2-9 follow phase 3. Setup at the ss corner is not met (docs/09 to docs/17) |
-| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 6 AXI4 crossbar, with SRAM, a descriptor-based DMA, and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; an always-on PMU that orders the resets and switches the PD_HOST domain with isolation and retention (UPF); a CPU clock gate; a PCIe-style transaction layer on the host link (inbound BARs, bus master, configuration space, MSI-X); an NVMe-style controller (registers, doorbells, round-robin command fetch into SRAM, PRP data transfers with lists, completion queue entries with phase tags and MSI-X per queue, epochs that make a controller reset safe while firmware holds commands) driven by firmware that serves admin, Read, Write and Flush commands; two NAND channels with an ONFI-style asynchronous interface, each a bus sequencer on clk_nand with command and completion queues, an 8 KiB page buffer and a BCH encoder and decoder correcting 8 bits per 512 bytes; dual-clock FIFO, 2-flop synchronizer, channel register slice |
+| Current phase | Phase 2, host link: steps 2-6 to 2-9 (data link layer, PHY, link training, the full stack) are next. Phase 1, steps 2-1 to 2-5 and phase 3 (NAND channels, NAND model, BCH, NVMe reads and writes through to NAND) are done. Setup at the ss corner is not met (docs/09 to docs/17) |
+| Design | Ibex RV32IMC running firmware from a boot ROM on a 4 x 6 AXI4 crossbar, with SRAM, a descriptor-based DMA, and APB SYS, interrupt controller and timer whose registers are generated from SystemRDL; an always-on PMU that orders the resets and switches the PD_HOST domain with isolation and retention (UPF); a CPU clock gate; a PCIe-style transaction layer on the host link (inbound BARs, bus master, configuration space, MSI-X); an NVMe-style controller (registers, doorbells, round-robin command fetch into SRAM, PRP data transfers with lists, completion queue entries with phase tags and MSI-X per queue, epochs that make a controller reset safe while firmware holds commands) driven by firmware that serves admin, Read, Write and Flush commands, on SRAM or through a flash translation layer on NAND; two NAND channels with an ONFI-style asynchronous interface, each a bus sequencer on clk_nand with command and completion queues, an 8 KiB page buffer and a BCH encoder and decoder correcting 8 bits per 512 bytes; dual-clock FIFO, 2-flop synchronizer, channel register slice |
 | Verification tools | Vivado simulator 2019.2 (UVM 1.2), Verilator 5.052 |
 | Register generation | PeakRDL 1.5.0: register RTL, C header, UVM register model and register document from one source |
 | Implementation tools | sv2v 0.0.13, Yosys 0.52, OpenSTA 3.1.0, Sky130 HD from lambdapdk v0.2.9 (ss/tt/ff corners) |
@@ -73,7 +73,7 @@ flowchart LR
 | 0 | Toolchain checks, repository layout, CI, RISC-V GCC | Done |
 | 1 | SoC platform: CPU, AXI4 interconnect, CSR, DMA, clock/reset/power domains, firmware | Done: 1-1 to 1-9; setup at ss not met (docs/09) |
 | 2 | Host interface: transaction layer and NVMe front-end (steps 2-1 to 2-5), then data link layer, PHY with a PIPE-style boundary and link training (steps 2-6 to 2-9) | In progress: 2-1 to 2-5 done; 2-6 to 2-9 after phase 3 |
-| 3 | Storage datapath: NAND channel controllers, NAND model, BCH, NVMe reads and writes through to NAND | In progress: 3-1 to 3-3 done |
+| 3 | Storage datapath: NAND channel controllers, NAND model, BCH, NVMe reads and writes through to NAND | Done: 3-1 to 3-4 |
 | 4 | SoC-level UVM, verification plan, coverage closure | Planned |
 | 5 | Full-chip synthesis and multi-corner STA, documentation | Planned |
 | 6 | Optional: DSP receiver for the PHY (FFE, DFE, Mueller-Muller CDR, real-number analog model) | Optional |
@@ -296,6 +296,16 @@ BCH error correction (commit 2c9bc8b, details in [docs/17_bch.md](docs/17_bch.md
   Every earlier firmware run exits after the same number of clocks as before.
 - **Synthesis and timing.** BCH is 9.9% of the standard cells, both channels. It meets 50 MHz at tt and ff with 12 ns or more to spare. At ss, `clk_nand` now misses by 0.311 ns in the sequencer, which this step did not change; it is left to step 5-1 with the rest of that corner. CDC check PASS with no new crossings.
 
+NVMe on NAND (commit a4d455b, details in [docs/18_nvme_nand.md](docs/18_nvme_nand.md)):
+
+- **Firmware.** `ssd_app` is the NVMe firmware of step 2-4 with its namespace on NAND. No RTL changes.
+  - **Data path:** host memory, PRP transfers to an SRAM staging area, DMA to a channel's page buffer, BCH, NAND, and back for a read.
+  - **Flash translation layer:** logical pages of 4 KiB on both channels; out-of-place writes into erased blocks in page order; factory bad blocks skipped; failed erases and programs retired. Writes of less than a page are read-modify-write.
+- **Test.** The NVMe host driver model of step 2-5 runs against it, with controller resets in planned states, and compares every byte it reads. The NAND devices have raw bit errors, varying busy times, a factory bad block, an erase failure and a program failure.
+  - The 863-command run read back 733,696 bytes with 0 errors.
+  - The firmware corrected 4,643 bit errors and retired 3 bad blocks on the way.
+- **Pace.** One command at a time, a 4 KiB read takes 11,637 clocks and a 4 KiB write 12,215; a 512-byte write, which is read-modify-write, takes 21,669. Four outstanding reads give 4,515 IOPS, the same as one at a time: the firmware runs one NAND operation at a time.
+
 ## How to run
 
 ```bash
@@ -345,7 +355,7 @@ flow/power/          check that the UPF and the RTL agree on isolation and reten
 flow/sta/            OpenSTA at three corners
 flow/syn/            Sky130 library fetch, sv2v and Yosys synthesis, fanout buffering, area by block
 flow/tools/          toolchain checks: smoke_uvm.sv (xsim), smoke_cov.sv (Verilator) and their scripts
-fw/                  firmware: start-up and linker script (common/), tests (tests/), drivers including NVMe command handling (drv/), soc_app and nvme_app (app/), committed ROM images (images/)
+fw/                  firmware: start-up and linker script (common/), tests (tests/), drivers including NVMe command handling and the flash translation layer (drv/), soc_app, nvme_app and ssd_app (app/), committed ROM images (images/)
 rtl/axi/             AXI4 crossbar, ID tracker, default slave, AXI-to-APB bridge, channel register slice
 rtl/common/          dual-clock FIFO, 2-flop synchronizer, round-robin arbiter, single-clock FIFO
 rtl/cpu/             Ibex wrapper, Ibex-port-to-AXI4 adapter
@@ -386,6 +396,7 @@ rtl/vendor/ibex/     Ibex v2.1.0, unchanged (VENDOR.md)
 | [docs/15_nand_channel.md](docs/15_nand_channel.md) | NAND channel controllers: what firmware sees, the bus operations and timing, design decisions, the NAND model and its checks, tests, assertions, coverage, mutation check, throughput, SoC tests, area, timing and CDC, findings |
 | [docs/16_nand_model.md](docs/16_nand_model.md) | NAND model: busy times from program loops and erase pulses, wear and endurance, raw bit errors and their log, factory bad blocks, program rules, stopped operations, its knobs, tests, mutation check of the model, the SoC characterization test, findings |
 | [docs/17_bch.md](docs/17_bch.md) | BCH error correction: the code, what firmware sees (page layout, the marker column, erased pages), encoder and decoder, design decisions, the Python reference model, codec and channel tests, mutation checks, the SoC test, area, timing and CDC, findings |
+| [docs/18_nvme_nand.md](docs/18_nvme_nand.md) | NVMe on NAND: the data path through SRAM, what the host sees, the flash translation layer (map, out-of-place writes, bad blocks, metadata), design decisions, the host driver model's run on NAND, pace, limits |
 | [docs/regs/soc_apb.md](docs/regs/soc_apb.md) | Generated register reference: every register and field with offset, access and reset value |
 
 ## Limitations
@@ -407,7 +418,7 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
 - **Storage path.** NAND channel controller 2개와 BCH ECC, NVMe Read·Write를 SRAM을 거쳐 NAND까지 처리하는 firmware입니다.
 - **진행 순서.** Phase 1 → 2-1~2-5(transaction 수준 host 모델로 NVMe) → Phase 3 → 2-6~2-9(link · PHY) → Phase 4, 5. NVMe 명령이 NAND까지 가는 경로를 serial link보다 먼저 완성합니다.
 - **검증과 구현.** IP별 TB를 먼저 만들고, SoC 전체는 UVM(Vivado simulator 2019.2)으로 sign-off합니다. lint, 빠른 regression, coverage는 Verilator 5.052, 합성과 multi-corner STA는 Yosys, OpenSTA, Sky130으로 합니다.
-- **현재 상태.** Phase 0(도구 확인, repo 구조, CI, RISC-V GCC)과 Phase 1(SoC platform, 1-1~1-9)이 끝났고, ss corner의 setup 미충족은 docs/09에 기록했습니다. Phase 2는 2-1(transaction layer), 2-2(NVMe register와 queue), 2-3(PRP 데이터와 completion), 2-4(SRAM namespace에서 firmware 명령 처리), 2-5(NVMe host driver 모델과 검증)를 마쳤습니다. Phase 3(storage datapath)는 3-1(NAND channel controller), 3-2(busy 시간, 마모, bit error를 넣은 NAND 모델), 3-3(BCH 오류 정정)을 마쳤고, 다음은 3-4(NVMe Read·Write가 NAND까지 가는 datapath)입니다. 2-6~2-9는 Phase 3 뒤입니다.
+- **현재 상태.** Phase 0(도구 확인, repo 구조, CI, RISC-V GCC)과 Phase 1(SoC platform, 1-1~1-9)이 끝났고, ss corner의 setup 미충족은 docs/09에 기록했습니다. Phase 2는 2-1(transaction layer), 2-2(NVMe register와 queue), 2-3(PRP 데이터와 completion), 2-4(SRAM namespace에서 firmware 명령 처리), 2-5(NVMe host driver 모델과 검증)를 마쳤습니다. Phase 3(storage datapath)는 3-1(NAND channel controller), 3-2(busy 시간, 마모, bit error를 넣은 NAND 모델), 3-3(BCH 오류 정정), 3-4(NVMe Read·Write를 NAND까지)를 모두 마쳤습니다. 다음은 Phase 2 뒷부분 2-6~2-9(data link layer, PHY, link training, 전체 stack)입니다.
   - 1-1 아키텍처 사양([docs/01_soc_architecture.md](docs/01_soc_architecture.md)): clock 5개와 crossing 규칙, reset 해제 순서, PD_HOST의 isolation·retention·power sequence, AXI4 규칙, address·interrupt map, 목표 주파수를 정했습니다.
   - 1-2 공통 블록([docs/02_common_blocks.md](docs/02_common_blocks.md)): 이전 프로젝트의 2-FF synchronizer와 register slice는 로직을 그대로 가져왔습니다. dual-clock FIFO는 같은 TB로 측정한 결과 처리량이 상한의 12.5~24.8%(4:1 비율만 50~68%)에 그쳐서 새로 설계했고, 새 FIFO는 12개 run 모두 데이터 오류 0, 상한의 97.9~101.0%를 냈습니다(commit 8ce1fac).
   - 1-3 AXI4 crossbar([docs/03_axi_crossbar.md](docs/03_axi_crossbar.md)): 4×5 sparse 구조이고, 같은 ID가 outstanding인 동안 다른 slave로 넘어가지 않게 해서 reorder buffer 없이 응답 순서를 지킵니다. master마다 DECERR slave를 두고, W는 master와 slave 양쪽의 AW 순서를 따르게 했습니다(commit 76fd272).
@@ -542,5 +553,13 @@ PCIe 계열 serial host link 위에 NVMe 방식 front-end를 갖춘 소형 스�
       - 마모된 block은 모든 codeword가 정정 불가입니다.
       - 기존 firmware 실행은 모두 clock 수가 그대로입니다.
     - **합성과 타이밍.** BCH는 두 channel 합쳐 표준 cell 면적의 9.9%이고, tt와 ff에서 12 ns 이상 여유로 50 MHz를 만족합니다. ss에서는 이번 step에서 바꾸지 않은 sequencer의 clk_nand 경로가 0.311 ns 부족해졌고, 이 corner의 나머지 문제와 함께 5-1로 넘깁니다. CDC 검사는 새 crossing 없이 PASS입니다(commit 2c9bc8b).
+  - 3-4 NVMe on NAND([docs/18_nvme_nand.md](docs/18_nvme_nand.md)):
+    - **Firmware.** ssd_app은 2-4의 NVMe firmware에 NAND namespace를 붙인 것이고, RTL 변경은 없습니다.
+      - 데이터 경로: host memory → PRP 전송 → SRAM staging → DMA → channel page buffer → BCH → NAND이고, read는 그 반대입니다.
+      - flash translation layer: 4 KiB 논리 page를 두 channel에 나눠 두고, 지운 block에 page 순서대로 새 자리에 씁니다. factory bad block은 건너뛰고, erase·program이 실패한 block은 퇴출합니다. page보다 작은 write는 read-modify-write입니다.
+    - **검증.** 2-5의 NVMe host driver 모델이 계획된 상태에서 controller reset을 섞어 가며 ssd_app에 명령을 보내고, 읽은 모든 byte를 대조합니다. NAND에는 raw bit error, 변하는 busy 시간, factory bad block, erase 실패와 program 실패를 넣었습니다.
+      - 명령 863개 실행에서 733,696 byte를 읽어 오류 0입니다.
+      - firmware가 bit error 4,643개를 정정하고, bad block 3개를 퇴출했습니다.
+    - **성능.** 한 번에 한 명령씩 4 KiB read는 11,637 clock, 4 KiB write는 12,215 clock이고, read-modify-write인 512 B write는 21,669 clock입니다. read 4개를 동시에 걸어도 4,515 IOPS로 한 번에 하나일 때와 같은데, firmware가 NAND 동작을 하나씩 하기 때문입니다(commit a4d455b).
 - **범위.** 공개 자료만으로 구성하며 PCIe, NVMe, ONFI, M-PHY, UniPro 규격 준수를 주장하지 않습니다. NVMe는 공개된 Base Specification의 register · queue · PRP 구조 일부만, NAND channel은 공개된 ONFI 규격의 일반 구조만 따릅니다.
 - **LLM 사용.** 코드, 테스트, 문서 초안에 LLM(Claude)을 쓰고, repo 안의 regression과 검사를 통과한 결과만 반영합니다.
