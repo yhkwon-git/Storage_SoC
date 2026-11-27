@@ -19,7 +19,10 @@
 // operation and flip bits at 200 per million; NAND0 has factory bad blocks 7
 // and 40 and its block 3 at the rated endurance, NAND1 bad block 13. The
 // firmware's count of raw bit errors must equal the bits the model flipped in
-// the pages it read.
+// the pages it read. With +test=nand_ecc (step 3-3) NAND0 flips bits at 500
+// per million and has block 6 at the rated endurance; the bits the firmware
+// saw corrected, and the codewords of the worn page past correcting, must be
+// the ones the model's flips make.
 //
 // Since step 2-1, M3 is the transaction layer: the host model (tlp_tb_pkg) on
 // the host_rx_* and host_tx_* pins, on pclk_in, enumerates the device once
@@ -212,6 +215,9 @@ module tb_soc;
   string  test = "fw";
   int     fw_flips;
   bit     fw_flips_seen;
+  int     fw_ecc_plain, fw_ecc_cyc, fw_ecc_bits, fw_ecc_code;
+  bit [31:0] fw_ecc_unc;
+  bit [1:0]  fw_ecc_seen;
   bit     fw_done = 1'b0;
   int     fw_code;
   longint cycles = 0;
@@ -225,6 +231,10 @@ module tb_soc;
         if (console_char == 8'h0A) begin
           $display("[FW] %s", line);
           if ($sscanf(line, "nand_char: raw bit errors total %d", fw_flips) == 1) fw_flips_seen = 1'b1;
+          if ($sscanf(line, "nand_ecc: page read in %d clocks without ECC, %d with it; corrected bits total %d",
+                      fw_ecc_plain, fw_ecc_cyc, fw_ecc_bits) == 3) fw_ecc_seen[0] = 1'b1;
+          if ($sscanf(line, "nand_ecc: worn page code %d, past correcting mask 0x%h", fw_ecc_code, fw_ecc_unc) == 2)
+            fw_ecc_seen[1] = 1'b1;
           line = "";
         end else begin
           line = {line, string'(console_char)};
@@ -396,7 +406,7 @@ module tb_soc;
     force dut.u_pwr.u_host_if.u_tl.bar2_win = 17'h0_8000;   // 0x4000_0000
     // ID (0x000) and VERSION (0x004) in one QW read.
     host.mem_rd(BAR2, 8, b, st);
-    apb_expect(st == SC && qw(b, 0) == {32'h0003_0001, 32'h5353_4F43}, "QW read of ID and VERSION");
+    apb_expect(st == SC && qw(b, 0) == {32'h0003_0002, 32'h5353_4F43}, "QW read of ID and VERSION");
     // SCRATCH through a DW write, read back.
     host.mem_wr(BAR2 + 64'h8, le_bytes(64'h1234_5678, 4));
     host.mem_rd(BAR2 + 64'h8, 4, b, st);
@@ -1258,7 +1268,43 @@ module tb_soc;
     g_nm[1].u_m.set_bad(13);
     g_nm[0].u_m.pe[3]   = g_nm[0].u_m.endurance;
   endtask
+  // NAND0 for nand_ecc (step 3-3)
+  task automatic nand_ecc_setup();
+    g_nm[0].u_m.rber  = 500.0e-6;
+    g_nm[0].u_m.pe[6] = g_nm[0].u_m.endurance;
+  endtask
+  // The model's flips in the codewords of a row's last read (column 4096 is
+  // in none): codewords with at most 8 add their count to fixed, the others
+  // set their bit in unc.
+  function automatic void ecc_expect(int row, inout int fixed, inout bit [7:0] unc);
+    int q [$], n [8];
+    foreach (n[c]) n[c] = 0;
+    if (g_nm[0].u_m.flip_log.exists(row)) q = g_nm[0].u_m.flip_log[row];
+    foreach (q[k]) begin
+      int col = q[k] / 8;
+      if (col < 4233 && col != 4096) n[((col > 4096) ? col - 1 : col) / 529]++;
+    end
+    foreach (n[c]) begin
+      if (n[c] <= 8) fixed += n[c];
+      else unc[c] = 1'b1;
+    end
+  endfunction
+
   int nand_errors;
+  task automatic nand_ecc_check();
+    int       fixed = 0, fw = 0;
+    bit [7:0] u = '0, uw = '0;
+    for (int pg = 0; pg < 4; pg++) ecc_expect(5 * 64 + pg, fixed, u);
+    ecc_expect(6 * 64, fw, uw);
+    $display("[SOC] nand_ecc: the model flipped %0d bits in the codewords of the four pages read, firmware saw %0d corrected; worn page: past correcting %h by the model, %h by firmware (code %0d)",
+             fixed, fw_ecc_bits, uw, fw_ecc_unc[7:0], fw_ecc_code);
+    if (fw_ecc_seen != 2'b11 || fixed != fw_ecc_bits || u != 8'd0 || uw != fw_ecc_unc[7:0] ||
+        fw_ecc_code != ((uw != 8'd0) ? 4 : 0)) begin
+      nand_errors++;
+      $display("[SOC] ERROR: nand_ecc: firmware and the model's flips disagree");
+    end
+  endtask
+
   task automatic nand_char_check();
     int m = 0;
     for (int r = 0; r < 4; r++) begin
@@ -1278,6 +1324,7 @@ module tb_soc;
     void'($value$plusargs("test=%s", test));
     if (!$value$plusargs("max_cycles=%d", max_cycles) && test == "nvme_rand") max_cycles = 80_000_000;
     if (test == "nand_char") nand_char_setup();
+    if (test == "nand_ecc") nand_ecc_setup();
     bg = $test$plusargs("bg");
     host = new(hif);
     host.clk_period = 16;
@@ -1310,6 +1357,7 @@ module tb_soc;
     if (test != "reset") while (!host.idle()) @(negedge clk);
     if (test == "host") host_check();
     if (test == "nand_char") nand_char_check();
+    if (test == "nand_ecc") nand_ecc_check();
     if ($test$plusargs("apb_check")) apb_check();
 
     errs = host.errors + host_errors + apb_errors + nand_errors + g_nm[0].u_m.errors + g_nm[1].u_m.errors;

@@ -1,5 +1,5 @@
 # Block-level checks: lint of rtl/ and the block testbenches.
-#   make -C dv            lint, iso-check, fifo, slice, xbar, dma, tl, nvme, nand, power, soc
+#   make -C dv            lint, iso-check, fifo, slice, xbar, dma, tl, nvme, bch, nand, power, soc
 #   make -C dv fifo       FIFO at six clock pairs (FIFO_SRC, MIN_EFF: see run_fifo.sh)
 #   make -C dv xbar       crossbar: directed test and SEEDS random seeds (SEEDS, N: see run_xbar.sh)
 #   make -C dv xbar-mut   crossbar testbench against seven planted bugs (not part of all)
@@ -11,9 +11,11 @@
 #   make -C dv nvme       NVMe controller: directed tests, SEEDS random queue and random I/O seeds
 #                         (SEEDS, NVME_N, NVME_IO_N: see run_nvme.sh)
 #   make -C dv nvme-mut   NVMe testbench against 27 planted bugs (not part of all)
+#   make -C dv bch        BCH codec against its Python model (flow/bch/bch.py; BCH_NV, PYTHON: see run_bch.sh)
+#   make -C dv bch-mut    BCH testbench against 17 planted bugs (not part of all)
 #   make -C dv nand       NAND channel and model: directed tests, SEEDS random seeds (SEEDS, NAND_N,
 #                         NAND_PPM: see run_nand.sh)
-#   make -C dv nand-mut   NAND channel testbench against 18 planted bugs in the RTL (not part of all)
+#   make -C dv nand-mut   NAND channel testbench against 28 planted bugs in the RTL (not part of all)
 #   make -C dv nand-model-mut  the same testbench against 21 planted bugs in the NAND model (not part of all)
 #   make -C dv power      PMU, PD_HOST and resets: directed and PLL-stuck tests, random off-state values
 #   make -C dv power-x    the same on Vivado's simulator with X off-state values (Windows, not part of all)
@@ -39,7 +41,9 @@ CSR_GEN  := $(RTL)/csr/gen/sys_regs_pkg.sv $(RTL)/csr/gen/intc_regs_pkg.sv $(RTL
             $(RTL)/csr/gen/sys_regs.sv $(RTL)/csr/gen/intc_regs.sv $(RTL)/csr/gen/timer_regs.sv \
             $(RTL)/csr/gen/dma_regs.sv $(RTL)/csr/gen/pmu_regs.sv $(RTL)/csr/gen/host_regs.sv \
             $(RTL)/csr/gen/nvme_regs.sv $(RTL)/csr/gen/nand_regs.sv
-NAND_RTL := $(RTL)/nand/nand_pkg.sv $(RTL)/nand/nand_seq.sv $(RTL)/nand/nand_pbuf.sv $(RTL)/nand/nand_ctrl.sv
+ECC_RTL  := $(RTL)/ecc/bch_pkg.sv $(RTL)/ecc/bch_enc.sv $(RTL)/ecc/bch_syn.sv $(RTL)/ecc/bch_bm.sv \
+            $(RTL)/ecc/bch_chien.sv $(RTL)/ecc/bch_dec.sv
+NAND_RTL := $(ECC_RTL) $(RTL)/nand/nand_pkg.sv $(RTL)/nand/nand_seq.sv $(RTL)/nand/nand_pbuf.sv $(RTL)/nand/nand_ctrl.sv
 DMA_RTL  := $(RTL)/csr/gen/dma_regs_pkg.sv $(RTL)/csr/gen/dma_regs.sv $(RTL)/common/fifo_sync.sv \
             $(RTL)/dma/dma.sv
 TL_RTL   := $(RTL)/axi/axi_channel_reg_slice.sv $(RTL)/host/tl/tl_pkg.sv $(RTL)/host/tl/tl_dw_align.sv \
@@ -64,10 +68,11 @@ SOC_RTL  := $(CSR_GEN) $(XBAR_RTL) $(RTL)/axi/axi2apb.sv $(RTL)/cpu/cpu_ibex.sv 
             $(RTL)/pmu/pmu.sv $(RTL)/host/phy_pll_model.sv $(RTL)/host/host_stub.sv $(RTL)/host/pd_host.sv \
             $(RTL)/host/host_if.sv $(RTL)/top/soc_pwr.sv $(NAND_RTL) $(RTL)/top/soc_top.sv
 
-.PHONY: all lint fifo slice xbar xbar-mut dma dma-mut tl tl-mut nvme nvme-mut nand nand-mut nand-model-mut power power-x \
+.PHONY: all lint fifo slice xbar xbar-mut dma dma-mut tl tl-mut nvme nvme-mut bch bch-mut nand nand-mut nand-model-mut \
+        power power-x \
         power-mut iso-check soc ral ral-mut rdl-check
 
-all: lint iso-check fifo slice xbar dma tl nvme nand power soc
+all: lint iso-check fifo slice xbar dma tl nvme bch nand power soc
 
 lint:
 	verilator --lint-only -Wall --top-module cdc_async_fifo \
@@ -121,6 +126,12 @@ nvme:
 
 nvme-mut:
 	bash mutate_nvme.sh
+
+bch:
+	bash run_bch.sh
+
+bch-mut:
+	bash mutate_bch.sh
 
 nand:
 	bash run_nand.sh

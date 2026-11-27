@@ -12,7 +12,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Toolchain check (Verilator covergroups)
         run: bash flow/tools/check_verilator.sh
-      - name: Block and SoC checks (lint, UPF isolation check, CDC FIFO, register slice, crossbar, DMA, transaction layer, NVMe queues, power, firmware on soc_top, NVMe host driver model)
+      - name: Python 3 for the BCH reference model
+        run: python3 --version || (apt-get update && apt-get install -y --no-install-recommends python3 && python3 --version)
+      - name: Block and SoC checks (lint, UPF isolation check, CDC FIFO, register slice, crossbar, DMA, transaction layer, NVMe queues, BCH against its Python model, NAND channels, power, firmware on soc_top, NVMe host driver model)
         run: make -C dv
         env:
           SEEDS: "3"
@@ -23,3 +25,4 @@ jobs:
           NVME_IO_N: "150"
           NVME_RAND_SEEDS: "1"
           NVME_RAND_N: "400"
+          BCH_NV: "300"

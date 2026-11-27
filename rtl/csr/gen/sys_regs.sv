@@ -402,7 +402,7 @@ module sys_regs (
             readback_data_var[31:0] = 32'h53534f43;
         end
         if(rd_mux_addr == 12'h4) begin
-            readback_data_var[31:0] = 32'h30001;
+            readback_data_var[31:0] = 32'h30002;
         end
         if(rd_mux_addr == 12'h8) begin
             readback_data_var[31:0] = field_storage.SCRATCH.value.value;

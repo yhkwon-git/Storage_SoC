@@ -24,8 +24,8 @@ addrmap sys_regs {
 
   reg {
     name = "VERSION";
-    desc = "Register map version: 0x0003_0001 is the map of step 3-1 (NAND channel controllers).";
-    field { sw = r; hw = na; } value[31:0] = 32'h0003_0001;
+    desc = "Register map version: 0x0003_0002 is the map of step 3-3 (BCH in the NAND channels).";
+    field { sw = r; hw = na; } value[31:0] = 32'h0003_0002;
   } VERSION @ 0x004;
 
   reg {
@@ -724,8 +724,9 @@ addrmap nand_regs {
 
   reg {
     name = "CMD_GO";
-    desc = "A write queues a command: OP and TAG with CMD_ROW, CMD_COL, CMD_LEN and CMD_BUF as they are then.";
+    desc = "A write queues a command: OP, ECC and TAG with CMD_ROW, CMD_COL, CMD_LEN and CMD_BUF as they are then.";
     field { sw = rw; hw = r; swmod; desc = "0 RESET, 1 READ_ID, 2 READ, 3 PROGRAM, 4 ERASE, 5 STATUS, 6 CHANGE READ COLUMN; 7 completes at once with no bus cycle."; } op[2:0] = 3'd0;
+    field { sw = rw; hw = r; desc = "With READ or PROGRAM: the whole page through the BCH code (docs/17_bch.md). The data (4096 bytes) and metadata (32) are at CMD_BUF; CMD_COL and CMD_LEN are not used."; } ecc[3:3] = 1'b0;
     field { sw = rw; hw = r; desc = "Returned with the completion."; } tag[15:8] = 8'h0;
   } CMD_GO @ 0x030;
 
@@ -733,7 +734,7 @@ addrmap nand_regs {
     name = "CPL";
     desc = "The oldest completion; reading it removes it. VALID is 0 when none waits.";
     field { sw = r; hw = w; swacc; desc = "TAG of the command."; } tag[7:0];
-    field { sw = r; hw = w; desc = "0 done, 1 status fail, 2 busy timeout, 3 write protected."; } code[9:8];
+    field { sw = r; hw = w; desc = "0 done, 1 status fail, 2 busy timeout, 3 write protected, 4 a codeword past correcting (CPL_ECC)."; } code[10:8];
     field { sw = r; hw = w; desc = "The status byte read after a program, an erase or STATUS; 0 otherwise."; } status[23:16];
     field { sw = r; hw = w; } valid[31:31];
   } CPL @ 0x034;
@@ -753,6 +754,21 @@ addrmap nand_regs {
     field { sw = r; hw = w; desc = "Commands completed (wraps)."; } done[15:0];
     field { sw = r; hw = w; desc = "Of them, with a code other than 0 (wraps)."; } err[31:16];
   } COUNT @ 0x040;
+
+  reg {
+    name = "CPL_ECC";
+    desc = "The BCH result of the completion last read from CPL; 0 for a command without ECC.";
+    field { sw = r; hw = w; desc = "Bits corrected in the page."; } bits[6:0];
+    field { sw = r; hw = w; desc = "The most bits corrected in one codeword, 0 to 8."; } max[11:8];
+    field { sw = r; hw = w; desc = "Codewords past correcting, one bit each; their data is as read."; } unc[23:16];
+    field { sw = r; hw = w; desc = "Codewords read with at most 8 bits at 0: erased. They read as FFh, the 0 bits corrected."; } erased[31:24];
+  } CPL_ECC @ 0x044;
+
+  reg {
+    name = "ECC_COUNT";
+    field { sw = r; hw = w; desc = "Bits corrected (wraps)."; } bits[15:0];
+    field { sw = r; hw = w; desc = "Codewords past correcting (wraps)."; } unc[31:16];
+  } ECC_COUNT @ 0x048;
 };
 
 addrmap soc_apb {

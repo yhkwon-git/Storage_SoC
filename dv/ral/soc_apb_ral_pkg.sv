@@ -28,7 +28,7 @@ package soc_apb_ral_pkg;
 
         virtual function void build();
             this.value = new("value");
-            this.value.configure(this, 32, 0, "RO", 0, 'h30001, 1, 1, 0);
+            this.value.configure(this, 32, 0, "RO", 0, 'h30002, 1, 1, 0);
         endfunction : build
     endclass : sys_regs__VERSION
 
@@ -1409,6 +1409,7 @@ package soc_apb_ral_pkg;
     // reg - nand_regs::CMD_GO
     class nand_regs__CMD_GO extends uvm_reg;
         rand uvm_reg_field op;
+        rand uvm_reg_field ecc;
         rand uvm_reg_field tag;
 
         function new(string name = "nand_regs__CMD_GO");
@@ -1418,6 +1419,8 @@ package soc_apb_ral_pkg;
         virtual function void build();
             this.op = new("op");
             this.op.configure(this, 3, 0, "RW", 0, 'h0, 1, 1, 0);
+            this.ecc = new("ecc");
+            this.ecc.configure(this, 1, 3, "RW", 0, 'h0, 1, 1, 0);
             this.tag = new("tag");
             this.tag.configure(this, 8, 8, "RW", 0, 'h0, 1, 1, 0);
         endfunction : build
@@ -1438,7 +1441,7 @@ package soc_apb_ral_pkg;
             this.tag = new("tag");
             this.tag.configure(this, 8, 0, "RO", 1, 'h0, 0, 1, 0);
             this.code = new("code");
-            this.code.configure(this, 2, 8, "RO", 1, 'h0, 0, 1, 0);
+            this.code.configure(this, 3, 8, "RO", 1, 'h0, 0, 1, 0);
             this.status = new("status");
             this.status.configure(this, 8, 16, "RO", 1, 'h0, 0, 1, 0);
             this.valid = new("valid");
@@ -1491,6 +1494,46 @@ package soc_apb_ral_pkg;
         endfunction : build
     endclass : nand_regs__COUNT
 
+    // reg - nand_regs::CPL_ECC
+    class nand_regs__CPL_ECC extends uvm_reg;
+        rand uvm_reg_field bits;
+        rand uvm_reg_field max;
+        rand uvm_reg_field unc;
+        rand uvm_reg_field erased;
+
+        function new(string name = "nand_regs__CPL_ECC");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.bits = new("bits");
+            this.bits.configure(this, 7, 0, "RO", 1, 'h0, 0, 1, 0);
+            this.max = new("max");
+            this.max.configure(this, 4, 8, "RO", 1, 'h0, 0, 1, 0);
+            this.unc = new("unc");
+            this.unc.configure(this, 8, 16, "RO", 1, 'h0, 0, 1, 0);
+            this.erased = new("erased");
+            this.erased.configure(this, 8, 24, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nand_regs__CPL_ECC
+
+    // reg - nand_regs::ECC_COUNT
+    class nand_regs__ECC_COUNT extends uvm_reg;
+        rand uvm_reg_field bits;
+        rand uvm_reg_field unc;
+
+        function new(string name = "nand_regs__ECC_COUNT");
+            super.new(name, 32, UVM_NO_COVERAGE);
+        endfunction : new
+
+        virtual function void build();
+            this.bits = new("bits");
+            this.bits.configure(this, 16, 0, "RO", 1, 'h0, 0, 1, 0);
+            this.unc = new("unc");
+            this.unc.configure(this, 16, 16, "RO", 1, 'h0, 0, 1, 0);
+        endfunction : build
+    endclass : nand_regs__ECC_COUNT
+
     // addrmap - nand_regs
     class nand_regs extends uvm_reg_block;
         rand nand_regs__CTRL CTRL;
@@ -1508,6 +1551,8 @@ package soc_apb_ral_pkg;
         rand nand_regs__CYCLES CYCLES;
         rand nand_regs__BUSY_TIME BUSY_TIME;
         rand nand_regs__COUNT COUNT;
+        rand nand_regs__CPL_ECC CPL_ECC;
+        rand nand_regs__ECC_COUNT ECC_COUNT;
 
         function new(string name = "nand_regs");
             super.new(name);
@@ -1590,6 +1635,16 @@ package soc_apb_ral_pkg;
 
             this.COUNT.build();
             this.default_map.add_reg(this.COUNT, 'h40);
+            this.CPL_ECC = new("CPL_ECC");
+            this.CPL_ECC.configure(this);
+
+            this.CPL_ECC.build();
+            this.default_map.add_reg(this.CPL_ECC, 'h44);
+            this.ECC_COUNT = new("ECC_COUNT");
+            this.ECC_COUNT.configure(this);
+
+            this.ECC_COUNT.build();
+            this.default_map.add_reg(this.ECC_COUNT, 'h48);
         endfunction : build
     endclass : nand_regs
 

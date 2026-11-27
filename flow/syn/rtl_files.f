@@ -61,6 +61,12 @@ rtl/host/host_stub.sv
 rtl/host/pd_host.sv
 rtl/host/host_if.sv
 rtl/top/soc_pwr.sv
+rtl/ecc/bch_pkg.sv
+rtl/ecc/bch_enc.sv
+rtl/ecc/bch_syn.sv
+rtl/ecc/bch_bm.sv
+rtl/ecc/bch_chien.sv
+rtl/ecc/bch_dec.sv
 rtl/nand/nand_pkg.sv
 rtl/nand/nand_seq.sv
 rtl/nand/nand_pbuf.sv

@@ -20,7 +20,7 @@ extern "C" {
 #define SYS_REGS__VERSION__VALUE_bm 0xffffffff
 #define SYS_REGS__VERSION__VALUE_bp 0
 #define SYS_REGS__VERSION__VALUE_bw 32
-#define SYS_REGS__VERSION__VALUE_reset 0x30001
+#define SYS_REGS__VERSION__VALUE_reset 0x30002
 
 // reg - sys_regs::SCRATCH
 #define SYS_REGS__SCRATCH__VALUE_bm 0xffffffff
@@ -633,6 +633,10 @@ typedef struct __attribute__ ((__packed__)) {
 #define NAND_REGS__CMD_GO__OP_bp 0
 #define NAND_REGS__CMD_GO__OP_bw 3
 #define NAND_REGS__CMD_GO__OP_reset 0x0
+#define NAND_REGS__CMD_GO__ECC_bm 0x8
+#define NAND_REGS__CMD_GO__ECC_bp 3
+#define NAND_REGS__CMD_GO__ECC_bw 1
+#define NAND_REGS__CMD_GO__ECC_reset 0x0
 #define NAND_REGS__CMD_GO__TAG_bm 0xff00
 #define NAND_REGS__CMD_GO__TAG_bp 8
 #define NAND_REGS__CMD_GO__TAG_bw 8
@@ -642,9 +646,9 @@ typedef struct __attribute__ ((__packed__)) {
 #define NAND_REGS__CPL__TAG_bm 0xff
 #define NAND_REGS__CPL__TAG_bp 0
 #define NAND_REGS__CPL__TAG_bw 8
-#define NAND_REGS__CPL__CODE_bm 0x300
+#define NAND_REGS__CPL__CODE_bm 0x700
 #define NAND_REGS__CPL__CODE_bp 8
-#define NAND_REGS__CPL__CODE_bw 2
+#define NAND_REGS__CPL__CODE_bw 3
 #define NAND_REGS__CPL__STATUS_bm 0xff0000
 #define NAND_REGS__CPL__STATUS_bp 16
 #define NAND_REGS__CPL__STATUS_bw 8
@@ -670,6 +674,28 @@ typedef struct __attribute__ ((__packed__)) {
 #define NAND_REGS__COUNT__ERR_bp 16
 #define NAND_REGS__COUNT__ERR_bw 16
 
+// reg - nand_regs::CPL_ECC
+#define NAND_REGS__CPL_ECC__BITS_bm 0x7f
+#define NAND_REGS__CPL_ECC__BITS_bp 0
+#define NAND_REGS__CPL_ECC__BITS_bw 7
+#define NAND_REGS__CPL_ECC__MAX_bm 0xf00
+#define NAND_REGS__CPL_ECC__MAX_bp 8
+#define NAND_REGS__CPL_ECC__MAX_bw 4
+#define NAND_REGS__CPL_ECC__UNC_bm 0xff0000
+#define NAND_REGS__CPL_ECC__UNC_bp 16
+#define NAND_REGS__CPL_ECC__UNC_bw 8
+#define NAND_REGS__CPL_ECC__ERASED_bm 0xff000000
+#define NAND_REGS__CPL_ECC__ERASED_bp 24
+#define NAND_REGS__CPL_ECC__ERASED_bw 8
+
+// reg - nand_regs::ECC_COUNT
+#define NAND_REGS__ECC_COUNT__BITS_bm 0xffff
+#define NAND_REGS__ECC_COUNT__BITS_bp 0
+#define NAND_REGS__ECC_COUNT__BITS_bw 16
+#define NAND_REGS__ECC_COUNT__UNC_bm 0xffff0000
+#define NAND_REGS__ECC_COUNT__UNC_bp 16
+#define NAND_REGS__ECC_COUNT__UNC_bw 16
+
 // addrmap - nand_regs
 typedef struct __attribute__ ((__packed__)) {
     uint32_t CTRL;
@@ -689,6 +715,8 @@ typedef struct __attribute__ ((__packed__)) {
     uint32_t CYCLES;
     uint32_t BUSY_TIME;
     uint32_t COUNT;
+    uint32_t CPL_ECC;
+    uint32_t ECC_COUNT;
 } nand_regs_t;
 
 // reg - nvme_regs::CTRL
@@ -1125,9 +1153,9 @@ typedef struct __attribute__ ((__packed__)) {
     host_regs_t HOST;
     uint8_t RESERVED_5058_5fff[0xfa8];
     nand_regs_t NAND0;
-    uint8_t RESERVED_6044_6fff[0xfbc];
+    uint8_t RESERVED_604c_6fff[0xfb4];
     nand_regs_t NAND1;
-    uint8_t RESERVED_7044_7fff[0xfbc];
+    uint8_t RESERVED_704c_7fff[0xfb4];
     nvme_regs_t NVME;
 } soc_apb_t;
 

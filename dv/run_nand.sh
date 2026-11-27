@@ -24,6 +24,7 @@ src=(
   "$here/lint/waivers.vlt"
   "$r/common/fifo_sync.sv" "$r/common/cdc_sync_2ff.sv" "$r/common/cdc_async_fifo.sv" "$r/mem/mem_array.sv"
   "$r/csr/gen/nand_regs_pkg.sv" "$r/csr/gen/nand_regs.sv"
+  "$r/ecc/bch_pkg.sv" "$r/ecc/bch_enc.sv" "$r/ecc/bch_syn.sv" "$r/ecc/bch_bm.sv" "$r/ecc/bch_chien.sv" "$r/ecc/bch_dec.sv"
   "$r/nand/nand_pkg.sv" "$r/nand/nand_seq.sv" "$r/nand/nand_pbuf.sv" "$r/nand/nand_ctrl.sv"
   "$here/uvm/apb_if.sv" "$here/tb/axi4_if.sv" "$here/sva/axi4_checker.sv"
   "$here/sva/nand_checker.sv" "$here/sva/nand_bind.sv" "$here/tb/nand_model.sv" "$here/tb/tb_nand.sv"
@@ -45,7 +46,7 @@ run() {
   grep -E '^\[NAND\]|%Error|Assertion' "$out/$name.log" | sed "s/^/$name: /" | head -40
 }
 
-for t in regs reset id rw erase fail wp timeout timing queue arb softreset busy wear abort rules biterr; do
+for t in regs reset id rw erase fail wp timeout timing queue arb softreset busy wear abort rules biterr ecc eccerr eccrand; do
   run "$t" +test="$t" +verilator+seed+1
 done
 periods=(20000 17000 23000)

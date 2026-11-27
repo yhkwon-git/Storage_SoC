@@ -116,7 +116,7 @@ package ral_test_pkg;
       env.regmodel.INTC.PENDING.read(st, v);
       expect_ok(v[6 + 2 * c] == 1'b1, $sformatf("INTC PENDING %h: NAND%0d done not pending", v, c));
       b.CPL.read(st, v);
-      expect_ok(v[31] && v[7:0] == 8'h5A && v[9:8] == 2'd0 && v[23:16] == 8'hFF,
+      expect_ok(v[31] && v[7:0] == 8'h5A && v[10:8] == 3'd0 && v[23:16] == 8'hFF,
                 $sformatf("NAND%0d CPL %h, expected tag 5A, code 0, status FF", c, v));
       env.regmodel.INTC.PENDING.read(st, v);
       expect_ok(v[6 + 2 * c] == 1'b0, $sformatf("INTC PENDING %h: NAND%0d done pending after CPL", v, c));
@@ -358,7 +358,7 @@ package ral_test_pkg;
       raw(16'h0000, 1'b0, 0, rd, err);
       expect_ok(!err && rd == 32'h5353_4F43, "ID read through a raw transfer");
       bad_addr = '{16'h0018, 16'h0FFC, 16'h1020, 16'h1FFC, 16'h2010, 16'h3014, 16'h4020, 16'h5058,
-                   16'h600C, 16'h7044, 16'h8028, 16'h8FFC, 16'h9000, 16'hF000};
+                   16'h600C, 16'h704C, 16'h8028, 16'h8FFC, 16'h9000, 16'hF000};
       foreach (bad_addr[i]) begin
         raw(bad_addr[i], 1'b0, 0, rd, err);
         expect_ok(err, $sformatf("read of %h answered without PSLVERR", bad_addr[i]));

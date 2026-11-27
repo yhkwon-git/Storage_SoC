@@ -35,7 +35,8 @@ $src = @(
     'rtl\host\tl\tl_core.sv', 'rtl\host\tl\tl_port.sv', 'rtl\host\nvme\nvme_lbuf.sv', 'rtl\host\nvme\nvme_prp.sv', 'rtl\host\nvme\nvme_cqe.sv', 'rtl\host\nvme\nvme_ctrl.sv',
     'rtl\host\phy_pll_model.sv', 'rtl\host\host_stub.sv', 'rtl\host\pd_host.sv', 'rtl\host\host_if.sv',
     'rtl\top\soc_pwr.sv',
-    'rtl\mem\mem_array.sv', 'rtl\nand\nand_pkg.sv', 'rtl\nand\nand_seq.sv', 'rtl\nand\nand_pbuf.sv', 'rtl\nand\nand_ctrl.sv',
+    'rtl\mem\mem_array.sv', 'rtl\ecc\bch_pkg.sv', 'rtl\ecc\bch_enc.sv', 'rtl\ecc\bch_syn.sv', 'rtl\ecc\bch_bm.sv',
+    'rtl\ecc\bch_chien.sv', 'rtl\ecc\bch_dec.sv', 'rtl\nand\nand_pkg.sv', 'rtl\nand\nand_seq.sv', 'rtl\nand\nand_pbuf.sv', 'rtl\nand\nand_ctrl.sv',
     'rtl\periph\apb_sys.sv', 'rtl\periph\apb_intc.sv', 'rtl\periph\apb_timer.sv', 'rtl\dma\dma.sv',
     'dv\ral\soc_apb_ral_pkg.sv', 'dv\uvm\apb_pkg.sv', 'dv\uvm\ral_test_pkg.sv', 'dv\uvm\ral_tb.sv'
 ) | ForEach-Object { Join-Path $root $_ }

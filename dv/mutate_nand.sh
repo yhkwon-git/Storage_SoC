@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Mutation check for the NAND channel testbench (tb_nand). Each mutant copies
 # rtl/nand into the build directory, plants one bug with sed in one of its
-# files, builds tb_nand and runs the directed tests and one random seed,
-# stopping at the first failure. The testbench must fail on every mutant. The
+# files (the ecc_ ones in the BCH path of step 3-3), builds tb_nand and runs
+# the directed tests and one random seed, stopping at the first failure. The testbench must fail on every mutant. The
 # repository's RTL is never modified.
 #
 #   BUILD_DIR  build root (default: build/dv in the repository)
@@ -25,15 +25,26 @@ mutants=(
   "twp_twh@nand_seq.sv@s/^              cnt   <= w1({2'd0, c.twp});/              cnt   <= w1({2'd0, c.twh});/@command and address cycles take tWH for tWP"
   "status_byte@nand_seq.sv@s/            if (rd_stat) status <= dq_i;/            if (rd_stat) status <= 8'hE0;/@the status byte is never read"
 
-  "tx_order@nand_ctrl.sv@s/  assign tx_byte = w_data\[8 \* s_ptr\[2:0\] +: 8\];/  assign tx_byte = w_data[8 * {s_ptr[2:1], ~s_ptr[0]} +: 8];/@program bytes swapped in pairs"
-  "rx_mask@nand_ctrl.sv@s/  assign x_we    = a_pend ? am : 8'd0;/  assign x_we    = a_pend ? 8'hFF : 8'd0;/@read data writes whole buffer words"
-  "no_ovf@nand_ctrl.sv@s/    hwif_in.EVENT.ovf.hwset      = go \&\& q_full;/    hwif_in.EVENT.ovf.hwset      = 1'b0;/@a dropped command not reported"
+  "tx_order@nand_ctrl.sv@s/  assign tx_buf  = w_data\[8 \* bptr\[2:0\] +: 8\];/  assign tx_buf  = w_data[8 * {bptr[2:1], ~bptr[0]} +: 8];/@program bytes swapped in pairs"
+  "rx_mask@nand_ctrl.sv@s/  assign x_we    = a_pend ? am : /  assign x_we    = a_pend ? 8'hFF : /@read data writes whole buffer words"
+  "no_ovf@nand_ctrl.sv@s/    hwif_in.EVENT.ovf.hwset       = go \&\& q_full;/    hwif_in.EVENT.ovf.hwset       = 1'b0;/@a dropped command not reported"
   "cq_room@nand_ctrl.sv@s/  wire dispatch = !d_run \&\& !q_empty \&\& !x_cmd_full \&\& (cq_count != 4'd8);/  wire dispatch = !d_run \&\& !q_empty \&\& !x_cmd_full;/@a command dispatched with no room for its completion"
   "early_cpl@nand_ctrl.sv@s/  wire complete = d_run \&\& !x_cpl_empty \&\& (s_done || (x_cpl.code != CODE_OK));/  wire complete = d_run \&\& !x_cpl_empty;/@a read completes before its data is in the buffer"
-  "no_err@nand_ctrl.sv@s/    hwif_in.EVENT.err.hwset      = complete \&\& (x_cpl.code != CODE_OK);/    hwif_in.EVENT.err.hwset      = 1'b0;/@a failed command does not set EVENT.ERR"
+  "no_err@nand_ctrl.sv@s/    hwif_in.EVENT.err.hwset       = complete \&\& (cpl_code != 3'd0);/    hwif_in.EVENT.err.hwset       = 1'b0;/@a failed command does not set EVENT.ERR"
 
   "rd_conflict@nand_pbuf.sv@s/  assign x_rgnt  = x_re \&\& !axi_re \&\& !(s_rvalid \&\& !s_rready);/  assign x_rgnt  = x_re \&\& !axi_re;/@a stream read replaces an AXI beat the master has not taken"
   "wr_conflict@nand_pbuf.sv@s/  assign x_wgnt  = (x_we != 8'd0) \&\& !w_hs;/  assign x_wgnt  = (x_we != 8'd0);/@a stream write granted in the clock of an AXI write"
+
+  "ecc_hole@nand_ctrl.sv@s/  wire        e_hole = ecc \&\& (e_col == E_HOLE);/  wire        e_hole = 1'b0;/@no column left out of the codewords for the marker"
+  "ecc_meta@nand_ctrl.sv@s/: off + 13'd4096 + {8'd0, cw, 2'd0} + {3'd0, j - 10'd512};/: off + 13'd4096 + {9'd0, cw, 1'd0} + {3'd0, j - 10'd512};/@a codeword's metadata 2 bytes after the last one's instead of 4"
+  "ecc_txmask@nand_ctrl.sv@s/: e_msg ? tx_buf : enc_par ^ e_mask;/: e_msg ? tx_buf : enc_par;/@parity programmed without the mask"
+  "ecc_rxmask@nand_ctrl.sv@s/.din (rx_byte ^ e_mask), .ready/.din (rx_byte), .ready/@parity read without the mask"
+  "ecc_coraddr@nand_ctrl.sv@s/c_addr = e_addr_of(s_off, r_cw, cor_idx);/c_addr = e_addr_of(s_off, e_cw, cor_idx);/@a correction applied to the codeword streaming in"
+  "ecc_early@nand_ctrl.sv@s/(r_cnt == 4'd8 \&\& c_st == C_IDLE)/(r_cnt == 4'd7 \&\& c_st == C_IDLE)/@a read completes before the last codeword's result"
+  "ecc_code@nand_ctrl.sv@s/e_unc != 8'd0) ? 3'd4 : 3'd0;/e_unc != 8'd0) ? 3'd0 : 3'd0;/@a codeword past correcting not reported in the code"
+  "ecc_erased@nand_ctrl.sv@s/(zc\[r_cw\] <= 4'(bch_pkg::T)) e_erased\[r_cw\] <= 1'b1;/(zc[r_cw] <= 4'(bch_pkg::T)) e_erased[r_cw] <= 1'b0;/@erased codewords never reported"
+  "ecc_count@nand_ctrl.sv@s/        n_ebits   <= n_ebits + {9'd0, e_bits};/        n_ebits   <= n_ebits;/@corrected bits not counted in ECC_COUNT"
+  "ecc_flush@nand_ctrl.sv@s/(e_j == 10'd511 || e_j == 10'(bch_pkg::K_BYTES - 1))/(e_j == 10'd511)/@the metadata word not written when its bytes end"
 )
 
 caught=0
@@ -56,6 +67,7 @@ for entry in "${mutants[@]}"; do
     "$here/lint/waivers.vlt"
     "$r/common/fifo_sync.sv" "$r/common/cdc_sync_2ff.sv" "$r/common/cdc_async_fifo.sv" "$r/mem/mem_array.sv"
     "$r/csr/gen/nand_regs_pkg.sv" "$r/csr/gen/nand_regs.sv"
+    "$r/ecc/bch_pkg.sv" "$r/ecc/bch_enc.sv" "$r/ecc/bch_syn.sv" "$r/ecc/bch_bm.sv" "$r/ecc/bch_chien.sv" "$r/ecc/bch_dec.sv"
     "$t/nand_pkg.sv" "$t/nand_seq.sv" "$t/nand_pbuf.sv" "$t/nand_ctrl.sv"
     "$here/uvm/apb_if.sv" "$here/tb/axi4_if.sv" "$here/sva/axi4_checker.sv"
     "$here/sva/nand_checker.sv" "$here/sva/nand_bind.sv" "$here/tb/nand_model.sv" "$here/tb/tb_nand.sv"
@@ -67,6 +79,7 @@ for entry in "${mutants[@]}"; do
   first=""
   for args in "+test=regs" "+test=reset" "+test=id" "+test=rw" "+test=erase" "+test=fail" "+test=wp" \
               "+test=timeout" "+test=timing" "+test=queue" "+test=arb" "+test=softreset" \
+              "+test=ecc" "+test=eccerr" "+test=eccrand +n=160" \
               "+test=busy" "+test=wear" "+test=abort" "+test=rules" "+test=biterr" "+test=random +n=150"; do
     # shellcheck disable=SC2086
     if ! (cd "$dir" && timeout 900 "$base/obj/Vtb_nand" $args +verilator+seed+1) > "$dir/run.log" 2>&1; then

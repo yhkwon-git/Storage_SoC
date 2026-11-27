@@ -62,11 +62,11 @@ Don't override. Generated from: soc_apb
 - Base Offset: 0x4
 - Size: 0x4
 
-<p>Register map version: 0x0003_0001 is the map of step 3-1 (NAND channel controllers).</p>
+<p>Register map version: 0x0003_0002 is the map of step 3-3 (BCH in the NAND channels).</p>
 
 |Bits|Identifier|Access| Reset |Name|
 |----|----------|------|-------|----|
-|31:0|   value  |   r  |0x30001|  — |
+|31:0|   value  |   r  |0x30002|  — |
 
 ### SCRATCH register
 
@@ -1019,7 +1019,7 @@ Don't override. Generated from: soc_apb
 
 - Absolute Address: 0x6000
 - Base Offset: 0x6000
-- Size: 0x44
+- Size: 0x4C
 
 <p>One NAND channel (rtl/nand/nand_ctrl.sv, docs/15_nand_channel.md): an 8-bit ONFI-style asynchronous interface run by a sequencer in clk_nand, a command queue of 4, a completion queue of 8, and an 8 KiB page buffer on the crossbar. NAND0 is at 0x4000_6000 with its page buffer at 0x3000_0000, NAND1 at 0x4000_7000 and 0x3001_0000.</p>
 
@@ -1040,6 +1040,8 @@ Don't override. Generated from: soc_apb
 | 0x38 |  CYCLES  |  CYCLES |
 | 0x3C | BUSY_TIME|BUSY_TIME|
 | 0x40 |   COUNT  |  COUNT  |
+| 0x44 |  CPL_ECC | CPL_ECC |
+| 0x48 | ECC_COUNT|ECC_COUNT|
 
 ### CTRL register
 
@@ -1253,16 +1255,21 @@ Don't override. Generated from: soc_apb
 - Base Offset: 0x30
 - Size: 0x4
 
-<p>A write queues a command: OP and TAG with CMD_ROW, CMD_COL, CMD_LEN and CMD_BUF as they are then.</p>
+<p>A write queues a command: OP, ECC and TAG with CMD_ROW, CMD_COL, CMD_LEN and CMD_BUF as they are then.</p>
 
 |Bits|Identifier|Access|Reset|Name|
 |----|----------|------|-----|----|
 | 2:0|    op    |  rw  | 0x0 |  — |
+|  3 |    ecc   |  rw  | 0x0 |  — |
 |15:8|    tag   |  rw  | 0x0 |  — |
 
 #### op field
 
 <p>0 RESET, 1 READ_ID, 2 READ, 3 PROGRAM, 4 ERASE, 5 STATUS, 6 CHANGE READ COLUMN; 7 completes at once with no bus cycle.</p>
+
+#### ecc field
+
+<p>With READ or PROGRAM: the whole page through the BCH code (docs/17_bch.md). The data (4096 bytes) and metadata (32) are at CMD_BUF; CMD_COL and CMD_LEN are not used.</p>
 
 #### tag field
 
@@ -1279,7 +1286,7 @@ Don't override. Generated from: soc_apb
 | Bits|Identifier|Access|Reset|Name|
 |-----|----------|------|-----|----|
 | 7:0 |    tag   |   r  |  —  |  — |
-| 9:8 |   code   |   r  |  —  |  — |
+| 10:8|   code   |   r  |  —  |  — |
 |23:16|  status  |   r  |  —  |  — |
 |  31 |   valid  |   r  |  —  |  — |
 
@@ -1289,7 +1296,7 @@ Don't override. Generated from: soc_apb
 
 #### code field
 
-<p>0 done, 1 status fail, 2 busy timeout, 3 write protected.</p>
+<p>0 done, 1 status fail, 2 busy timeout, 3 write protected, 4 a codeword past correcting (CPL_ECC).</p>
 
 #### status field
 
@@ -1342,11 +1349,61 @@ Don't override. Generated from: soc_apb
 
 <p>Of them, with a code other than 0 (wraps).</p>
 
+### CPL_ECC register
+
+- Absolute Address: 0x6044
+- Base Offset: 0x44
+- Size: 0x4
+
+<p>The BCH result of the completion last read from CPL; 0 for a command without ECC.</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 6:0 |   bits   |   r  |  —  |  — |
+| 11:8|    max   |   r  |  —  |  — |
+|23:16|    unc   |   r  |  —  |  — |
+|31:24|  erased  |   r  |  —  |  — |
+
+#### bits field
+
+<p>Bits corrected in the page.</p>
+
+#### max field
+
+<p>The most bits corrected in one codeword, 0 to 8.</p>
+
+#### unc field
+
+<p>Codewords past correcting, one bit each; their data is as read.</p>
+
+#### erased field
+
+<p>Codewords read with at most 8 bits at 0: erased. They read as FFh, the 0 bits corrected.</p>
+
+### ECC_COUNT register
+
+- Absolute Address: 0x6048
+- Base Offset: 0x48
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 15:0|   bits   |   r  |  —  |  — |
+|31:16|    unc   |   r  |  —  |  — |
+
+#### bits field
+
+<p>Bits corrected (wraps).</p>
+
+#### unc field
+
+<p>Codewords past correcting (wraps).</p>
+
 ## NAND1 address map
 
 - Absolute Address: 0x7000
 - Base Offset: 0x7000
-- Size: 0x44
+- Size: 0x4C
 
 <p>One NAND channel (rtl/nand/nand_ctrl.sv, docs/15_nand_channel.md): an 8-bit ONFI-style asynchronous interface run by a sequencer in clk_nand, a command queue of 4, a completion queue of 8, and an 8 KiB page buffer on the crossbar. NAND0 is at 0x4000_6000 with its page buffer at 0x3000_0000, NAND1 at 0x4000_7000 and 0x3001_0000.</p>
 
@@ -1367,6 +1424,8 @@ Don't override. Generated from: soc_apb
 | 0x38 |  CYCLES  |  CYCLES |
 | 0x3C | BUSY_TIME|BUSY_TIME|
 | 0x40 |   COUNT  |  COUNT  |
+| 0x44 |  CPL_ECC | CPL_ECC |
+| 0x48 | ECC_COUNT|ECC_COUNT|
 
 ### CTRL register
 
@@ -1580,16 +1639,21 @@ Don't override. Generated from: soc_apb
 - Base Offset: 0x30
 - Size: 0x4
 
-<p>A write queues a command: OP and TAG with CMD_ROW, CMD_COL, CMD_LEN and CMD_BUF as they are then.</p>
+<p>A write queues a command: OP, ECC and TAG with CMD_ROW, CMD_COL, CMD_LEN and CMD_BUF as they are then.</p>
 
 |Bits|Identifier|Access|Reset|Name|
 |----|----------|------|-----|----|
 | 2:0|    op    |  rw  | 0x0 |  — |
+|  3 |    ecc   |  rw  | 0x0 |  — |
 |15:8|    tag   |  rw  | 0x0 |  — |
 
 #### op field
 
 <p>0 RESET, 1 READ_ID, 2 READ, 3 PROGRAM, 4 ERASE, 5 STATUS, 6 CHANGE READ COLUMN; 7 completes at once with no bus cycle.</p>
+
+#### ecc field
+
+<p>With READ or PROGRAM: the whole page through the BCH code (docs/17_bch.md). The data (4096 bytes) and metadata (32) are at CMD_BUF; CMD_COL and CMD_LEN are not used.</p>
 
 #### tag field
 
@@ -1606,7 +1670,7 @@ Don't override. Generated from: soc_apb
 | Bits|Identifier|Access|Reset|Name|
 |-----|----------|------|-----|----|
 | 7:0 |    tag   |   r  |  —  |  — |
-| 9:8 |   code   |   r  |  —  |  — |
+| 10:8|   code   |   r  |  —  |  — |
 |23:16|  status  |   r  |  —  |  — |
 |  31 |   valid  |   r  |  —  |  — |
 
@@ -1616,7 +1680,7 @@ Don't override. Generated from: soc_apb
 
 #### code field
 
-<p>0 done, 1 status fail, 2 busy timeout, 3 write protected.</p>
+<p>0 done, 1 status fail, 2 busy timeout, 3 write protected, 4 a codeword past correcting (CPL_ECC).</p>
 
 #### status field
 
@@ -1668,6 +1732,56 @@ Don't override. Generated from: soc_apb
 #### err field
 
 <p>Of them, with a code other than 0 (wraps).</p>
+
+### CPL_ECC register
+
+- Absolute Address: 0x7044
+- Base Offset: 0x44
+- Size: 0x4
+
+<p>The BCH result of the completion last read from CPL; 0 for a command without ECC.</p>
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 6:0 |   bits   |   r  |  —  |  — |
+| 11:8|    max   |   r  |  —  |  — |
+|23:16|    unc   |   r  |  —  |  — |
+|31:24|  erased  |   r  |  —  |  — |
+
+#### bits field
+
+<p>Bits corrected in the page.</p>
+
+#### max field
+
+<p>The most bits corrected in one codeword, 0 to 8.</p>
+
+#### unc field
+
+<p>Codewords past correcting, one bit each; their data is as read.</p>
+
+#### erased field
+
+<p>Codewords read with at most 8 bits at 0: erased. They read as FFh, the 0 bits corrected.</p>
+
+### ECC_COUNT register
+
+- Absolute Address: 0x7048
+- Base Offset: 0x48
+- Size: 0x4
+
+| Bits|Identifier|Access|Reset|Name|
+|-----|----------|------|-----|----|
+| 15:0|   bits   |   r  |  —  |  — |
+|31:16|    unc   |   r  |  —  |  — |
+
+#### bits field
+
+<p>Bits corrected (wraps).</p>
+
+#### unc field
+
+<p>Codewords past correcting (wraps).</p>
 
 ## NVME address map
 

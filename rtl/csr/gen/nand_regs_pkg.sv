@@ -5,7 +5,7 @@ package nand_regs_pkg;
 
     localparam NAND_REGS_DATA_WIDTH = 32;
     localparam NAND_REGS_MIN_ADDR_WIDTH = 12;
-    localparam NAND_REGS_SIZE = 'h44;
+    localparam NAND_REGS_SIZE = 'h4c;
 
     typedef struct {
         logic next;
@@ -48,7 +48,7 @@ package nand_regs_pkg;
     } nand_regs__CPL__tag__in_t;
 
     typedef struct {
-        logic [1:0] next;
+        logic [2:0] next;
     } nand_regs__CPL__code__in_t;
 
     typedef struct {
@@ -96,12 +96,50 @@ package nand_regs_pkg;
     } nand_regs__COUNT__in_t;
 
     typedef struct {
+        logic [6:0] next;
+    } nand_regs__CPL_ECC__bits__in_t;
+
+    typedef struct {
+        logic [3:0] next;
+    } nand_regs__CPL_ECC__max__in_t;
+
+    typedef struct {
+        logic [7:0] next;
+    } nand_regs__CPL_ECC__unc__in_t;
+
+    typedef struct {
+        logic [7:0] next;
+    } nand_regs__CPL_ECC__erased__in_t;
+
+    typedef struct {
+        nand_regs__CPL_ECC__bits__in_t bits;
+        nand_regs__CPL_ECC__max__in_t max;
+        nand_regs__CPL_ECC__unc__in_t unc;
+        nand_regs__CPL_ECC__erased__in_t erased;
+    } nand_regs__CPL_ECC__in_t;
+
+    typedef struct {
+        logic [15:0] next;
+    } nand_regs__ECC_COUNT__bits__in_t;
+
+    typedef struct {
+        logic [15:0] next;
+    } nand_regs__ECC_COUNT__unc__in_t;
+
+    typedef struct {
+        nand_regs__ECC_COUNT__bits__in_t bits;
+        nand_regs__ECC_COUNT__unc__in_t unc;
+    } nand_regs__ECC_COUNT__in_t;
+
+    typedef struct {
         nand_regs__STATUS__in_t STATUS;
         nand_regs__EVENT__in_t EVENT;
         nand_regs__CPL__in_t CPL;
         nand_regs__CYCLES__in_t CYCLES;
         nand_regs__BUSY_TIME__in_t BUSY_TIME;
         nand_regs__COUNT__in_t COUNT;
+        nand_regs__CPL_ECC__in_t CPL_ECC;
+        nand_regs__ECC_COUNT__in_t ECC_COUNT;
     } nand_regs__in_t;
 
     typedef struct {
@@ -227,11 +265,16 @@ package nand_regs_pkg;
     } nand_regs__CMD_GO__op__out_t;
 
     typedef struct {
+        logic value;
+    } nand_regs__CMD_GO__ecc__out_t;
+
+    typedef struct {
         logic [7:0] value;
     } nand_regs__CMD_GO__tag__out_t;
 
     typedef struct {
         nand_regs__CMD_GO__op__out_t op;
+        nand_regs__CMD_GO__ecc__out_t ecc;
         nand_regs__CMD_GO__tag__out_t tag;
     } nand_regs__CMD_GO__out_t;
 

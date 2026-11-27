@@ -48,6 +48,13 @@ foreach blk {u_cpu u_xbar u_dma u_ibus u_dbus u_apb u_sys u_intc u_timer g_mem u
   set p [lindex [find_timing_paths -path_delay max -group_path_count 1 -sort_by_slack -from $cells] 0]
   if {$p ne ""} { puts $fh "from_$blk [ns [$p slack]]" }
 }
+# The NAND channels, and their BCH decoders and encoders (steps 3-1 and 3-3).
+foreach {name pat} {g_nand g_nand* bch_dec g_nand*u_dec* bch_enc g_nand*u_enc*} {
+  set cells [get_cells -quiet $pat]
+  if {[llength $cells] == 0} { continue }
+  set p [lindex [find_timing_paths -path_delay max -group_path_count 1 -sort_by_slack -from $cells] 0]
+  if {$p ne ""} { puts $fh "from_$name [ns [$p slack]]" }
+}
 # Worst setup slack of register-to-register paths in clk_sys (output ports excluded).
 set p [lindex [find_timing_paths -path_delay max -group_path_count 1 -sort_by_slack -to [all_registers -data_pins]] 0]
 if {$p ne ""} { puts $fh "reg2reg [ns [$p slack]]" }

@@ -15,7 +15,7 @@ ARCH    := -march=rv32imc_zicsr_zifencei -mabi=ilp32
 CFLAGS  := $(ARCH) -O2 -g -Wall -Wextra -ffreestanding -fno-builtin -nostdlib -Icommon
 LDFLAGS := $(ARCH) -nostdlib -nostartfiles -T common/link.ld
 
-TESTS   := hello memtest irq buserr perf dma power reset host nvme nand nand_char
+TESTS   := hello memtest irq buserr perf dma power reset host nvme nand nand_char nand_ecc
 APPS    := soc_app nvme_app
 COMMON  := common/crt0.S common/lib.c
 DRV     := drv/irq.c drv/timer.c drv/dma.c drv/pmu.c drv/crc32.c

@@ -9,12 +9,15 @@
 // nand_ctrl with nand_model on its pins; the testbench is the firmware on APB
 // and a bus master on the page buffer. nand_checker is bound into the
 // sequencer, axi4_checker watches the page-buffer port. The tests from busy
-// on check the model's device behavior (step 3-2, docs/16_nand_model.md).
+// to biterr check the model's device behavior (step 3-2,
+// docs/16_nand_model.md); ecc and eccerr the BCH path (step 3-3,
+// docs/17_bch.md).
 //
 //   +test=<name>    regs, reset, id, rw, erase, fail, wp, timeout, timing,
 //                   queue, arb, softreset, busy, wear, abort, rules, biterr,
-//                   random, or all (default: the directed tests, then random)
-//   +n=<n>          commands in the random test (default 400)
+//                   ecc, eccerr, eccrand, random, or all (default: the
+//                   directed tests, then the random ones)
+//   +n=<n>          commands in the random test (default 400; eccrand n / 8)
 //   +nand_ps=<ps>   clk_nand period in ps (default 20000); clk_sys is 20 ns
 //   +profile=<0|1>  the model's busy-time profile in the random test
 //   +rber_ppm=<n>   its bit error rate there, in errors per million bits
@@ -93,7 +96,8 @@ module tb_nand;
   localparam bit [11:0] R_CTRL = 12'h000, R_STATUS = 12'h004, R_EVENT = 12'h008, R_T0 = 12'h010,
                         R_T1 = 12'h014, R_TOUT = 12'h018, R_ROW = 12'h020, R_COL = 12'h024,
                         R_LEN = 12'h028, R_BUF = 12'h02C, R_GO = 12'h030, R_CPL = 12'h034,
-                        R_CYC = 12'h038, R_BUSY = 12'h03C, R_COUNT = 12'h040;
+                        R_CYC = 12'h038, R_BUSY = 12'h03C, R_COUNT = 12'h040, R_CPL_ECC = 12'h044,
+                        R_ECC_CNT = 12'h048;
 
   class apb_drv;
     virtual apb_if v;
@@ -142,12 +146,12 @@ module tb_nand;
     task rd(bit [11:0] r, output bit [31:0] d);
       a.xfer(1'b0, r, 32'd0, d);
     endtask
-    task submit(bit [2:0] op, int row, int col, int len, int off, bit [7:0] tag);
+    task submit(bit [2:0] op, int row, int col, int len, int off, bit [7:0] tag, bit ecc = 1'b0);
       wr(R_ROW, 32'(row));
       wr(R_COL, 32'(col));
       wr(R_LEN, 32'(len));
       wr(R_BUF, 32'(off));
-      wr(R_GO, {16'd0, tag, 5'd0, op});
+      wr(R_GO, {16'd0, tag, 4'd0, ecc, op});
     endtask
     // The next completion: polls CPL (a read takes it) until one is there.
     task take(output bit [31:0] c, input int limit = 400000);
@@ -157,16 +161,16 @@ module tb_nand;
         if (!c[31] && ++n > limit) begin bad("no completion"); return; end
       end while (!c[31]);
     endtask
-    task expect_cpl(bit [7:0] tag, bit [1:0] code, output bit [7:0] st);
+    task expect_cpl(bit [7:0] tag, bit [2:0] code, output bit [7:0] st);
       bit [31:0] c;
       take(c);
       st = c[23:16];
-      if (c[7:0] != tag || c[9:8] != code)
-        bad($sformatf("completion tag %h code %0d, expected tag %h code %0d", c[7:0], c[9:8], tag, code));
+      if (c[7:0] != tag || c[10:8] != code)
+        bad($sformatf("completion tag %h code %0d, expected tag %h code %0d", c[7:0], c[10:8], tag, code));
     endtask
     task run(bit [2:0] op, int row, int col, int len, int off, bit [1:0] code, output bit [7:0] st);
       submit(op, row, col, len, off, 8'(op * 16 + 1));
-      expect_cpl(8'(op * 16 + 1), code, st);
+      expect_cpl(8'(op * 16 + 1), {1'b0, code}, st);
     endtask
   endclass
 
@@ -439,6 +443,22 @@ module tb_nand;
   function automatic void cov_pulses(int v); cv_pulses = v; cov_pulseg.sample(); endfunction
   function automatic void cov_tr(int v);     cv_tr = v;     cov_trg.sample();    endfunction
   function automatic void cov_dev(int v);    cv_dev = v;    cov_devg.sample();   endfunction
+
+  // The BCH path (step 3-3)
+  int cv_ecc, cv_ecc_n;
+  covergroup cg_ecc;
+    cp_ecc: coverpoint cv_ecc { bins prog = {0}; bins read = {1}; bins corrected = {2}; bins past_t = {3};
+                                bins erased_page = {4}; bins unaligned = {5}; bins queued = {6};
+                                bins eight_in_all = {7}; bins marker = {8}; }
+  endgroup
+  covergroup cg_ecc_n;
+    cp_n: coverpoint cv_ecc_n { bins e0 = {0}; bins e1 = {1}; bins e2 = {2}; bins e3 = {3}; bins e4 = {4};
+                                bins e5 = {5}; bins e6 = {6}; bins e7 = {7}; bins e8 = {8}; bins past = {[9:$]}; }
+  endgroup
+  cg_ecc   cov_eccg  = new();
+  cg_ecc_n cov_eccng = new();
+  function automatic void cov_ecc(int v);   cv_ecc = v;   cov_eccg.sample();  endfunction
+  function automatic void cov_ecc_n(int v); cv_ecc_n = v; cov_eccng.sample(); endfunction
 
   function automatic void cov_op(bit [2:0] op, bit [1:0] code, int col, int len, int off);
     cv_op = int'(op);
@@ -1282,6 +1302,296 @@ module tb_nand;
   endtask
 
   // ---------------------------------------------------------------------------
+  // ECC (step 3-3, docs/17_bch.md)
+  // ---------------------------------------------------------------------------
+  localparam int E_LEN = 4233, E_IMG = 4128, E_CW = 529, E_MSG = 516;
+
+  // Page column of byte j of codeword c: column 4096 is left out.
+  function automatic int e_col(int c, int j);
+    int col = E_CW * c + j;
+    return (col >= 4096) ? col + 1 : col;
+  endfunction
+  // Offset in the buffer image of message byte j of codeword c
+  function automatic int e_img(int c, int j);
+    return (j < 512) ? 512 * c + j : 4096 + 4 * c + (j - 512);
+  endfunction
+
+  // Reference parity: the LFSR one bit at a time, apart from the RTL's
+  // byte-wide encoder; g(x) and the mask come from bch_pkg (checked against
+  // the Python model by tb_bch).
+  function automatic void ref_parity(input bit [7:0] img [], input int c, output bit [7:0] par [13]);
+    bit [103:0] r = '0;
+    bit         fb;
+    for (int j = 0; j < E_MSG; j++)
+      for (int b = 7; b >= 0; b--) begin
+        fb = r[103] ^ img[e_img(c, j)][b];
+        r  = {r[102:0], 1'b0} ^ (fb ? bch_pkg::G : 104'd0);
+      end
+    for (int k = 0; k < 13; k++) par[k] = r[103 - 8 * k -: 8] ^ bch_pkg::PAR_MASK[k];
+  endfunction
+
+  // An ECC program of the image img from buffer offset off: the page the
+  // model must then hold is the layout of the image with its parity.
+  task automatic ecc_prog(int row, int off, bit [7:0] img [], bit [2:0] code = 3'd0);
+    bit [7:0] st, pg [];
+    bit [7:0] par [13];
+    pg = new[PBYTES];
+    foreach (pg[i]) pg[i] = 8'hFF;
+    for (int c = 0; c < 8; c++) begin
+      ref_parity(img, c, par);
+      for (int j = 0; j < E_CW; j++) pg[e_col(c, j)] = (j < E_MSG) ? img[e_img(c, j)] : par[j - E_MSG];
+    end
+    pb.wr(off, img);
+    fw.submit(OP_PROG, row, 77, 5, off, 8'h3A, 1'b1);   // COL and LEN are not used
+    fw.expect_cpl(8'h3A, code, st);
+    if (code == 3'd0) exp_prog(row, 0, pg, 0, PBYTES);
+    check_array(row, 0, PBYTES, "ECC program");
+    cov_ecc(0);
+  endtask
+
+  // What an ECC read of a row must give, from the model's flips in each
+  // codeword: up to 8 corrected, more past correcting (its message bytes as
+  // read); erased when at most 8 of its bits are 0 as read.
+  int ecc_bits_total, ecc_unc_total;
+  task automatic ecc_read(int row, int off, bit [7:0] img [], string what, bit expect_none = 1'b0);
+    bit [7:0]  fm [int];
+    bit [7:0]  d [], g [], r [];
+    int        q [$], n [8], z [8], bits = 0, mx = 0;
+    bit [7:0]  unc = '0, ers = '0;
+    bit [31:0] c, e;
+    g = new[8];
+    foreach (g[i]) g[i] = 8'h5A ^ 8'(i * 29 + off);
+    if (off >= 8) pb.wr(off - 8, g);
+    if (off + E_IMG + 8 <= 8192) pb.wr(off + E_IMG, g);
+    fw.submit(OP_READ, row, 900, 3, off, 8'h3B, 1'b1);
+    fw.take(c);
+    fw.rd(R_CPL_ECC, e);
+    // Expected, codeword by codeword
+    if (u_m.flip_log.exists(row)) q = u_m.flip_log[row];
+    foreach (q[k]) fm[q[k] / 8] = (fm.exists(q[k] / 8) ? fm[q[k] / 8] : 8'h00) ^ (8'h01 << (q[k] % 8));
+    for (int cw = 0; cw < 8; cw++) begin
+      n[cw] = 0;
+      z[cw] = 0;
+      for (int j = 0; j < E_CW; j++) begin
+        int       col = e_col(cw, j);
+        bit [7:0] f = fm.exists(col) ? fm[col] : 8'h00;
+        bit [7:0] raw = exp_cell(row, col) ^ f;
+        for (int b = 0; b < 8; b++) begin
+          n[cw] += int'(f[b]);
+          z[cw] += int'(!raw[b]);
+        end
+      end
+      if (z[cw] <= 8) ers[cw] = 1'b1;
+      if (n[cw] > 8) unc[cw] = 1'b1;
+      else begin
+        bits += n[cw];
+        if (n[cw] > mx) mx = n[cw];
+      end
+      cov_ecc_n(n[cw]);
+    end
+    if (c[7:0] != 8'h3B || c[10:8] != ((unc != 8'd0) ? 3'd4 : 3'd0))
+      fail($sformatf("%s: completion %h, expected code %0d", what, c, (unc != 8'd0) ? 4 : 0));
+    if (e != {ers, unc, 4'd0, 4'(mx), 1'b0, 7'(bits)})
+      fail($sformatf("%s: CPL_ECC %h, expected erased %h, unc %h, max %0d, bits %0d", what, e, ers, unc, mx, bits));
+    if (expect_none && (q.size() != 0)) fail($sformatf("%s: the model flipped bits", what));
+    ecc_bits_total += bits;
+    for (int cw = 0; cw < 8; cw++) ecc_unc_total += int'(unc[cw]);
+    // The image: corrected codewords as programmed, the others as read
+    pb.rd(off, E_IMG, d);
+    for (int cw = 0; cw < 8; cw++)
+      for (int j = 0; j < E_MSG; j++) begin
+        int       col = e_col(cw, j);
+        bit [7:0] want = unc[cw] ? (exp_cell(row, col) ^ (fm.exists(col) ? fm[col] : 8'h00)) : img[e_img(cw, j)];
+        if (d[e_img(cw, j)] !== want) begin
+          fail($sformatf("%s: codeword %0d byte %0d: %h, expected %h", what, cw, j, d[e_img(cw, j)], want));
+          cw = 8;
+          break;
+        end
+      end
+    if (off >= 8) begin
+      pb.rd(off - 8, 8, r);
+      foreach (g[i]) if (r[i] != g[i]) begin fail($sformatf("%s: guard byte before the image changed", what)); break; end
+    end
+    if (off + E_IMG + 8 <= 8192) begin
+      pb.rd(off + E_IMG, 8, r);
+      foreach (g[i]) if (r[i] != g[i]) begin fail($sformatf("%s: guard byte after the image changed", what)); break; end
+    end
+    if (unc != 8'd0) cov_ecc(3);
+    if (ers == 8'hFF) cov_ecc(4);
+    if (bits > 0) cov_ecc(2);
+    cov_ecc(1);
+  endtask
+
+  function automatic void rand_img(ref bit [7:0] img []);
+    img = new[E_IMG];
+    foreach (img[i]) img[i] = 8'($urandom);
+  endfunction
+  function automatic void ff_img(ref bit [7:0] img []);
+    img = new[E_IMG];
+    foreach (img[i]) img[i] = 8'hFF;
+  endfunction
+
+  // ECC programs and reads without errors: the layout and the parity in the
+  // model's array, aligned and unaligned buffer offsets, the highest offset,
+  // a program and a read queued back to back, an erased page.
+  task automatic t_ecc();
+    bit [7:0]  img [], img2 [], st;
+    bit [31:0] v;
+    int        row = 32 * PAGES;
+    model_fast();
+    set_timing(1, 1, 1, 1, 8, 5, 4, 1);
+    do_erase(row);
+    rand_img(img);
+    ecc_prog(row, 0, img);
+    ecc_read(row, 4064, img, "ECC read at the highest offset", 1'b1);
+    rand_img(img2);
+    ecc_prog(row + 1, 3, img2);
+    ecc_read(row + 1, 1001, img2, "ECC read, unaligned offsets", 1'b1);
+    cov_ecc(5);
+    // A plain read of the page: the layout, the FFh at column 4096.
+    do_read(row, 0, PBYTES, 0, "plain read of an ECC page");
+    // Program and read queued back to back.
+    rand_img(img);
+    pb.wr(0, img);
+    fw.submit(OP_PROG, row + 2, 0, 0, 0, 8'h51, 1'b1);
+    fw.submit(OP_READ, row + 2, 0, 0, 4064, 8'h52, 1'b1);
+    fw.expect_cpl(8'h51, 3'd0, st);
+    fw.expect_cpl(8'h52, 3'd0, st);
+    begin
+      bit [7:0] par [13], pg [];
+      pg = new[PBYTES];
+      foreach (pg[i]) pg[i] = 8'hFF;
+      for (int c = 0; c < 8; c++) begin
+        ref_parity(img, c, par);
+        for (int j = 0; j < E_CW; j++) pg[e_col(c, j)] = (j < E_MSG) ? img[e_img(c, j)] : par[j - E_MSG];
+      end
+      exp_prog(row + 2, 0, pg, 0, PBYTES);
+      check_array(row + 2, 0, PBYTES, "ECC program queued");
+      check_image(4064, img, "ECC read queued behind a program");
+    end
+    cov_ecc(6);
+    // An erased page reads as FFh, every codeword erased.
+    ff_img(img);
+    ecc_read(row + 3, 0, img, "ECC read of an erased page", 1'b1);
+    fw.rd(R_ECC_CNT, v);
+    if (v != 32'd0) fail($sformatf("ECC_COUNT %h after reads without errors", v));
+    set_timing(3, 2, 3, 2, 12, 6, 10, 2);
+  endtask
+
+  task automatic check_image(int off, bit [7:0] img [], string what);
+    bit [7:0] d [];
+    pb.rd(off, E_IMG, d);
+    foreach (d[i]) if (d[i] !== img[i]) begin
+      fail($sformatf("%s: image byte %0d %h, expected %h", what, i, d[i], img[i]));
+      break;
+    end
+  endtask
+
+  // Bit errors through the code: windows of exactly 1 to 8 errors in the
+  // codewords, 8 in every one, 9 in one (past correcting, code 4), random
+  // rates, an erased page with flipped bits, the marker column alone; the
+  // error interrupt and the counters.
+  task automatic t_eccerr();
+    bit [7:0]  img [], img2 [], ff [];
+    bit [31:0] v;
+    int        row = 33 * PAGES;
+    model_fast();
+    set_timing(1, 1, 1, 1, 8, 5, 4, 1);
+    ecc_bits_total = 0;
+    ecc_unc_total = 0;
+    do_erase(row);
+    rand_img(img);
+    ecc_prog(row, 0, img);
+    rand_img(img2);
+    ecc_prog(row + 1, 0, img2);
+    u_m.win_n = 8;
+    for (int c = 0; c < 8; c++) begin
+      u_m.win_start[c] = e_col(c, 0);
+      u_m.win_len[c]   = (c == 7) ? E_CW + 1 : E_CW;
+      u_m.win_cnt[c]   = c + 1;
+    end
+    ecc_read(row, 0, img, "1 to 8 errors in the codewords");
+    for (int c = 0; c < 8; c++) u_m.win_cnt[c] = 8;
+    ecc_read(row, 64, img, "8 errors in every codeword");
+    cov_ecc(7);
+    // 9 in codeword 3: past correcting, the others corrected
+    fw.wr(R_EVENT, 32'h3);
+    fw.wr(R_CTRL, 32'h4);
+    u_m.win_cnt[3] = 9;
+    ecc_read(row + 1, 0, img2, "9 errors in codeword 3");
+    expect_reg(R_EVENT, 32'h1, 32'h1, "EVENT.ERR after a codeword past correcting");
+    if (!irq_err) fail("no error interrupt for a codeword past correcting");
+    fw.wr(R_EVENT, 32'h3);
+    fw.wr(R_CTRL, 32'h0);
+    u_m.win_n = 0;
+    // Random errors: about 4 a codeword, some past 8
+    u_m.rber = 1.0e-3;
+    for (int k = 0; k < 6; k++) begin
+      if (k % 2 == 0) ecc_read(row, 8 * k, img, "random errors");
+      else            ecc_read(row + 1, 8 * k, img2, "random errors");
+    end
+    // An erased page with a few bits at 0: corrected to FFh, still erased
+    ff_img(ff);
+    u_m.rber = 2.0e-4;
+    for (int k = 0; k < 3; k++) ecc_read(row + 5 + k, 0, ff, "an erased page with bit errors");
+    u_m.rber = 0.0;
+    // The marker column is in no codeword.
+    u_m.add_stuck(row, 8 * 4096 + 2, 1'b0);
+    ecc_read(row, 0, img, "a bit of the marker column at 0", 1'b0);
+    u_m.stuck.delete();
+    cov_ecc(8);
+    fw.rd(R_ECC_CNT, v);
+    if (v != {16'(ecc_unc_total), 16'(ecc_bits_total)})
+      fail($sformatf("ECC_COUNT %h, expected %0d codewords past correcting and %0d bits", v, ecc_unc_total, ecc_bits_total));
+    $display("[NAND] ecc: %0d bits corrected, %0d codewords past correcting", ecc_bits_total, ecc_unc_total);
+    set_timing(3, 2, 3, 2, 12, 6, 10, 2);
+  endtask
+
+  // Random ECC traffic: programs of pages in order and reads of any page
+  // programmed, at random buffer offsets, timing settings and bit error
+  // rates, a page now and then read right after its program; every read
+  // checked codeword by codeword (ecc_read).
+  task automatic t_eccrand(int n);
+    int       tsets [3][8] = '{'{1, 1, 1, 1, 8, 5, 4, 1}, '{2, 1, 2, 1, 9, 6, 5, 2}, '{1, 2, 1, 2, 8, 5, 4, 1}};
+    real      rates [4] = '{0.0, 2.0e-4, 1.0e-3, 2.0e-3};
+    page_t    imgs [int];
+    int       nxt [4];
+    model_fast();
+    for (int b = 0; b < 4; b++) begin
+      do_erase((34 + b) * PAGES);
+      nxt[b] = 0;
+    end
+    for (int k = 0; k < n; k++) begin
+      int t = $urandom_range(2);
+      int b = $urandom_range(3);
+      int off = $urandom_range(4064);
+      set_timing(tsets[t][0], tsets[t][1], tsets[t][2], tsets[t][3], tsets[t][4], tsets[t][5],
+                 tsets[t][6], tsets[t][7]);
+      u_m.rber = rates[$urandom_range(3)];
+      if (nxt[b] < PAGES && (imgs.size() == 0 || $urandom_range(2) == 0)) begin
+        int     row = (34 + b) * PAGES + nxt[b];
+        page_t  img;
+        rand_img(img);
+        ecc_prog(row, off, img);
+        imgs[row] = img;
+        nxt[b]++;
+        if ($urandom_range(3) == 0) begin
+          int rr = row;
+          ecc_read(rr, 4064 - off, imgs[rr], "random ECC read after its program");
+        end
+      end else begin
+        int ks [$], rr;
+        foreach (imgs[r]) ks.push_back(r);
+        rr = ks[$urandom_range(ks.size() - 1)];
+        ecc_read(rr, off, imgs[rr], "random ECC read");
+      end
+    end
+    u_m.rber = 0.0;
+    set_timing(3, 2, 3, 2, 12, 6, 10, 2);
+    $display("[NAND] eccrand: %0d commands; %0d bits corrected, %0d codewords past correcting", n, ecc_bits_total, ecc_unc_total);
+  endtask
+
+  // ---------------------------------------------------------------------------
   // Main
   // ---------------------------------------------------------------------------
   string test;
@@ -1307,7 +1617,8 @@ module tb_nand;
         seq.push_back("erase");  seq.push_back("fail");  seq.push_back("wp");      seq.push_back("timeout");
         seq.push_back("timing"); seq.push_back("queue"); seq.push_back("arb");     seq.push_back("softreset");
         seq.push_back("busy");   seq.push_back("wear");  seq.push_back("abort");   seq.push_back("rules");
-        seq.push_back("biterr"); seq.push_back("random");
+        seq.push_back("biterr"); seq.push_back("ecc");   seq.push_back("eccerr");  seq.push_back("eccrand");
+        seq.push_back("random");
       end else begin
         if (test != "regs" && test != "reset") seq.push_back("reset");
         seq.push_back(test);
@@ -1331,6 +1642,9 @@ module tb_nand;
           "abort":     t_abort();
           "rules":     t_rules();
           "biterr":    t_biterr();
+          "ecc":       t_ecc();
+          "eccerr":    t_eccerr();
+          "eccrand":   t_eccrand(ncmd / 8);
           "random":    t_random(ncmd);
           default:     fail($sformatf("no test %s", seq[k]));
         endcase

@@ -102,6 +102,8 @@ module nand_regs (
         logic CYCLES;
         logic BUSY_TIME;
         logic COUNT;
+        logic CPL_ECC;
+        logic ECC_COUNT;
     } decoded_reg_strb_t;
     decoded_reg_strb_t decoded_reg_strb;
     logic decoded_err;
@@ -146,6 +148,10 @@ module nand_regs (
         is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h3c);
         decoded_reg_strb.COUNT = cpuif_req_masked & (cpuif_addr == 12'h40) & !cpuif_req_is_wr;
         is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h40);
+        decoded_reg_strb.CPL_ECC = cpuif_req_masked & (cpuif_addr == 12'h44) & !cpuif_req_is_wr;
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h44);
+        decoded_reg_strb.ECC_COUNT = cpuif_req_masked & (cpuif_addr == 12'h48) & !cpuif_req_is_wr;
+        is_valid_addr |= cpuif_req_masked & (cpuif_addr == 12'h48);
         decoded_err = ~is_valid_addr & decoded_req;
     end
 
@@ -256,6 +262,10 @@ module nand_regs (
                 logic load_next;
             } op;
             struct {
+                logic next;
+                logic load_next;
+            } ecc;
+            struct {
                 logic [7:0] next;
                 logic load_next;
             } tag;
@@ -340,6 +350,9 @@ module nand_regs (
             struct {
                 logic [2:0] value;
             } op;
+            struct {
+                logic value;
+            } ecc;
             struct {
                 logic [7:0] value;
             } tag;
@@ -791,6 +804,29 @@ module nand_regs (
     end
     assign hwif_out.CMD_GO.op.value = field_storage.CMD_GO.op.value;
     assign hwif_out.CMD_GO.op.swmod = decoded_reg_strb.CMD_GO && decoded_req_is_wr && |(decoded_wr_biten[2:0]);
+    // Field: nand_regs.CMD_GO.ecc
+    always_comb begin
+        automatic logic [0:0] next_c;
+        automatic logic load_next_c;
+        next_c = field_storage.CMD_GO.ecc.value;
+        load_next_c = '0;
+        if(decoded_reg_strb.CMD_GO && decoded_req_is_wr) begin // SW write
+            next_c = (field_storage.CMD_GO.ecc.value & ~decoded_wr_biten[3:3]) | (decoded_wr_data[3:3] & decoded_wr_biten[3:3]);
+            load_next_c = '1;
+        end
+        field_combo.CMD_GO.ecc.next = next_c;
+        field_combo.CMD_GO.ecc.load_next = load_next_c;
+    end
+    always_ff @(posedge clk or negedge arst_n) begin
+        if(~arst_n) begin
+            field_storage.CMD_GO.ecc.value <= 1'h0;
+        end else begin
+            if(field_combo.CMD_GO.ecc.load_next) begin
+                field_storage.CMD_GO.ecc.value <= field_combo.CMD_GO.ecc.next;
+            end
+        end
+    end
+    assign hwif_out.CMD_GO.ecc.value = field_storage.CMD_GO.ecc.value;
     // Field: nand_regs.CMD_GO.tag
     always_comb begin
         automatic logic [7:0] next_c;
@@ -880,11 +916,12 @@ module nand_regs (
         end
         if(rd_mux_addr == 12'h30) begin
             readback_data_var[2:0] = field_storage.CMD_GO.op.value;
+            readback_data_var[3] = field_storage.CMD_GO.ecc.value;
             readback_data_var[15:8] = field_storage.CMD_GO.tag.value;
         end
         if(rd_mux_addr == 12'h34) begin
             readback_data_var[7:0] = hwif_in.CPL.tag.next;
-            readback_data_var[9:8] = hwif_in.CPL.code.next;
+            readback_data_var[10:8] = hwif_in.CPL.code.next;
             readback_data_var[23:16] = hwif_in.CPL.status.next;
             readback_data_var[31] = hwif_in.CPL.valid.next;
         end
@@ -897,6 +934,16 @@ module nand_regs (
         if(rd_mux_addr == 12'h40) begin
             readback_data_var[15:0] = hwif_in.COUNT.done.next;
             readback_data_var[31:16] = hwif_in.COUNT.err.next;
+        end
+        if(rd_mux_addr == 12'h44) begin
+            readback_data_var[6:0] = hwif_in.CPL_ECC.bits.next;
+            readback_data_var[11:8] = hwif_in.CPL_ECC.max.next;
+            readback_data_var[23:16] = hwif_in.CPL_ECC.unc.next;
+            readback_data_var[31:24] = hwif_in.CPL_ECC.erased.next;
+        end
+        if(rd_mux_addr == 12'h48) begin
+            readback_data_var[15:0] = hwif_in.ECC_COUNT.bits.next;
+            readback_data_var[31:16] = hwif_in.ECC_COUNT.unc.next;
         end
         readback_data = readback_data_var;
         readback_done = decoded_req & ~decoded_req_is_wr;

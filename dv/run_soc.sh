@@ -17,7 +17,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 out="${BUILD_DIR:-$root/build/dv}/soc"
-tests=(hello memtest irq buserr perf dma power reset host nvme nand nand_char soc_app nvme_app)
+tests=(hello memtest irq buserr perf dma power reset host nvme nand nand_char nand_ecc soc_app nvme_app)
 mkdir -p "$out"
 
 if command -v riscv-none-elf-gcc > /dev/null; then
@@ -55,6 +55,7 @@ src=(
   "$rtl/host/nvme/nvme_ctrl.sv" "$here/sva/nvme_checker.sv" "$here/sva/nvme_bind.sv"
   "$rtl/pmu/iso_clamp.sv" "$rtl/pmu/ret_reg.sv" "$rtl/pmu/apb_cdc.sv" "$rtl/pmu/pmu.sv"
   "$rtl/host/phy_pll_model.sv" "$rtl/host/host_stub.sv" "$rtl/host/pd_host.sv" "$rtl/host/host_if.sv"
+  "$rtl/ecc/bch_pkg.sv" "$rtl/ecc/bch_enc.sv" "$rtl/ecc/bch_syn.sv" "$rtl/ecc/bch_bm.sv" "$rtl/ecc/bch_chien.sv" "$rtl/ecc/bch_dec.sv"
   "$rtl/nand/nand_pkg.sv" "$rtl/nand/nand_seq.sv" "$rtl/nand/nand_pbuf.sv" "$rtl/nand/nand_ctrl.sv"
   "$here/sva/nand_checker.sv" "$here/sva/nand_bind.sv"
   "$rtl/top/soc_pwr.sv" "$rtl/top/soc_top.sv"

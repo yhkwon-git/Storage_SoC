@@ -231,7 +231,8 @@ typedef struct __attribute__((aligned(16))) {
 #define IRQ_HOST_BM  12u
 
 /* NAND channels (step 3-1, docs/15_nand_channel.md): the registers of channel
- * ch (0 or 1), its page buffer, operations and completion fields. */
+ * ch (0 or 1), its page buffer, operations and completion fields; the BCH
+ * path of step 3-3 (docs/17_bch.md). */
 #define NAND_BASE(ch)      (APB_BASE + (uint32_t)offsetof(soc_apb_t, NAND0) + 0x1000u * (uint32_t)(ch))
 #define NAND_REG(ch, r)    REG32(NAND_BASE(ch) + (uint32_t)offsetof(nand_regs_t, r))
 #define NAND_PBUF(ch)      (0x30000000u + 0x10000u * (uint32_t)(ch))
@@ -249,10 +250,18 @@ typedef struct __attribute__((aligned(16))) {
 #define NAND_CTRL_IEN_DONE NAND_REGS__CTRL__IEN_DONE_bm
 #define NAND_CTRL_IEN_ERR  NAND_REGS__CTRL__IEN_ERR_bm
 #define NAND_GO(op, tag)   ((uint32_t)(op) | ((uint32_t)(tag) << 8))
+#define NAND_GO_ECC        NAND_REGS__CMD_GO__ECC_bm   /* with READ or PROGRAM: the page through BCH */
 #define NAND_CPL_VALID     NAND_REGS__CPL__VALID_bm
 #define NAND_CPL_TAG(c)    ((c) & 0xFFu)
-#define NAND_CPL_CODE(c)   (((c) >> 8) & 3u)
+#define NAND_CPL_CODE(c)   (((c) >> 8) & 7u)
 #define NAND_CPL_STATUS(c) (((c) >> 16) & 0xFFu)
+#define NAND_CODE_UNC      4u        /* a codeword past correcting */
+#define NAND_ECC_IMAGE     4128u     /* in the page buffer: 4096 data bytes, then 8 x 4 metadata */
+#define NAND_ECC_META      4096u
+#define NAND_ECC_BITS(e)   ((e) & 0x7Fu)
+#define NAND_ECC_MAX(e)    (((e) >> 8) & 0xFu)
+#define NAND_ECC_UNC(e)    (((e) >> 16) & 0xFFu)
+#define NAND_ECC_ERASED(e) (((e) >> 24) & 0xFFu)
 
 #define SOC_ID SYS_REGS__ID__VALUE_reset
 
